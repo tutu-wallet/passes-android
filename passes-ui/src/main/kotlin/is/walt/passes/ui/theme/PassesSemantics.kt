@@ -90,7 +90,7 @@ public data class ExpiredBadgeStyle(
  * to-be-actioned target string itself; [bodyForeground] styles the explanatory copy.
  *
  * [eyebrowForeground] and [mutedForeground] are consumed by the [B3EmphasisStyle.DomainHero]
- * layout (wpass-48v) for the `LEAVING WALT` / `CALLING` / `EMAILING` eyebrow and the
+ * layout (wpass-48v) for the `LEAVING THIS APP` / `CALLING` / `EMAILING` eyebrow and the
  * forensic / provenance / hairline chrome respectively. Defaults approximate M3
  * `colorScheme.outline` (eyebrow) and `outlineVariant` (muted) so a host that has not
  * yet wired R2 tokens still gets a reasonable hierarchy; production callers

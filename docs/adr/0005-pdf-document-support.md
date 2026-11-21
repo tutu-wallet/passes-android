@@ -428,6 +428,8 @@ transaction. D4's no-extraction guarantee is therefore preserved:
 
 ### Z.4 The non-suppressible trust caption (D5) stays docked above the pager
 
+> **Wording updated by D5.N (2026-11-21).** The caption now says "This app".
+
 This is the explicit decision the addendum is being filed to record:
 **the trust caption ("User-provided document. Walt has not verified
 the source.") stays docked above the pager and is NOT subject to the
@@ -555,6 +557,8 @@ relocated to the full-screen composable per `wpass-ny4`. No duplicate
 gesture implementation exists across surfaces.
 
 ### Z.8 Trust caption (D5) remains non-suppressible in full-screen and docks to a screen edge
+
+> **Wording updated by D5.N (2026-11-21).** The caption now says "This app".
 
 The trust caption ("User-provided document. Walt has not verified the
 source.") is rendered on the full-screen surface and is NOT subject to
@@ -1073,8 +1077,13 @@ does not see anywhere else in the app reads as a claim made by someone else.
   Earlier sections of this ADR quote the wording of their time.
 - **The same rule covers every other kernel sentence that named the host:** the
   PKPASS import-confirm trust caption (`PassImportConfirm`), the import
-  rejection sheet (`PassImportRejectionSheet`) and the unknown-scheme barcode
-  confirmation (`barcode_create_confirm_unknown`).
+  rejection sheet (`PassImportRejectionSheet`), the unknown-scheme barcode
+  confirmation (`barcode_create_confirm_unknown`) and the URL eyebrow of the
+  `B3EmphasisStyle.DomainHero` security sheet, now "LEAVING THIS APP".
+- **"This app" relies on the host's window.** A host renders kernel trust
+  surfaces in its own opaque window, so the app in front is the app the
+  sentence means. A translucent or dialog-themed window over another app would
+  let the sentence read as that app's claim.
 - **Rejected: a host-supplied name.** It would put a host-controlled string
   inside sentences the kernel pins verbatim, and the copy tests could no longer
   assert a whole sentence.
@@ -1091,3 +1100,5 @@ copy and are unchanged.
 | D5.N     | `DocumentTrustSurfaceTest` and `DocumentViewInstrumentedTest` assert the caption verbatim on every surface that renders it |
 | D5.N     | `TrustClaimSurfaceTest`: the import-confirm caption and the import rejection sheet, title and body, for every band and failure kind |
 | D5.N     | `BarcodeCreateConfirmSheetTest`: the unknown-scheme confirmation sentence |
+| D5.N     | `TrustClaimSurfaceTest`: the `DomainHero` URL eyebrow |
+| D5.N     | `CopyNamesNoHostTest` in `passes-ui` and `passes-document-ui`: no string literal or string resource in the module's main sources names a host |

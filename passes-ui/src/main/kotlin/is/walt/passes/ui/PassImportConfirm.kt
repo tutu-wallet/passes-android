@@ -149,10 +149,8 @@ public fun PassImportConfirm(
 private fun ImportTrustCaption(band: SignatureBand) {
     val emphasis = LocalPassesSemantics.current.securitySheet
 
-    // The four copy lines mirror decision-wlt-0tn-q1 (1a): "Verified Apple issuer" /
-    // "Self-signed" / "Cert chain incomplete" / "No signature". Issuer name is shown
-    // by the PassFront preview directly below; repeating it here would duplicate
-    // user-controlled text without adding signal.
+    // Titles follow decision-wlt-0tn-q1 (1a); bodies name no host app (ADR 0005 D5.N).
+    // The issuer name is in the PassFront preview below, so it is not repeated here.
     val (title, body) = when (band) {
         SignatureBand.AppleVerified ->
             "Verified Apple issuer" to

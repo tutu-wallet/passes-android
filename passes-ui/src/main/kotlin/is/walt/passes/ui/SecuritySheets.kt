@@ -339,7 +339,7 @@ private fun DomainHeroLayout(
     val eyebrow = emphasis.eyebrowForeground.toComposeColor()
     val muted = emphasis.mutedForeground.toComposeColor()
     val eyebrowCopy = when (kind) {
-        SecurityIntentKind.Url -> "LEAVING WALT"
+        SecurityIntentKind.Url -> "LEAVING THIS APP"
         SecurityIntentKind.Phone -> "CALLING"
         SecurityIntentKind.Email -> "EMAILING"
     }

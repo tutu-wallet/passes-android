@@ -107,6 +107,7 @@ public fun PassImportRejectionSheet(
 
 private data class RejectionCopy(val title: String, val body: String)
 
+// Copy names no host app (ADR 0005 D5.N).
 private fun rejectionCopy(kind: ParseFailureKind): RejectionCopy = when (kind) {
     ParseFailureKind.Tampered -> RejectionCopy(
         title = "This pass appears to have been tampered with",

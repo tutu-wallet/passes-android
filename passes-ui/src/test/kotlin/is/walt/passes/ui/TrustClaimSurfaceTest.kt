@@ -429,7 +429,7 @@ class TrustClaimSurfaceTest {
             }
         }
         // Eyebrow.
-        composeRule.onNodeWithText("LEAVING WALT").assertIsDisplayed()
+        composeRule.onNodeWithText("LEAVING THIS APP").assertIsDisplayed()
         // Hero and forensic both contain "tixly.com"; use onAllNodes and assert at
         // least one carries the bare domain (hero) and the full URL is also present
         // (forensic row).
@@ -465,7 +465,7 @@ class TrustClaimSurfaceTest {
             }
         }
         // At least one node carries the verbatim URL; eyebrow confirms layout.
-        composeRule.onNodeWithText("LEAVING WALT").assertIsDisplayed()
+        composeRule.onNodeWithText("LEAVING THIS APP").assertIsDisplayed()
         val nodes = composeRule.onAllNodesWithText("https://example.com/x", substring = true)
             .fetchSemanticsNodes()
         assertThat(nodes).isNotEmpty()
@@ -832,7 +832,7 @@ class TrustClaimSurfaceTest {
         "The pass is signed but this app could not complete the issuer chain.",
     )
 
-    private fun importConfirmCaption(status: SignatureStatus, expected: String, expectedBody: String) {
+    private fun importConfirmCaption(status: SignatureStatus, expectedTitle: String, expectedBody: String) {
         composeRule.setContent {
             ThemedHost {
                 PassImportConfirm(
@@ -844,7 +844,7 @@ class TrustClaimSurfaceTest {
                 )
             }
         }
-        composeRule.onNodeWithText(expected).assertIsDisplayed()
+        composeRule.onNodeWithText(expectedTitle).assertIsDisplayed()
         composeRule.onNodeWithText(expectedBody).assertIsDisplayed()
     }
 
