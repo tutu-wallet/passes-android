@@ -156,16 +156,16 @@ private fun ImportTrustCaption(band: SignatureBand) {
     val (title, body) = when (band) {
         SignatureBand.AppleVerified ->
             "Verified Apple issuer" to
-                "Walt verified this pass's signature against Apple's issuer chain."
+                "This app verified this pass's signature against Apple's issuer chain."
         SignatureBand.SelfSigned ->
             "Self-signed issuer" to
-                "The signature is valid but Walt cannot verify who issued this pass."
+                "The signature is valid but this app cannot verify who issued this pass."
         SignatureBand.Incomplete ->
             "Issuer chain incomplete" to
-                "The pass is signed but Walt could not complete the issuer chain."
+                "The pass is signed but this app could not complete the issuer chain."
         SignatureBand.Untrusted ->
             "No signature" to
-                "This pass is unsigned. Walt cannot verify who created it."
+                "This pass is unsigned. This app cannot verify who created it."
     }
 
     Column(

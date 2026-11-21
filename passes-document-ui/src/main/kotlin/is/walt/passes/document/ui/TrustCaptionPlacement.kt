@@ -6,7 +6,7 @@ package `is`.walt.passes.document.ui
  * provenance signal into my own details section" (wpass-gv6 / Walt wlt-3cer).
  *
  *  - [Docked] — the kernel renders the verbatim non-suppressible [DocumentTrustCaption]
- *    ("User-provided document. Walt has not verified the source.") in its built-in
+ *    ("User-provided document. This app has not verified the source.") in its built-in
  *    position above the page / image. This is the default; every existing caller is
  *    unchanged.
  *  - [HostedTypeRow] — the kernel renders **no** trust caption on the detail surface. The

@@ -27,5 +27,5 @@
     <string name="barcode_create_confirm_magnet">When scanned, this code will start a torrent download.</string>
     <string name="barcode_create_confirm_market">When scanned, this code will open a Play Store listing:</string>
     <string name="barcode_create_confirm_intent">When scanned, this code can trigger an app action. This is uncommon for loyalty cards. Continue?</string>
-    <string name="barcode_create_confirm_unknown">When scanned, this code uses a scheme Walt doesn\'t recognize. If you didn\'t expect this, cancel.</string>
+    <string name="barcode_create_confirm_unknown">When scanned, this code uses a scheme this app doesn\'t recognize. If you didn\'t expect this, cancel.</string>
 </resources>

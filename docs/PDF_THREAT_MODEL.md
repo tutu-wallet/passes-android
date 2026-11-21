@@ -106,8 +106,8 @@ permission levels.
 **Mitigation.** Not verified. ADR 0005 D5. Every PDF imported into Walt
 carries `Provenance.UserProvided`, structurally distinct from PKPASS's
 `SignatureStatus.AppleVerified` / `SelfSigned` ladder. The
-`DocumentTrustCaption` ("User-provided document. Walt has not verified the
-source.") is non-suppressible, in the same visual register as the existing
+`DocumentTrustCaption` ("User-provided document. This app has not verified
+the source.") is non-suppressible, in the same visual register as the existing
 `SignatureStatus.SelfSigned` pill.
 
 **Rationale for not verifying.** A "Verified" UI signal that Walt cannot

@@ -1052,3 +1052,42 @@ is amending D5.T, not filing a PR.
 | D1.C     | `DocumentFaceTintTest.faceTintDoesNotSuppressTheTrustCaptionOnEitherArm`; `faceTintLeavesThePageRenderRequestUnchanged` (tint reaches the frame, not the render); `fullyTransparentTintFallsBackToTheDefaultFrame` |
 | D1.C     | `DocumentSurfaceLockTest.documentViewHasExactlyElevenUserVisibleParameters` (the tint is the audited 11th param; no color field on any `Document` arm) |
 | D1.L     | Consumer-side: walt-android's wallet-list tests (no signature affordance on a document row; render-time merge only). The kernel cannot verify a consumer's list at runtime - same posture as D5.T. |
+
+## Addendum 2026-11-21: D5 caption and kernel copy name no host app
+
+### Context
+
+Kernel-rendered sentences named the consumer as their actor ("Walt has not
+verified the source."). The kernel does not know what a host calls itself: the
+name a user sees is the host's launcher label, which a host sets and changes
+without touching this repository. A trust claim attributed to a name the user
+does not see anywhere else in the app reads as a claim made by someone else.
+
+### D5.N The actor in kernel copy is "this app"
+
+- **The caption is now "User-provided document. This app has not verified the
+  source."** (`TRUST_CAPTION_TEXT`). The claim is unchanged: the document is
+  user-provided, its source is unverified, and the software showing it says so
+  in words. Only the actor's name changed.
+- D5, Z.4, Z.8 and D5.T apply to the new sentence as they did to the old one.
+  Earlier sections of this ADR quote the wording of their time.
+- **The same rule covers every other kernel sentence that named the host:** the
+  PKPASS import-confirm trust caption (`PassImportConfirm`), the import
+  rejection sheet (`PassImportRejectionSheet`) and the unknown-scheme barcode
+  confirmation (`barcode_create_confirm_unknown`).
+- **Rejected: a host-supplied name.** It would put a host-controlled string
+  inside sentences the kernel pins verbatim, and the copy tests could no longer
+  assert a whole sentence.
+- **Rejected: the passive voice** ("The source has not been verified."). It
+  drops the actor and leaves open who did not verify.
+
+Prose and identifiers in this repository that call the consumer Walt are not
+copy and are unchanged.
+
+### Tests pinning this addendum
+
+| Decision | Test                                                                                                  |
+|----------|-------------------------------------------------------------------------------------------------------|
+| D5.N     | `DocumentTrustSurfaceTest` and `DocumentViewInstrumentedTest` assert the caption verbatim on every surface that renders it |
+| D5.N     | `TrustClaimSurfaceTest`: the import-confirm caption and the import rejection sheet, title and body, for every band and failure kind |
+| D5.N     | `BarcodeCreateConfirmSheetTest`: the unknown-scheme confirmation sentence |

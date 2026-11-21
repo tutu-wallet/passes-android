@@ -108,4 +108,4 @@ private val CHIP_RADIUS = 10.dp
  * defense.
  */
 internal const val TRUST_CAPTION_TEXT: String =
-    "User-provided document. Walt has not verified the source."
+    "User-provided document. This app has not verified the source."
