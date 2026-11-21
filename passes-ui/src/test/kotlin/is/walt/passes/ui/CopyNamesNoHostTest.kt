@@ -4,19 +4,20 @@ import com.google.common.truth.Truth.assertWithMessage
 import org.junit.Test
 import java.io.File
 
-/** ADR 0005 D5.N: kernel copy says "this app". No string literal or string resource names a host. */
+/** ADR 0005 D5.N: kernel copy says "this app". No string literal or string resource names Walt. */
 class CopyNamesNoHostTest {
     @Test
-    fun noStringLiteralOrResourceNamesAHost() {
-        val offenders = File("src/main").walkTopDown()
+    fun noStringLiteralOrResourceNamesWalt() {
+        val sources = File(System.getProperty("walt.passes.ui.moduleDir") ?: ".", "src/main").walkTopDown()
             .filter { it.extension == "kt" || it.extension == "xml" && it.parentFile.name.startsWith("values") }
-            .flatMap { file ->
-                file.readLines().mapIndexedNotNull { index, line ->
-                    "${file.path}:${index + 1}".takeIf { !line.isComment() && HOST_NAME_IN_TEXT.containsMatchIn(line) }
-                }
-            }
             .toList()
-        assertWithMessage("copy that names a host; say \"this app\"").that(offenders).isEmpty()
+        assertWithMessage("no sources scanned; wrong module dir").that(sources).isNotEmpty()
+        val offenders = sources.flatMap { file ->
+            file.readLines().mapIndexedNotNull { index, line ->
+                "${file.path}:${index + 1}".takeIf { !line.isComment() && HOST_NAME_IN_TEXT.containsMatchIn(line) }
+            }
+        }
+        assertWithMessage("copy that names Walt; say \"this app\"").that(offenders).isEmpty()
     }
 
     private fun String.isComment(): Boolean =

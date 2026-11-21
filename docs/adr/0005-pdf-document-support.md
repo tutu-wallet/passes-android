@@ -428,7 +428,8 @@ transaction. D4's no-extraction guarantee is therefore preserved:
 
 ### Z.4 The non-suppressible trust caption (D5) stays docked above the pager
 
-> **Wording updated by D5.N (2026-11-21).** The caption now says "This app".
+> **Wording updated (2026-11-21).** The caption now says "This app". See the
+> 2026-11-21 addendum (D5.N) below.
 
 This is the explicit decision the addendum is being filed to record:
 **the trust caption ("User-provided document. Walt has not verified
@@ -558,7 +559,8 @@ gesture implementation exists across surfaces.
 
 ### Z.8 Trust caption (D5) remains non-suppressible in full-screen and docks to a screen edge
 
-> **Wording updated by D5.N (2026-11-21).** The caption now says "This app".
+> **Wording updated (2026-11-21).** The caption now says "This app". See the
+> 2026-11-21 addendum (D5.N) below.
 
 The trust caption ("User-provided document. Walt has not verified the
 source.") is rendered on the full-screen surface and is NOT subject to
@@ -894,6 +896,10 @@ contract, and what it deliberately gives up versus docked D5:
   the artifact class rather than stating, in words, that the document is
   user-provided and unverified. The consumer accepts that to keep one consistent
   provenance/type row across artifact classes.
+
+  > **Wording updated (2026-11-21).** The caption now says "This app". See the
+  > 2026-11-21 addendum (D5.N) below.
+
 - **Collapsible, not-always-visible placement is blessed.** The "Pass type" row
   may sit inside a collapsed-by-default foldout. A user who never expands it does
   not see the provenance signal on the detail surface.
@@ -1101,4 +1107,4 @@ copy and are unchanged.
 | D5.N     | `TrustClaimSurfaceTest`: the import-confirm caption and the import rejection sheet, title and body, for every band and failure kind |
 | D5.N     | `BarcodeCreateConfirmSheetTest`: the unknown-scheme confirmation sentence |
 | D5.N     | `TrustClaimSurfaceTest`: the `DomainHero` URL eyebrow |
-| D5.N     | `CopyNamesNoHostTest` in `passes-ui` and `passes-document-ui`: no string literal or string resource in the module's main sources names a host |
+| D5.N     | `CopyNamesNoHostTest` in `passes-ui` and `passes-document-ui`: no string literal or string resource in the module's main sources names Walt |

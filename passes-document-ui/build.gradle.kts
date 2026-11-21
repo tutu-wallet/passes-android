@@ -9,6 +9,10 @@ android {
 
     // Same managed-device span as passes-ui; CI runs only the API 34 task.
     testOptions {
+        // CopyNamesNoHostTest scans src/main; pin the module dir against a different cwd.
+        unitTests.all {
+            it.systemProperty("walt.passes.document.ui.moduleDir", projectDir.absolutePath)
+        }
         managedDevices {
             localDevices {
                 create("api28google") {
