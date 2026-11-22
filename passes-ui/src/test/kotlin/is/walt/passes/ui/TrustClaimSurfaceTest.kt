@@ -429,7 +429,7 @@ class TrustClaimSurfaceTest {
             }
         }
         // Eyebrow.
-        composeRule.onNodeWithText("LEAVING WALT").assertIsDisplayed()
+        composeRule.onNodeWithText("LEAVING THIS APP").assertIsDisplayed()
         // Hero and forensic both contain "tixly.com"; use onAllNodes and assert at
         // least one carries the bare domain (hero) and the full URL is also present
         // (forensic row).
@@ -465,7 +465,7 @@ class TrustClaimSurfaceTest {
             }
         }
         // At least one node carries the verbatim URL; eyebrow confirms layout.
-        composeRule.onNodeWithText("LEAVING WALT").assertIsDisplayed()
+        composeRule.onNodeWithText("LEAVING THIS APP").assertIsDisplayed()
         val nodes = composeRule.onAllNodesWithText("https://example.com/x", substring = true)
             .fetchSemanticsNodes()
         assertThat(nodes).isNotEmpty()
@@ -801,6 +801,9 @@ class TrustClaimSurfaceTest {
             }
         }
         composeRule.onNodeWithText("Verified Apple issuer").assertIsDisplayed()
+        composeRule
+            .onNodeWithText("This app verified this pass's signature against Apple's issuer chain.")
+            .assertIsDisplayed()
         composeRule.onNodeWithText("Add this pass?").assertIsDisplayed()
         composeRule.onNodeWithText("Save pass").assertIsDisplayed()
         composeRule.onNodeWithText("Cancel").assertIsDisplayed()
@@ -809,17 +812,27 @@ class TrustClaimSurfaceTest {
     }
 
     @Test
-    fun importConfirmTrustCaptionUnsigned() = importConfirmCaption(SignatureStatus.Unsigned, "No signature")
+    fun importConfirmTrustCaptionUnsigned() = importConfirmCaption(
+        SignatureStatus.Unsigned,
+        "No signature",
+        "This pass is unsigned. This app cannot verify who created it.",
+    )
 
     @Test
-    fun importConfirmTrustCaptionSelfSigned() =
-        importConfirmCaption(SignatureStatus.SelfSigned, "Self-signed issuer")
+    fun importConfirmTrustCaptionSelfSigned() = importConfirmCaption(
+        SignatureStatus.SelfSigned,
+        "Self-signed issuer",
+        "The signature is valid but this app cannot verify who issued this pass.",
+    )
 
     @Test
-    fun importConfirmTrustCaptionIncomplete() =
-        importConfirmCaption(SignatureStatus.CertChainIncomplete, "Issuer chain incomplete")
+    fun importConfirmTrustCaptionIncomplete() = importConfirmCaption(
+        SignatureStatus.CertChainIncomplete,
+        "Issuer chain incomplete",
+        "The pass is signed but this app could not complete the issuer chain.",
+    )
 
-    private fun importConfirmCaption(status: SignatureStatus, expected: String) {
+    private fun importConfirmCaption(status: SignatureStatus, expectedTitle: String, expectedBody: String) {
         composeRule.setContent {
             ThemedHost {
                 PassImportConfirm(
@@ -831,7 +844,8 @@ class TrustClaimSurfaceTest {
                 )
             }
         }
-        composeRule.onNodeWithText(expected).assertIsDisplayed()
+        composeRule.onNodeWithText(expectedTitle).assertIsDisplayed()
+        composeRule.onNodeWithText(expectedBody).assertIsDisplayed()
     }
 
     @Test
@@ -878,27 +892,31 @@ class TrustClaimSurfaceTest {
     fun importRejectionSheetTamperedCopy() = importRejectionCopy(
         ParseFailureKind.Tampered,
         "This pass appears to have been tampered with",
+        "The signature does not match the file's contents. This app did not save this pass.",
     )
 
     @Test
     fun importRejectionSheetMalformedCopy() = importRejectionCopy(
         ParseFailureKind.Malformed,
         "This file is not a valid pass",
+        "This app could not read this file as a PKPASS archive.",
     )
 
     @Test
     fun importRejectionSheetUnsupportedCopy() = importRejectionCopy(
         ParseFailureKind.Unsupported,
-        "Walt cannot open this pass",
+        "This app cannot open this pass",
+        "This pass uses a format this app does not support.",
     )
 
     @Test
     fun importRejectionSheetResourceLimitCopy() = importRejectionCopy(
         ParseFailureKind.ResourceLimitExceeded,
         "This pass is too large to open safely",
+        "The pass exceeded this app's safety limits and was not loaded.",
     )
 
-    private fun importRejectionCopy(kind: ParseFailureKind, expectedTitle: String) {
+    private fun importRejectionCopy(kind: ParseFailureKind, expectedTitle: String, expectedBody: String) {
         composeRule.setContent {
             ThemedHost {
                 PassImportRejectionSheet(
@@ -909,6 +927,7 @@ class TrustClaimSurfaceTest {
             }
         }
         composeRule.onNodeWithText(expectedTitle).assertIsDisplayed()
+        composeRule.onNodeWithText(expectedBody).assertIsDisplayed()
         composeRule.waitForIdle()
         assertThat(telemetry.events).contains("import-rejected:${kind.name}")
     }

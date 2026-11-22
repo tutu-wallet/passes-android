@@ -25,7 +25,7 @@ public sealed interface B3EmphasisStyle {
     public data object Container : B3EmphasisStyle
 
     /**
-     * Domain-first layout: `LEAVING WALT` / `CALLING` / `EMAILING` eyebrow, a hero
+     * Domain-first layout: `LEAVING THIS APP` / `CALLING` / `EMAILING` eyebrow, a hero
      * line summarising the destination, the verbatim target in a forensic monospace
      * row, a provenance line, then a two-button action row (Cancel outlined,
      * Confirm filled).

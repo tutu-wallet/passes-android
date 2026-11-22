@@ -309,7 +309,7 @@ class BarcodeCreateConfirmSheetTest {
             }
         }
         composeRule.onNodeWithText(
-            "When scanned, this code uses a scheme Walt doesn't recognize. " +
+            "When scanned, this code uses a scheme this app doesn't recognize. " +
                 "If you didn't expect this, cancel.",
         ).assertIsDisplayed()
         composeRule.onNodeWithText("⁨myapp://action?id=1⁩").assertIsDisplayed()

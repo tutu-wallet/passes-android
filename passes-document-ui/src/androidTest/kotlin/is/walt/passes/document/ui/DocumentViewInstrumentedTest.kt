@@ -127,12 +127,12 @@ class DocumentViewInstrumentedTest {
             }
         }
         composeRule.onNodeWithText(
-            "User-provided document. Walt has not verified the source.",
+            "User-provided document. This app has not verified the source.",
         ).assertIsDisplayed()
         composeRule.onRoot().performTouchInput { swipeLeft() }
         composeRule.waitForIdle()
         composeRule.onNodeWithText(
-            "User-provided document. Walt has not verified the source.",
+            "User-provided document. This app has not verified the source.",
         ).assertIsDisplayed()
     }
 
@@ -186,7 +186,7 @@ class DocumentViewInstrumentedTest {
             }
         }
         composeRule.onNodeWithText(
-            "User-provided document. Walt has not verified the source.",
+            "User-provided document. This app has not verified the source.",
         ).assertIsDisplayed()
     }
 
@@ -222,7 +222,7 @@ class DocumentViewInstrumentedTest {
 
         composeRule.onNodeWithContentDescription("Page 1 of 3").assertIsDisplayed()
         composeRule.onNodeWithText(
-            "User-provided document. Walt has not verified the source.",
+            "User-provided document. This app has not verified the source.",
         ).assertIsDisplayed()
     }
 
@@ -398,7 +398,7 @@ class DocumentViewInstrumentedTest {
             }
         }
         composeRule.onNodeWithText(
-            "User-provided document. Walt has not verified the source.",
+            "User-provided document. This app has not verified the source.",
         ).assertIsDisplayed()
     }
 
@@ -462,7 +462,7 @@ class DocumentViewInstrumentedTest {
         composeRule.waitForIdle()
 
         val captionBottom = composeRule
-            .onNodeWithText("User-provided document. Walt has not verified the source.")
+            .onNodeWithText("User-provided document. This app has not verified the source.")
             .getUnclippedBoundsInRoot()
             .bottom
         val pageTop = composeRule
@@ -556,7 +556,7 @@ class DocumentViewInstrumentedTest {
             }
         }
         composeRule.onNodeWithText(
-            "User-provided document. Walt has not verified the source.",
+            "User-provided document. This app has not verified the source.",
         ).assertIsDisplayed()
     }
 
@@ -582,7 +582,7 @@ class DocumentViewInstrumentedTest {
         composeRule.waitForIdle()
         composeRule.onNodeWithContentDescription("Image document").assertIsDisplayed()
         val captionBefore = composeRule
-            .onNodeWithText("User-provided document. Walt has not verified the source.")
+            .onNodeWithText("User-provided document. This app has not verified the source.")
             .getUnclippedBoundsInRoot()
 
         composeRule.onNodeWithContentDescription("Image document").performTouchInput {
@@ -596,11 +596,11 @@ class DocumentViewInstrumentedTest {
         composeRule.waitForIdle()
 
         val captionAfter = composeRule
-            .onNodeWithText("User-provided document. Walt has not verified the source.")
+            .onNodeWithText("User-provided document. This app has not verified the source.")
             .getUnclippedBoundsInRoot()
         assertThat(captionAfter).isEqualTo(captionBefore)
         composeRule.onNodeWithText(
-            "User-provided document. Walt has not verified the source.",
+            "User-provided document. This app has not verified the source.",
         ).assertIsDisplayed()
         assertThat(decoder.decodeCount()).isEqualTo(1)
     }
@@ -632,7 +632,7 @@ class DocumentViewInstrumentedTest {
         composeRule.waitForIdle()
         composeRule.onNodeWithContentDescription("Image document").assertIsDisplayed()
         val captionBefore = composeRule
-            .onNodeWithText("User-provided document. Walt has not verified the source.")
+            .onNodeWithText("User-provided document. This app has not verified the source.")
             .getUnclippedBoundsInRoot()
 
         composeRule.onNodeWithContentDescription("Image document").performTouchInput {
@@ -646,7 +646,7 @@ class DocumentViewInstrumentedTest {
         composeRule.waitForIdle()
 
         val captionAfter = composeRule
-            .onNodeWithText("User-provided document. Walt has not verified the source.")
+            .onNodeWithText("User-provided document. This app has not verified the source.")
             .getUnclippedBoundsInRoot()
         assertThat(captionAfter).isEqualTo(captionBefore)
     }

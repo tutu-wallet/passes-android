@@ -42,10 +42,9 @@ import `is`.walt.passes.ui.core.toComposeColor
  * consumer that wants the historical filled colour-block keeps a non-transparent
  * `captionBackground`; a consumer matching a flat, borderless house style sets
  * `captionBackground` transparent and the caption reads as inline chrome rather than
- * a separate surface. This is a RESTYLE only — the caption is composed at exactly the
- * same sites, the wording is byte-for-byte unchanged and still a single [Text] node,
- * and there is still no way to suppress it (ADR 0005 D5; no ADR amendment needed
- * because non-suppressibility is unchanged).
+ * a separate surface. This is a RESTYLE only: the caption is composed at exactly the
+ * same sites, is still a single [Text] node, and there is still no way to suppress it
+ * (ADR 0005 D5). Its wording is set by D5.N.
  *
  * The icon tint is its own theme slot, `DocumentSemantics.captionIconTint`, defaulted
  * to `captionForeground` so a consumer that does not care gets a consistent
@@ -108,4 +107,4 @@ private val CHIP_RADIUS = 10.dp
  * defense.
  */
 internal const val TRUST_CAPTION_TEXT: String =
-    "User-provided document. Walt has not verified the source."
+    "User-provided document. This app has not verified the source."

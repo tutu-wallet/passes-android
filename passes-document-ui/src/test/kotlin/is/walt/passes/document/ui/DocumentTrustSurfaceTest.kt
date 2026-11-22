@@ -53,7 +53,7 @@ class DocumentTrustSurfaceTest {
             }
         }
         composeRule.onNodeWithText(
-            "User-provided document. Walt has not verified the source.",
+            "User-provided document. This app has not verified the source.",
         ).assertIsDisplayed()
     }
 
@@ -64,7 +64,7 @@ class DocumentTrustSurfaceTest {
         // the caption into multiple Text composables (visible-text assertion would
         // pass; constant-equality breaks).
         assertThat(TRUST_CAPTION_TEXT)
-            .isEqualTo("User-provided document. Walt has not verified the source.")
+            .isEqualTo("User-provided document. This app has not verified the source.")
     }
 
     @Test
@@ -112,7 +112,7 @@ class DocumentTrustSurfaceTest {
         }
         composeRule.onNodeWithText("Documents").assertIsDisplayed()
         composeRule.onNodeWithText(
-            "User-provided document. Walt has not verified the source.",
+            "User-provided document. This app has not verified the source.",
         ).assertIsDisplayed()
         composeRule.onNodeWithText("⁨alpha.pdf⁩").assertIsDisplayed()
     }
@@ -134,7 +134,7 @@ class DocumentTrustSurfaceTest {
         // surface at all and should not introduce trust chrome that has nothing to
         // anchor to.
         composeRule.onAllNodesWithText(
-            "User-provided document. Walt has not verified the source.",
+            "User-provided document. This app has not verified the source.",
         ).fetchSemanticsNodes().let { nodes ->
             assertThat(nodes).isEmpty()
         }
@@ -163,7 +163,7 @@ class DocumentTrustSurfaceTest {
                 }
             }
             composeRule.onNodeWithText(
-                "User-provided document. Walt has not verified the source.",
+                "User-provided document. This app has not verified the source.",
             ).assertIsDisplayed()
         } finally {
             pfd.close()
@@ -200,7 +200,7 @@ class DocumentTrustSurfaceTest {
                 }
             }
             composeRule.onAllNodesWithText(
-                "User-provided document. Walt has not verified the source.",
+                "User-provided document. This app has not verified the source.",
             ).fetchSemanticsNodes().let { nodes ->
                 assertThat(nodes).isEmpty()
             }
@@ -236,7 +236,7 @@ class DocumentTrustSurfaceTest {
                 }
             }
             composeRule.onNodeWithText(
-                "User-provided document. Walt has not verified the source.",
+                "User-provided document. This app has not verified the source.",
             ).assertIsDisplayed()
         }
     }
@@ -268,7 +268,7 @@ class DocumentTrustSurfaceTest {
                 }
             }
             composeRule.onNodeWithText(
-                "User-provided document. Walt has not verified the source.",
+                "User-provided document. This app has not verified the source.",
             ).assertIsDisplayed()
         }
     }

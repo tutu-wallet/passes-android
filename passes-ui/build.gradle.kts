@@ -8,6 +8,10 @@ android {
     namespace = "is.walt.passes.ui"
 
     testOptions {
+        // CopyNamesNoHostTest scans src/main; pin the module dir against a different cwd.
+        unitTests.all {
+            it.systemProperty("walt.passes.ui.moduleDir", projectDir.absolutePath)
+        }
         // Managed-device matrix for ScannableCardFaceTintInstrumentedTest (wpass-80y.5),
         // mirroring passes-barcode / passes-storage. The face-tint pin has to read painted
         // pixels, which Robolectric cannot do, so it only protects the seam if a real device
