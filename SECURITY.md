@@ -29,9 +29,9 @@ Out of scope:
 
 ## Security-relevant design decisions
 
-A short list of intentional choices a reviewer might want to know up front. If the code does something different, that is a bug worth reporting.
+Intentional choices a reviewer should know up front. If the code does something different, that is a bug worth reporting.
 
-- **Signature policy is lenient with provenance display.** PKCS#7 signatures and `manifest.json` hashes are verified mathematically; tampered passes are rejected. The Apple WWDR certificate chain is validated for *display*, not for gating: self-signed and non-Apple-issuer passes are allowed to import, and the UI surfaces the verification result. The load-bearing security control for malicious passes is the parser hardening below, not the signature check — a valid signature does not imply the pass content is safe to render or store. Lives in `passes-core`.
+- **Signature policy is lenient with provenance display.** PKCS#7 signatures and `manifest.json` hashes are verified mathematically; tampered passes are rejected. The Apple WWDR certificate chain is validated for *display*, not for gating: self-signed and non-Apple-issuer passes are allowed to import, and the UI surfaces the verification result. The load-bearing security control for malicious passes is the parser hardening below, not the signature check - a valid signature does not imply the pass content is safe to render or store. Lives in `passes-core`.
 - **Parser is hardened against malicious input.** ZIP extraction is in-memory with bounded archive size, entry count, and per-entry size; entry names are canonicalized and zip-slip is rejected; the archive's allowed file types are limited to `.json`, `.png`, `.strings`, plus the root-level `signature` file. JSON parsing is strict (no polymorphic open types, no reflection, recursion-depth bound). Image dimensions are validated from the PNG header before decoding. Lives in `passes-core`.
 - **Bundles of archives are capped at the outer layer.** A `.pkpasses` file is a ZIP of ZIPs, and the per-archive limits above bound only one archive. `PassBundleReader` applies `BundleConfig` caps (entry count, per-entry and cumulative decompressed bytes, outer compressed bytes) before any inner `.pkpass` is opened, then delivers each inner archive as bytes for the caller to run through `PassParser`, so the single-archive hardening and signature check run unchanged on every inner pass. Entry names never reach a result or telemetry. See ADR 0001 D5 amendment and D7.
 - **`nfc` fields in a pass are parsed-and-ignored.** Importing a `.pkpass` cannot cause Walt to register a payment AID. The field is read for structural validity only; no code path exists to act on it. Deliberate, to avoid HCE conflict with Walt's payment feature.
@@ -41,7 +41,7 @@ A short list of intentional choices a reviewer might want to know up front. If t
 - **Pass data is excluded from Android Auto Backup.** The passes database is configured out of cloud backup and device-to-device transfer. Lives in `passes-storage` manifest rules.
 - **Deletion is irreversible.** No trash bin, no undo. Cached decoded data is wiped at delete time.
 - **Storage is encrypted with a hardware-backed key.** SQLCipher database; the key is wrapped by Android Keystore, with StrongBox preferred when available.
-- **No pass content in logs or telemetry.** The `TelemetryGuard` interface in `passes-core` accepts only enum events and bounded numeric/categorical fields — never user-content strings. Enforced by API shape, not reviewer discipline.
+- **No pass content in logs or telemetry.** The `TelemetryGuard` interface in `passes-core` accepts only enum events and bounded numeric/categorical fields, never user-content strings. Enforced by API shape, not reviewer discipline.
 - **walt-android consumes this code directly.** The closed-source Walt app does not parallel-implement any trust-claim-bearing logic. What you audit here is what ships on the device.
 
 ## Supported versions
