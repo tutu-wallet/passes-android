@@ -41,6 +41,14 @@ A consumer may render documents inline in a unified wallet list, or in a separat
 
 No third-party PDF library is bundled. PDFium ships in the MediaProvider Mainline module on Android 14+ (API 34) and updates via Play System Updates, decoupling PDFium CVE response from the app's release cadence (the API floor is G.1). The API is structurally narrow: open a `ParcelFileDescriptor`, render page N to a `Bitmap`. No JavaScript path, no `URI` / `Launch` / `SubmitForm` processing, no network, and the PDF cannot paint outside the bitmap provided.
 
+Why the renderer is safe to feed hostile PDFs, from AOSP/PDFium source analysis (on-device confirmation across a device matrix is not recorded):
+
+- The framework binding calls only `FPDF_LoadCustomDocument`, `FPDF_GetPageCount`, `FPDF_LoadPage`, `FPDF_GetPageWidth/Height`, `FPDF_RenderPageBitmap` and `FPDF_ClosePage`. The PDFium JavaScript engine is never initialized (no V8 isolate in the renderer process), so `/JavaScript` actions cannot fire.
+- Action dispatch (`FPDFAction_*`) is never invoked, and the binding has no `Context`, so a `/Launch` or `/URI` action has no way to fire an Intent. External resources (`/RemoteGoTo`, `/F`, `/URL`) are never resolved on the render path, and ICC profiles are read from inline streams.
+- An encrypted document makes `PdfRenderer` throw `SecurityException` (`FPDF_ERR_PASSWORD`); the binding has no UI surface, so a hostile PDF cannot cause the OS to show a password prompt (D6).
+- The isolated service declares no `<uses-permission>`, runs in the `isolated_app` SELinux domain (denied TCP/UDP sockets by base policy) and needs only the transferred fd, a heap `Bitmap` and the world-readable `libpdfium.so`, so even a future implicit-egress PDFium change hits a kernel block.
+- After a renderer crash the binder proxy invalidates and calls surface `RemoteException`; the client re-binds to restart the isolated process.
+
 Rejected:
 
 - PdfBox-Android: larger in-process code surface, parses content not needed (forms, annotations, signatures) which the no-extraction rule wants closed, and the app would own CVE response.
