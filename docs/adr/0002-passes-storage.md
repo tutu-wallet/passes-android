@@ -1,9 +1,7 @@
 # ADR 0002: passes-storage architecture
 
 - Status: Accepted
-- Date: 2026-05-04
-- Tracks: parent epic `wpass-9vv`; design bead `wpass-9vv.3`
-- Decision context: `decision-wlt-0tn-q3-4` (deletion mechanism, no VACUUM), `decision-wlt-0tn-q5` (three-module shape), `decision-wlt-0tn-q3-3` (full localization)
+- Decision context: `decision-wlt-0tn-q3-4` (deletion mechanism, no VACUUM), `decision-wlt-0tn-q5` (library shape), `decision-wlt-0tn-q3-3` (full localization), in [`docs/brainstorm-decisions.md`](../brainstorm-decisions.md)
 
 ## Context
 
@@ -15,9 +13,7 @@
 - **Delete irreversibly** with no soft-delete, no trash bin, no undo, and with cached decoded data wiped in the same operation.
 - **Surface** trust-relevant storage events (`PassImported`, `PassDeleted`, `KeyUnwrapFailed`) through a `StorageTelemetryGuard` whose method signatures structurally forbid PII, mirroring the `passes-core` `TelemetryGuard` discipline.
 
-Out of scope for `passes-storage`: pass acquisition (parser lives in `passes-core`), rendering (Compose lives in `passes-ui`), confirmation dialogs (`passes-ui`), Hilt wiring (lives in walt-android's `core/data-passes`).
-
-This ADR fixes the storage contract today; the implementation bead that follows wires Android Gradle Plugin, SQLCipher, Android Keystore, and the manifest backup-exclusion rules against this contract.
+Out of scope: pass acquisition (`passes-core`), rendering and confirmation dialogs (`passes-ui`), Hilt wiring (the consumer app).
 
 ## Decisions
 
@@ -31,7 +27,7 @@ Rationale: a per-pass key scheme would add complexity (key directory, per-row un
 
 The DB key is generated once at first open as 32 random bytes from `SecureRandom`, then wrapped (AES-256-GCM) with a master key resident in Android Keystore. The wrapped blob and its IV are persisted in a private SharedPreferences file (`is.walt.passes.storage.key_envelope`) outside the SQLCipher database itself. On subsequent opens, the wrapped blob is unwrapped via Keystore and the resulting raw bytes are passed to SQLCipher's `PRAGMA key`.
 
-The envelope MUST live outside the encrypted database it unlocks: storing it inside `schema_meta` would create a chicken-and-egg (you would need the DB key to read schema_meta, but the schema_meta entry IS the DB key). The earlier draft of this ADR placed the envelope in `schema_meta`; the implementation bead corrected this to a SharedPreferences file. The envelope is itself ciphertext under a Keystore-resident, non-exportable master, so the SharedPreferences file's lack of file-level encryption does not weaken the trust claim. The same `walt_passes_backup_rules.xml` / `walt_passes_data_extraction_rules.xml` rules exclude this preferences file from cloud backup and device-to-device transfer (the SharedPreferences domain is opted out alongside the database).
+The envelope lives outside the encrypted database it unlocks: stored inside `schema_meta` it would need the DB key to be read. The envelope is itself ciphertext under a Keystore-resident, non-exportable master, so the SharedPreferences file's lack of file-level encryption does not weaken the trust claim. The same `walt_passes_backup_rules.xml` / `walt_passes_data_extraction_rules.xml` rules exclude this preferences file from cloud backup and device-to-device transfer (the SharedPreferences domain is opted out alongside the database).
 
 The envelope is written synchronously (`commit()`, not async `apply()`) before the unwrapped DB key is handed to SQLCipher. A crash between an async write and the disk flush would leave SQLCipher pages encrypted with a key whose envelope was never persisted, irreversibly bricking the at-rest data on next launch.
 
@@ -39,69 +35,31 @@ Why wrapped, not Keystore-derived directly: Android Keystore does not export raw
 
 StrongBox is requested via `KeyGenParameterSpec.Builder.setIsStrongBoxBacked(true)` and the library falls back to TEE-backed when StrongBox is unavailable. The `StorageTelemetryGuard.onKeyProviderInitialized` event reports which backing was actually used (via the `KeyBacking` enum), so consumers can surface `StrongBox` / `Tee` / `Software` to the user without inspecting strings.
 
-### D3. Schema separates query columns, blob, images, and locales
+### D3. Schema separates query columns, blob, images, locales and archives
 
-Four tables at schema version 1 (a fifth pass-side table, `pass_archives`, joined at v8):
+`Schema.kt` owns the DDL (`Schema.VERSION` = 8). The pass tables:
 
-```sql
-CREATE TABLE schema_meta (
-    key   TEXT PRIMARY KEY NOT NULL,
-    value BLOB NOT NULL
-);
--- Reserved keys: 'schema_version' (TEXT-encoded int), 'wrapped_db_key' (raw bytes),
--- 'wrapped_db_key_iv' (raw bytes), 'key_alias' (TEXT), 'key_backing' (TEXT enum).
+| Table | Holds |
+|---|---|
+| `schema_meta` | `schema_version` and other bookkeeping keys, text key to blob value |
+| `passes` | One row per pass: query columns (`type`, `serial_number`, `organization_name`, `description`, `expiration_epoch_ms`, `voided`, `signature_status_kind`), `pass_json` (kotlinx-serialized `Pass` minus images and locales), created/updated timestamps |
+| `pass_images` | `(pass_id, role)` to image bytes, `ON DELETE CASCADE` |
+| `pass_locales` | `(pass_id, locale_tag)` to serialized `LocalizedStrings`, `ON DELETE CASCADE` |
+| `pass_archives` | `pass_id` to the original `.pkpass` bytes, `ON DELETE CASCADE`; read only by `PassRepository.loadArchiveBytes` (D9) |
 
-CREATE TABLE passes (
-    id                    INTEGER PRIMARY KEY AUTOINCREMENT,
-    type                  TEXT    NOT NULL,                  -- PassType enum name
-    serial_number         TEXT    NOT NULL,
-    organization_name     TEXT    NOT NULL,
-    description           TEXT    NOT NULL,
-    expiration_epoch_ms   INTEGER,                           -- nullable
-    voided                INTEGER NOT NULL DEFAULT 0,        -- 0/1
-    signature_status_kind TEXT    NOT NULL,                  -- SignatureStatusKind enum name
-    pass_json             BLOB    NOT NULL,                  -- kotlinx-serialized Pass minus images and locales
-    created_at_epoch_ms   INTEGER NOT NULL,
-    updated_at_epoch_ms   INTEGER NOT NULL
-);
-CREATE INDEX idx_passes_type            ON passes(type);
-CREATE INDEX idx_passes_expiration      ON passes(expiration_epoch_ms);
-CREATE UNIQUE INDEX idx_passes_identity ON passes(type, serial_number, organization_name);
+The same database also holds the document and scannable-card tables; see `Schema.kt`.
 
-CREATE TABLE pass_images (
-    pass_id INTEGER NOT NULL REFERENCES passes(id) ON DELETE CASCADE,
-    role    TEXT    NOT NULL,                                -- ImageRole enum name
-    bytes   BLOB    NOT NULL,
-    PRIMARY KEY (pass_id, role)
-);
+Why split: the wallet list view needs only the query columns for tens to low hundreds of passes. Separating images and locales keeps the list query to the `passes` row, and the detail view fetches images and locales lazily by `pass_id`.
 
-CREATE TABLE pass_locales (
-    pass_id      INTEGER NOT NULL REFERENCES passes(id) ON DELETE CASCADE,
-    locale_tag   TEXT    NOT NULL,                           -- BCP-47, verbatim
-    strings_json BLOB    NOT NULL,                           -- kotlinx-serialized LocalizedStrings
-    PRIMARY KEY (pass_id, locale_tag)
-);
+`pass_json` carries the structured `Pass` body so the renderer reconstructs the parser's object without re-running PKCS#7 verification. `signature_status_kind` captures the trust band at import time so the badge stays visible without re-parsing.
 
--- v8 (wpass-59i.1). The original .pkpass archive, verbatim. Read only by
--- PassRepository.loadArchiveBytes; see D9.
-CREATE TABLE pass_archives (
-    pass_id INTEGER NOT NULL REFERENCES passes(id) ON DELETE CASCADE,
-    bytes   BLOB    NOT NULL,
-    PRIMARY KEY (pass_id)
-);
-```
-
-Why split: the wallet list view needs the query columns (type, organization, expiration, voided) for tens to low hundreds of passes. Pulling tens of MB of image bytes and locale tables for that view is wasteful. Separating images and locales lets the list query touch only the `passes` row, and the detail view fetches images/locales lazily by `pass_id`.
-
-`pass_json` carries the structured `Pass` body (fields, colors, barcode) so the renderer reconstructs the same object the parser produced, without re-running the PKCS#7 verification. The `signature_status_kind` column captures the trust band at import time so the badge remains visible without re-parsing.
-
-The unique index on `(type, serial_number, organization_name)` enforces PKPASS identity per the Apple spec: a re-imported pass with the same identity replaces the prior row (transactional UPSERT in `PassRepository.upsert`), so updated passes do not accumulate duplicate rows.
+A unique index on `(type, serial_number, organization_name)` enforces PKPASS identity: a re-imported pass with the same identity replaces the prior row (transactional UPSERT in `PassRepository.upsert`).
 
 ### D4. Decoded summary cache is the row itself, not a separate cache layer
 
 The parser-decoded query columns ARE the summary cache. There is no separate Room `@Entity`-style cache, no in-memory `LruCache`, no second source of truth.
 
-Why: a separate cache layer creates two consistency surfaces and a pair of failure modes (cache stale, cache evicted while DB updated). The bead description spoke of a "decoded summary cache"; we deliver that semantic by denormalizing into the row at insert time, so a single transaction maintains both the canonical blob and the queryable summary.
+Why: a separate cache layer creates two consistency surfaces and failure modes (cache stale, cache evicted while DB updated). Denormalizing into the row at insert time lets a single transaction maintain both the canonical blob and the queryable summary.
 
 A schema-migration breakage in the decoder (e.g. `pass_json` format changes) is recovered by re-deserializing every `pass_json` blob during the migration; if a row fails to migrate, the migration logs the failure through `StorageTelemetryGuard.onMigrationRowDropped(MigrationFailureKind)` and drops the row. Pass content is recoverable by re-import from the user's original `.pkpass` file; the database is not the system of record.
 
@@ -109,8 +67,8 @@ A schema-migration breakage in the decoder (e.g. `pass_json` format changes) is 
 
 `passes-storage` ships two manifest-merged XML resources:
 
-- `res/xml/walt_passes_backup_rules.xml` — `<full-backup-content>` excluding the passes database for API 23 - 30.
-- `res/xml/walt_passes_data_extraction_rules.xml` — `<data-extraction-rules>` excluding the passes database for API 31+ (covers both cloud backup and device-to-device transfer).
+- `res/xml/walt_passes_backup_rules.xml`: `<full-backup-content>` excluding the passes database for API 23 - 30.
+- `res/xml/walt_passes_data_extraction_rules.xml`: `<data-extraction-rules>` excluding the passes database for API 31+ (covers both cloud backup and device-to-device transfer).
 
 The library manifest declares both via `android:fullBackupContent` and `android:dataExtractionRules` on a `<application>` placeholder. Manifest merge applies these to the consumer.
 
@@ -125,7 +83,7 @@ Two consumer postures are valid and the assertion accepts both:
 
 The assertion validates by content, not resource identity. It opens whichever XML resource the merged manifest points at and checks that every entry in `BackupRulesContract.REQUIRED_EXCLUDES` is present in every backup-relevant section of that resource (`<full-backup-content>` for the API 23 - 30 path; both `<cloud-backup>` and `<device-transfer>` for the API 31+ path). Consumers may add additional excludes; only the pass-related entries are required for the trust claim. Setting `android:allowBackup="false"` app-wide trivially satisfies the claim and short-circuits the assertion.
 
-### D6. Deletion is items 1+3+4+5+6 from `decision-wlt-0tn-q3-4`
+### D6. Deletion follows `decision-wlt-0tn-q3-4`
 
 `PassRepository.delete(id)`:
 
@@ -141,9 +99,9 @@ What is intentionally NOT included:
 
 ### D7. The repository surface is `Result<T, StorageError>`-style, not exceptions
 
-`PassRepository` returns `StorageResult<T>`, a sealed interface (`Success`, `Failure(StorageError)`), where `StorageError` is itself sealed (`KeyUnavailable`, `KeyUnwrapFailed`, `DatabaseLocked`, `IntegrityViolation`, `Unsupported`, `Unknown`).
+`PassRepository` returns `StorageResult<T>`, a sealed interface (`Success`, `Failure(StorageError)`), where `StorageError` is itself sealed (arms include `KeyUnavailable`, `KeyUnwrapFailed`, `DatabaseLocked` and `IntegrityViolation`).
 
-Rationale: matches CLAUDE.md's `Result<T> over exceptions` rule and gives the consumer the same partition `passes-core` already provides for parse failures. `KeyUnwrapFailed` in particular is a security-relevant signal (possible Keystore tampering / deleted key) and must be distinguishable from `DatabaseLocked` (concurrent open).
+Rationale: matches the repo's `Result<T>` over exceptions rule and gives the consumer the same partition `passes-core` already provides for parse failures. `KeyUnwrapFailed` in particular is a security-relevant signal (possible Keystore tampering / deleted key) and must be distinguishable from `DatabaseLocked` (concurrent open).
 
 ### D8. `passes-storage` exposes interfaces, not Android types, at its API boundary
 
@@ -155,9 +113,9 @@ Public-API types of `passes-storage`:
 - `StoredPass`, `PassSummary` data classes
 - `StorageTelemetryGuard` interface and its event types
 - `KeyBacking` enum
-- `BackupRulesAssertion.assertBackupRulesApplied(context)` helper, so consumer instrumentation tests can verify the manifest-merge in CI
+- `BackupRulesAssertion.assertBackupRulesApplied(context)`, so the trust claim "rules are applied" is checkable from consumer instrumentation tests
 
-Internal-only: SQLCipher cursor handling, PRAGMA invocation, the `AndroidKeystorePassKeyProvider` class body, the `SqlCipherPassRepository` class body. (An earlier draft listed manifest-assertion helpers as internal-only; the implementation bead promoted `BackupRulesAssertion` to the public surface so the trust claim "rules are applied" is checkable from the consumer's instrumentation test suite.)
+Internal-only: SQLCipher cursor handling, PRAGMA invocation, the `AndroidKeystorePassKeyProvider` class body, the `SqlCipherPassRepository` class body.
 
 Rationale: walt-android's `core/data-passes` wraps `PassRepository` behind a Hilt-provided binding; if `passes-storage` leaks `SQLiteDatabase` or `Cursor` into the public API, walt-android picks up an incidental dependency on those types and the contract gets harder to swap (e.g. for an in-memory test double). Keeping the surface narrow keeps the contract testable on the JVM with a fake `PassKeyProvider` and an in-memory SQLite.
 
@@ -197,90 +155,38 @@ The raw DB key bytes are zeroed in the `PassKeyProvider` after they are handed t
 
 ## Consequences
 
-- The implementation bead can land Android Gradle Plugin, SQLCipher, Keystore wiring, and manifest XML against a fixed contract; no public-API renegotiation.
-- walt-android's `core/data-passes` can write its Hilt module today, binding the `PassRepository` interface to a stub for early integration work.
-- `passes-storage` builds on JVM-only today (Kotlin/JVM module mirroring `passes-core`); the AGP wiring is a follow-on. Tests of the contract types and schema DDL run on the JVM CI host.
-- `StorageTelemetryGuard` carries the same security-policy review gate that `TelemetryGuard` does: any future addition of a `String` (or `Pass`, or `PassField`) parameter is a security-policy change, not an API addition.
-- The decoded summary cache is the row itself, so any future "richer summary" (e.g. event ticket subtype) requires a column add and a schema migration, not a new cache layer.
+- The decoded summary cache is the row itself, so a richer summary (for example event ticket subtype) needs a column add and a schema migration, not a new cache layer.
+- `StorageTelemetryGuard` carries the same review gate as `TelemetryGuard`: adding a `String`, `Pass` or `PassField` parameter is a security-policy change, not an API addition.
+- Contract types and schema DDL are testable on the JVM with a fake `PassKeyProvider` and in-memory SQLite.
 
-## Open follow-ups
+## Open questions
 
-- Implementation bead: AGP wiring, SQLCipher dependency, manifest rules XML, `AndroidKeystorePassKeyProvider` body, schema DDL execution, instrumentation tests covering Auto Backup exclusion via `bmgr` shell harness.
-- Migration tooling: schema version 2 candidates (event ticket subtype indexing, barcode message search) are deferred until the wallet feature surfaces them.
-- StrongBox availability matrix: which devices in the walt-android target population actually have StrongBox is a deployment-data question for walt-android, not for this module.
-- Multi-user / work-profile behavior: the library assumes per-user Android profiles isolate Keystore aliases (they do); no extra logic is required, but the implementation bead's instrumentation tests should cover work-profile install once.
+- Schema candidates (event ticket subtype indexing, barcode message search) wait until the wallet needs them.
+- StrongBox availability across the consumer's device population is a deployment question for the consumer.
+- Work-profile installs rely on per-profile Keystore alias isolation; instrumentation coverage is wanted once.
 
-## Addendum 2026-09-08: original archive bytes retained at rest
+## Addendum: original archive bytes retained at rest
 
-Tracks: `wpass-59i.1` (retention, PR #236) and `wpass-59i.3` (this addendum)
-under parent epic `wpass-59i`; consumer epic walt-android `wlt-lasc`. D3's
-table count and D6's cascade list were updated when the code landed, and the D3 DDL
-is added here; the at-rest
-decision itself is recorded here. The rest of the ADR stands as written.
+D3's table list and D6's cascade include `pass_archives`; the at-rest decision is D9.
 
 ### D9. The original `.pkpass` is retained verbatim, readable only by the export path
 
-`PassRepository.upsert(pass, signatureStatus, archiveBytes)` stores the archive
-the pass was parsed from, byte-exact, in the `pass_archives` sidecar (schema
-v7 -> v8, an additive `CREATE TABLE`; DDL in D3). `PassRepository.loadArchiveBytes(id)`
-reads it back. Purpose: a consumer can export a pass as the issuer signed it,
-and re-import runs the real signature check, instead of carrying trust state in
-a backup file.
+`PassRepository.upsert(pass, signatureStatus, archiveBytes)` stores the archive the pass was parsed from, byte-exact, in the `pass_archives` sidecar. `PassRepository.loadArchiveBytes(id)` reads it back. Purpose: a consumer can export a pass as the issuer signed it, and re-import runs the real signature check, instead of carrying trust state in a backup file.
 
-**What this adds at rest.** `StoredPass` is a lossy parse. The sidecar is not:
-it holds the entire archive, images included, and with it the whole `pass.json`,
-including every key the parser reads and discards (`webServiceURL`,
-`authenticationToken`, `nfc`, `personalization`, and keys it never models),
-plus `manifest.json` and the PKCS#7 `signature`.
-`authenticationToken` is a per-pass bearer credential for the issuer's update
-service; before v8 the database never held it.
+**What this adds at rest.** `StoredPass` is a lossy parse. The sidecar is not: it holds the entire archive, images included, and with it the whole `pass.json`, including every key the parser reads and discards (`webServiceURL`, `authenticationToken`, `nfc`, `personalization`, and keys it never models), plus `manifest.json` and the PKCS#7 `signature`. `authenticationToken` is a per-pass bearer credential for the issuer's update service.
 
-**What protects it.** Nothing new, by construction. The sidecar is a table in
-`walt_passes.db`, so D1's page-level SQLCipher encryption, D2's Keystore-wrapped
-envelope, and D5's backup exclusion cover it unchanged.
-`BackupRulesContract.REQUIRED_EXCLUDES` names the database file, not tables,
-so both the Inherit and the Mirror posture exclude the sidecar with no rules
-change on either side. `PassArchiveBounds.MAX_BYTES` (10 MiB,
-`ParserConfig.DEFAULT_MAX_ARCHIVE_BYTES`) is a storage-side hard ceiling
-independent of whatever `ParserConfig.maxArchiveBytes` the consumer parsed with;
-an empty or oversized archive is refused before any write as
-`StorageError.PassRejected(PassUpdateRejectedKind.ArchiveEmpty | ArchiveOversized)`,
-mirroring `DocumentBounds` on the document path.
+**What protects it.** Nothing new, by construction. The sidecar is a table in `walt_passes.db`, so D1's page-level encryption, D2's Keystore-wrapped envelope and D5's backup exclusion cover it unchanged. `BackupRulesContract.REQUIRED_EXCLUDES` names the database file, not tables, so both the Inherit and Mirror postures exclude the sidecar. `PassArchiveBounds.MAX_BYTES` (10 MiB, `ParserConfig.DEFAULT_MAX_ARCHIVE_BYTES`) is a storage-side hard ceiling independent of the consumer's `ParserConfig.maxArchiveBytes`; an empty or oversized archive is refused before any write as `StorageError.PassRejected(PassUpdateRejectedKind.ArchiveEmpty | ArchiveOversized)`, mirroring `DocumentBounds` on the document path.
 
-**What reads it.** Only `loadArchiveBytes`. The `passes` StateFlow, `load`, and
-`summaryOf` never reference the sidecar, so the list and detail paths pay
-nothing for it. It is a sidecar table rather than a column on `passes` so that
-"never materialized by the hot path" is a property of the SQL, pinned by a
-query-shape test, rather than of column-selection discipline.
+**What reads it.** Only `loadArchiveBytes`. The `passes` StateFlow, `load` and `summaryOf` never reference the sidecar. It is a sidecar table rather than a column on `passes` so that "never materialized by the hot path" is a property of the SQL, pinned by a query-shape test, rather than of column-selection discipline.
 
-**Legacy rows.** A row imported before v8 has no sidecar row; `loadArchiveBytes`
-returns `Success(null)`: the pass exists, its archive was never stored, and
-nothing can backfill it. The deprecated two-arg `upsert(pass, signatureStatus)`
-writes the same shape and, when it replaces a retained row, deletes that row's
-archive. A consumer must therefore migrate every `upsert` call site in one
-change: a mixed fleet silently downgrades passes to regenerated, unsigned export
-on re-import. The overload exists only for the `wlt-lasc` migration window.
+**Legacy rows.** A row imported before the sidecar existed has no archive; `loadArchiveBytes` returns `Success(null)` and nothing can backfill it. The deprecated two-arg `upsert(pass, signatureStatus)` writes the same shape and, when it replaces a retained row, deletes that row's archive. A consumer must migrate every `upsert` call site in one change: a mixed fleet silently downgrades passes to regenerated, unsigned export on re-import.
 
-**Consumer obligation.** `loadArchiveBytes` returns a credential-bearing blob.
-The export path must not log it, hash-and-report it, or hand it to telemetry,
-and the consumer must tell the user that a shared `.pkpass` carries the issuer's
-update token. `StorageTelemetryGuard` cannot enforce this on the consumer's side
-of the boundary; it is recorded here so the export feature's review gate has it.
+**Consumer obligation.** `loadArchiveBytes` returns a credential-bearing blob. The export path must not log it, hash-and-report it, or hand it to telemetry, and the consumer must tell the user that a shared `.pkpass` carries the issuer's update token. `StorageTelemetryGuard` cannot enforce this across the boundary; it is recorded here as a review gate for the export feature.
 
 ### Backup and sidecar formats stay out of the kernel
 
-The kernel deliberately defines no wallet backup container, sidecar schema, or
-file encryption. Those are consumer concerns (walt-android `wlt-lasc`), and the
-kernel keeps the posture it has for every other import: it sees bytes, not
-provenance. `PassBundleReader` (ADR 0001 D7) reads the outer layer of any such
-container and `upsert` stores what `PassParser` accepted; where the bytes came
-from, and whether the file around them was encrypted, is invisible to both.
+The kernel defines no wallet backup container, sidecar schema or file encryption. Those are consumer concerns, and the kernel keeps its posture for every import: it sees bytes, not provenance. `PassBundleReader` (ADR 0001 D7) reads the outer layer of any such container and `upsert` stores what `PassParser` accepted; where the bytes came from, and whether the file around them was encrypted, is invisible to both.
 
-### Tests pinning this addendum
+## Tests
 
-| Decision | Test |
-|----------|------|
-| D9 (round trip) | `PassRepositoryContractTest.upsertRetainsTheArchiveAndLoadArchiveBytesRoundTripsItByteExact`, `upsertReplaceSwapsTheRetainedArchiveForTheNewOne`, `deleteDropsTheRetainedArchiveWithThePass`; `CipherCompatReopenTest.archiveAtTheStorageCapSurvivesReopenByteExact` (real SQLCipher, instrumentation) |
-| D9 (hot path never reads it) | `SqlCipherPassStoreQueryShapeTest.listDetailAndSummaryStatementsNeverReferenceTheArchiveSidecar` (the list, detail, and summary SQL constants name no `pass_archives` and no `JOIN`); `PassRepositoryContractTest.listDetailAndSummaryPathsNeverReadTheArchive` |
-| D9 (cap) | `PassRepositoryContractTest.upsertRejectsAnEmptyArchiveBeforeWritingAnything`, `upsertRejectsAnOversizedArchiveBeforeWritingAnything`, `upsertAcceptsAnArchiveExactlyAtTheCap` |
-| D9 (legacy null) | `PassRepositoryContractTest.loadArchiveBytesReturnsNullForALegacyRowImportedBeforeRetention`, `legacyTwoArgUpsertStoresNoArchiveAndReadsBackNull`, `legacyTwoArgUpsertReplacingARetainedRowDropsTheOldArchive`; `PassArchivesMigrationTest.preexistingV7PassSurvivesMigrationToV8WithNoArchive`, `passArchivesAfterMigrationCascadesOnPassDelete` |
+`PassRepositoryContractTest` (round trip, replace, delete cascade, cap, legacy null, hot path never reads the archive), `SqlCipherPassStoreQueryShapeTest` (list, detail and summary SQL name no `pass_archives`), `CipherCompatReopenTest` (real SQLCipher, instrumentation), `PassArchivesMigrationTest`.
