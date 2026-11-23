@@ -9,16 +9,15 @@ of the bundled Apple Root CA anchor set.
 
 ## What's here
 
-- `manifest.json` — twelve SHA-1 file digests. No PII; the digest values reveal nothing
-  about ticket contents.
-- `signature` — detached PKCS#7 / CMS blob. Embeds the Apple WWDR G4 intermediate and
+- `manifest.json`: twelve SHA-1 file digests. No PII; the digests reveal nothing about
+  ticket contents.
+- `signature`: detached PKCS#7 / CMS blob. Embeds the Apple WWDR G4 intermediate and
   the Tixly leaf certificate. The leaf's CN is `Pass Type ID: pass.com.tixly` (an issuer
   identity, not user data).
 
 `pass.json` and the localized `*.lproj/pass.strings` files are deliberately *not*
 included: they are the only entries with passenger / event / ticket-number content, and
-the manifest digest comparison does not require them — the verifier only signs and
-checks `manifest.json`.
+the verifier only checks `manifest.json`.
 
 ## Implicit shelf life
 
@@ -28,8 +27,8 @@ ID certificates are typically issued for 1 year). The verifier sets
 fine forever, but expiry will trip on the wall clock.
 
 When the leaf expires, the fixture-based tests will downgrade from
-`Ok(AppleVerified)` to `Ok(CertChainIncomplete)` and fail — per the documented behavior
-in `SignatureVerifier`'s "No date-shift override" docblock.
+`Ok(AppleVerified)` to `Ok(CertChainIncomplete)` and fail (see `SignatureVerifier`'s
+"No date-shift override" docblock).
 
 ## Renewal procedure when the test breaks
 
@@ -48,6 +47,5 @@ in `SignatureVerifier`'s "No date-shift override" docblock.
    WWDR certificate from `signature`, so it assumes the replacement pass's intermediate
    is one of those bundled in `AppleTrustAnchors`.
 
-A deferred follow-up (noted in `SignatureVerifier.kt`'s docblock) would snapshot the
-PKIX path-build date to the CMS signing time, eliminating this maintenance loop. That
-work is intentionally out of scope here.
+Snapshotting the PKIX path-build date to the CMS signing time would remove this
+maintenance loop; it is out of scope (see `SignatureVerifier.kt`'s docblock).
