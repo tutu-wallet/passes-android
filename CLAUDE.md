@@ -30,13 +30,13 @@ Thirteen Gradle modules. `docs/module-map.md` holds the full contract of each (w
 
 Dependency rules:
 
-- `passes-core`, `passes-document-core`, and `passes-barcode-core` have NO Android framework dependencies (KMP-friendly).
+- `passes-core`, `passes-document-core`, and `passes-barcode-core` have no Android framework dependencies (KMP-friendly).
 - `passes-storage`, `passes-pdf`, `passes-barcode`, `passes-image`, `passes-ui`, and `passes-document-ui` are independent peers. The only edges among them are `passes-document-ui → passes-pdf` and `passes-document-ui → passes-image`.
-- `passes-pdf` and `passes-image` never depend on each other. They meet only in `passes-document`, which sits above both.
+- `passes-pdf` and `passes-image` never depend on each other. They meet only in `passes-document`, which sits above them and `passes-barcode` (it depends on all three, plus `passes-isolation`).
 - `passes-isolation` and `passes-image-decode` depend on nothing in this repo and sit below their consumers. They are mechanism: caps, allowlists and reject taxonomies stay with each consumer.
 - `passes-barcode → passes-barcode-core → passes-core`. `passes-ui` and `passes-document-ui` both depend on `passes-ui-core`, never on each other.
 - `passes-storage → passes-document-core` is a test-only edge.
-- DECISIVE CONSTRAINT: walt-android consumes this code directly; trust-claim-bearing logic lives ONLY here, never reimplemented in walt-android.
+- Decisive constraint: walt-android consumes this code directly; trust-claim-bearing logic lives only here, never reimplemented in walt-android.
 
 ## Code Style
 
