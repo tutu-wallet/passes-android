@@ -35,7 +35,7 @@ When the leaf expires, the fixture-based tests will downgrade from
 1. Buy or otherwise obtain any current Apple-signed pkpass (any vendor; Apple Wallet's
    sample passes work too).
 2. Unzip it and copy `manifest.json` and `signature` into this directory, replacing the
-   files here. Do **not** copy `pass.json`, `*.lproj/`, or any image assets — they are
+   files here. Do **not** copy `pass.json`, `*.lproj/`, or any image assets: they are
    PII-bearing and unnecessary for the verifier path.
 3. Update the `notAfter` date above with the new leaf cert's expiry, extracted via:
    ```
