@@ -28,7 +28,7 @@ a single `LocalPassesSemantics` provided at `PassesTheme(...)` scope:
 - `expiredBadge`: pill foreground / background and scrim alpha for the
   non-suppressible expired / voided overlay.
 - `securitySheet`: emphasis, body, confirm, cancel slots for the URL / phone /
-  email confirmation sheets — explicitly distinct from chrome dialogs so the
+  email confirmation sheets, explicitly distinct from chrome dialogs so the
   user does not muscle-memory through.
 - `categoryAccent`: per-`PassType` accent strip color for the wallet-list view.
 
@@ -45,8 +45,8 @@ Why fail-fast: a silent default produces a "looks fine in dev, wrong in prod" ha
 The PKPASS spec lets each pass declare its own `foregroundColor`,
 `backgroundColor`, and `labelColor` (already surfaced as `PassColors` in
 `passes-core`). On the pass surface itself, those colors override the host's
-`MaterialTheme.colorScheme.surface` / `onSurface`. Off the pass — wallet list
-chrome, bottom sheets, expired overlay, security confirmation sheets — the host
+`MaterialTheme.colorScheme.surface` / `onSurface`. Off the pass, wallet list
+chrome, bottom sheets, expired overlay, security confirmation sheets, the host
 theme is authoritative.
 
 Why scoped: a pass-supplied color does not get to recolor a security confirmation sheet; letting the pass influence them opens an "adversarial pass darkens cancel button into invisibility" attack.
