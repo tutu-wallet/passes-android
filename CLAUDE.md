@@ -32,7 +32,7 @@ Dependency rules:
 
 - `passes-core`, `passes-document-core`, and `passes-barcode-core` have no Android framework dependencies (KMP-friendly).
 - `passes-storage`, `passes-pdf`, `passes-barcode`, `passes-image`, `passes-ui`, and `passes-document-ui` are independent peers. The only edges among them are `passes-document-ui → passes-pdf` and `passes-document-ui → passes-image`.
-- `passes-pdf` and `passes-image` never depend on each other. They meet only in `passes-document`, which sits above them and `passes-barcode` (it depends on all three, plus `passes-isolation`).
+- `passes-pdf` and `passes-image` never depend on each other. Only `passes-document` (import; also depends on `passes-barcode`, `passes-isolation` and `passes-document-core`) and `passes-document-ui` (display) sit above both.
 - `passes-isolation` and `passes-image-decode` depend on nothing in this repo and sit below their consumers. They are mechanism: caps, allowlists and reject taxonomies stay with each consumer.
 - `passes-barcode → passes-barcode-core → passes-core`. `passes-ui` and `passes-document-ui` both depend on `passes-ui-core`, never on each other.
 - `passes-storage → passes-document-core` is a test-only edge.

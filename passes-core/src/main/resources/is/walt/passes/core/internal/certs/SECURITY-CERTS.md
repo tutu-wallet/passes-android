@@ -35,9 +35,10 @@ without reaching a root above is `CertChainIncomplete`, not `AppleVerified`.
 | `apple-wwdr-g4.cer` | CN=Apple Worldwide Developer Relations Certification Authority, OU=G4, O=Apple Inc., C=US | `EA:47:57:88:55:38:DD:8C:B5:9F:F4:55:6F:67:60:87:D8:3C:85:E7:09:02:C1:22:E4:2C:08:08:B5:BC:E1:4C` | 2020-12-16 to 2030-12-10 |
 | `apple-wwdr-g6.cer` | CN=Apple Worldwide Developer Relations Certification Authority, OU=G6, O=Apple Inc., C=US | `BD:D4:ED:6E:74:69:1F:0C:2B:FD:01:BE:02:96:19:7A:F1:37:9E:04:18:E2:D3:00:EF:A9:C3:BE:F6:42:CA:30` | 2021-03-17 to 2036-03-19 |
 
-The legacy WWDR CA (G1, expired 2023-02-07) is intentionally **not** bundled:
-bundling an expired anchor would muddy the trust posture without buying coverage,
-since passes are re-signed under G3/G4/G6.
+The legacy WWDR CA (G1, expired 2023-02-07) is intentionally **not** bundled: any
+signature chaining to it was made before 2023-02-07, current passes chain to G3, G4
+or G6, and bundling an expired anchor would muddy the trust posture without buying
+coverage.
 
 ## Sources
 

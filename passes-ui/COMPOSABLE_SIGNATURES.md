@@ -303,10 +303,12 @@ security-policy edit, not a refactor:
 1. `onUrlIntent`, `onPhoneIntent`, `onEmailIntent` on `PassBack` are NOT defaulted to
    no-op. The host must supply them explicitly. This forces a conversation if a
    future host author "forgets" to wire confirmation sheets.
-2. The expiration overlay has no `enabled` / `suppress` parameter. It either applies
-   or it does not, based on `ExpiredOverlayState.from`.
-3. The signature trust badge has no `enabled` / `suppress` parameter. It is always
-   composited on top of `PassFront`, with the color sourced from
+2. `ExpiredOverlay` has no `enabled` / `suppress` parameter. On `PassFront` the state
+   comes only from `ExpiredOverlayState.from`; `showExpiredOverlay = false` is the
+   single bounded host opt-out (ADR 0003 D5, TRUST_CLAIMS section 5).
+3. The signature badge has no suppress parameter other than
+   `PassFront.showSignatureBadge`, the single bounded host opt-out;
+   `onPassRendered(type, band)` fires either way and the color comes from
    `PassesSemantics.signatureBadge`.
 4. `BoundedImage` has no `bounds: ImageRenderBounds? = null` form that would let a
    caller opt out of decoding limits. The default is the only way to take the

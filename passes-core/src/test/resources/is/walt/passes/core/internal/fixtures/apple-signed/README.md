@@ -17,7 +17,7 @@ of the bundled Apple Root CA anchor set.
 
 `pass.json` and the localized `*.lproj/pass.strings` files are deliberately *not*
 included: they are the only entries with passenger / event / ticket-number content, and
-the verifier only checks `manifest.json`.
+the signature covers only `manifest.json`, so the signature check does not need them.
 
 ## Implicit shelf life
 

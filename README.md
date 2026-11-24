@@ -31,7 +31,7 @@ Pre-alpha. No releases yet.
 
 ## Modules
 
-Thirteen Gradle modules; [`docs/module-map.md`](docs/module-map.md) holds each one's contract. The trust claims and their strength are in [`passes-ui/TRUST_CLAIMS.md`](passes-ui/TRUST_CLAIMS.md) and the threat models in `docs/`.
+Thirteen Gradle modules; [`docs/module-map.md`](docs/module-map.md) holds each one's contract. `passes-ui`'s trust claims are in [`passes-ui/TRUST_CLAIMS.md`](passes-ui/TRUST_CLAIMS.md); [`SECURITY.md`](SECURITY.md) and the threat models in `docs/` cover the rest.
 
 ## Scope (v1)
 
