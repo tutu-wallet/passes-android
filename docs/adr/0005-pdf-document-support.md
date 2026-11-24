@@ -1,1110 +1,286 @@
 # ADR 0005: PDF document support
 
-- Status: Accepted
-- Date: 2026-05-06
-- Tracks: parent epic `wpass-i2r`; threat-model bead `wpass-0ri`; renderer-validation bead `wpass-6m9`; child beads `wpass-jsb` (core model), `wpass-pti` (storage schema), `wpass-5v9` (renderer service), `wpass-7wn` (UI integration)
-- Decision context: 2026-05-06 brainstorming on add-flow coverage on Android; user-confirmed defaults on 2026-05-06 with two overrides (max pages = 10, no share-out).
+- Status: Accepted. The document model generalizes to PDF, image and barcoded-image arms (sections I, C below).
+- Decision context: PKPASS-only import leaves a user-visible gap (event, transit and airline tickets often exist only as PDFs or screenshots), and the Google Wallet pathway is structurally unreachable to a third-party wallet.
 
 ## Context
 
-Walt v1 imports PKPASS files exclusively. Many concerts, events, transit operators, and airlines distribute tickets only as PDFs, especially on Android where the "Add to Google Wallet" pathway is structurally unreachable to a third-party wallet (Google Wallet passes are server-hosted objects under an authenticated Google API, not a portable file format Walt can ingest). To close that user-visible gap without converting Walt into a Google Wallet client, PDF support is added as a sibling concept to PKPASS passes.
+PDFs are an order of magnitude worse than PKPASS as a parser-side attack surface. The format permits embedded JavaScript, `Launch`/`SubmitForm`/`URI`/`GoToR` actions, AcroForm and XFA active content, embedded files, attached digital signatures, network fetches at render time, decoder-CVE-heavy subformats (JBIG2, JPEG2000, CCITT), object-graph attacks, encrypted documents and render bombs.
 
-PDFs are an order of magnitude worse than PKPASS as a parser-side attack surface. The format permits embedded JavaScript, `Launch`/`SubmitForm`/`URI`/`GoToR` actions, AcroForm and XFA active content, embedded file attachments, attached digital signatures, network fetches at render time, decoder-CVE-heavy subformats (JBIG2, JPEG2000, CCITT), object-graph attacks, encrypted documents, and render bombs.
+This ADR fixes the security posture, the renderer architecture and the deliberate non-features that stop a contributor re-introducing the surface this design strips out. Documents are a sibling concept to PKPASS passes. The image arm (I) and the composite arm (C) reuse every control below unchanged unless stated.
 
-This ADR codifies the security posture, the renderer architecture, and the deliberate non-features that prevent a future contributor from re-introducing the surface that the v1 design strips out.
+Module names: `passes-document-core` (pure JVM model, config, reject taxonomy, telemetry guard), `passes-pdf` (isolated renderer service, binder, importer), `passes-isolation` (memfd and isolated-worker mechanism), `passes-document-ui` (`DocumentView`, tile, lane, trust caption), `passes-document` (PDF-or-image importer), `passes-storage` (`documents` and `document_thumbnails` tables in the same SQLCipher database).
 
 ## Decisions
 
-### D1. Sibling concept; PDFs are not Passes
+### D1. Sibling concept; documents are not Passes
 
-A new `PassDocument` data class lives alongside `Pass`. Documents have no `PassType`, no `SignatureStatus`, no structured fields, no expiration. They carry: opaque PDF bytes, a thumbnail bitmap, page count, original filename, import timestamp, and `Provenance.UserProvided` (single-arm, by design).
-
-A separate `documents` table is added to the existing `walt_passes.db` SQLCipher database (schema v1 to v2). Same database key, same backup-exclusion rules, same irreversible-delete contract.
-
-A separate "Documents" lane appears below the passes list in `passes-ui`. Users see passes and documents as related-but-distinct concepts. (Amended by [D1.L](#d1l-consumers-may-render-documents-inline-in-a-unified-wallet-list): a consumer may instead render documents inline in a unified list, under stated conditions. [D1.C](#d1c-color-carries-no-trust-meaning-documents-take-a-class-tint) amends the neutral-surface rule that later addenda attached to this row.)
+`Document` is a sealed type alongside `Pass` and shares no superclass with it. A document has no `PassType`, no `SignatureStatus`, no structured fields and no expiration. It carries opaque bytes, a thumbnail, kind-specific dimensions (`pageCount` for a PDF), an original filename, an import timestamp and `Provenance.UserProvided` (single-arm, by design). Documents live in the same SQLCipher database as passes: same key, same backup exclusion, same irreversible delete.
 
 Rationale: the trust contract differs structurally. Mixing PDFs into the `Pass` model would put a "Verified" pill API path within reach of code that should never offer it. Sibling separation moves that risk from "policed at every call site forever" to "physically impossible."
 
+#### D1.C Color carries no trust meaning; documents take a class tint
+
+Color is a per-class default the user can reassign, so it cannot encode provenance. A document cannot present as verified because:
+
+1. No document surface, at list or detail scale, renders a signature affordance or verified indicator (D5: PDF signatures are not verified and no signed indicator is surfaced), so there is no verified-vs-unverified ladder for a color to imitate.
+2. Provenance is stated in words on the detail surface: the non-suppressible `DocumentTrustCaption` (D5, Z.8) or the host "Pass type" row under the audited D5.T concession. Text, not chrome.
+3. A user-assigned color on a PDF is a preference, not a violation.
+
+`DocumentView(faceTint = ...)` lets the consumer tint the detail surface instead of reimplementing it. The tint reaches the frame only: the rasterised page and decoded image render identically tinted or not, and identically in light and dark, and the tint cannot suppress the trust caption or change the render request. No `Document` arm carries a color field and none may be added; the color an item carries is consumer state. Deriving a color from signature status, verification outcome or issuer identity anywhere in the kernel is an amendment to this row, not a PR. The mirror row for scannable cards is "colour carries no trust meaning" in `SCANNABLE_CARD_THREAT_MODEL.md`.
+
+#### D1.L Consumers may render documents inline in a unified wallet list
+
+A consumer may render documents inline in a unified wallet list, or in a separate lane (`DocumentsLane` in `passes-document-ui`, the recommended surface when the kernel should carry list-level presentation), provided:
+
+1. **The sibling data-model contract holds.** The merge is render-time only. A row is built from `DocumentRow` / `PdfDocument` (or the image and composite arms), never by widening it into a `Pass` or a shared supertype with one.
+2. **The row carries no signature or verified affordance**, and none can be themed onto it. The unified list is where a document sits closest to a pkpass.
+3. **Detail-surface provenance is unchanged**: the docked caption, or the host "Pass type" row under D5.T. A consumer that renders documents inline and drops the detail-surface provenance signal without a "Pass type" row is amending D5.T, not filing a PR.
+
 ### D2. System renderer only: `android.graphics.pdf.PdfRenderer`
 
-Rendering uses the platform `android.graphics.pdf.PdfRenderer` API. No third-party PDF library is bundled.
+No third-party PDF library is bundled. PDFium ships in the MediaProvider Mainline module on Android 14+ (API 34) and updates via Play System Updates, decoupling PDFium CVE response from the app's release cadence (the API floor is G.1). The API is structurally narrow: open a `ParcelFileDescriptor`, render page N to a `Bitmap`. No JavaScript path, no `URI` / `Launch` / `SubmitForm` processing, no network, and the PDF cannot paint outside the bitmap provided.
 
-PDFium ships in the MediaProvider Mainline module on Android 14+ (API 34) and updates via Play System Updates, decoupling PDFium CVE response from Walt release cadence. (See [Addendum 2026-05-06](#addendum-2026-05-06-fd-transport--mainline-floor-refinement) for the threshold rationale and the resulting `Build.VERSION.SDK_INT >= 34` runtime gate.) The API is structurally narrow: open `ParcelFileDescriptor`, render page N to `Bitmap`. No JavaScript execution path. No `URI` / `Launch` / `SubmitForm` action processing during page render. No network. The PDF cannot paint outside the bitmap Walt provides.
+Why the renderer is safe to feed hostile PDFs, from AOSP/PDFium source analysis (on-device confirmation across a device matrix is not recorded):
 
-Alternatives considered:
+- The framework binding calls only `FPDF_LoadCustomDocument`, `FPDF_GetPageCount`, `FPDF_LoadPage`, `FPDF_GetPageWidth/Height`, `FPDF_RenderPageBitmap` and `FPDF_ClosePage`. The PDFium JavaScript engine is never initialized (no V8 isolate in the renderer process), so `/JavaScript` actions cannot fire.
+- Action dispatch (`FPDFAction_*`) is never invoked, and the binding has no `Context`, so a `/Launch` or `/URI` action has no way to fire an Intent. External resources (`/RemoteGoTo`, `/F`, `/URL`) are never resolved on the render path, and ICC profiles are read from inline streams.
+- An encrypted document makes `PdfRenderer` throw `SecurityException` (`FPDF_ERR_PASSWORD`); the binding has no UI surface, so a hostile PDF cannot cause the OS to show a password prompt (D6).
+- The isolated service declares no `<uses-permission>`, runs in the `isolated_app` SELinux domain (denied TCP/UDP sockets by base policy) and needs only the transferred fd, a heap `Bitmap` and the world-readable `libpdfium.so`, so even a future implicit-egress PDFium change hits a kernel block.
+- After a renderer crash the binder proxy invalidates and calls surface `RemoteException`; the client re-binds to restart the isolated process.
 
-- **PdfBox-Android (Apache PDFBox port)**. Rejected because (a) larger code surface in-process, (b) parses content Walt does not need (forms, annotations, signatures), opening codepaths the no-extraction rule wants closed, (c) Walt would own the CVE response.
-- **MuPDF**. Rejected on license grounds (AGPL/commercial), which conflicts with the open-source-for-trust positioning of this repository.
+Evidence (source paths read, reproducible at cs.android.com; none confirmed on a device):
+
+- `frameworks/base/core/jni/android_graphics_pdf_PdfRenderer.cpp` (and the Mainline copy under `packages/providers/MediaProvider/pdf/`): the C calls listed above are the whole native surface. The binding does not call `FPDF_InitLibraryWithConfig` with a non-null `FPDF_LIBRARY_CONFIG.m_pIsolate`, the entry point that attaches V8, so the JavaScript engine (`fpdfsdk/fxjs/`) is never initialized.
+- `fpdfsdk/fpdf_view.cpp` (`FPDF_RenderPageBitmap`): the render call graph rasterizes content streams and does not reach action dispatch (`FPDFAction_*`, `FPDFLink_GetAction`) or external-resource resolution (`core/fpdfdoc/cpdf_filespec.cpp`, `core/fpdfapi/parser/cpdf_security_handler.cpp`).
+- `system/sepolicy/private/isolated_app.te`: the `isolated_app` domain is denied `node:tcp_socket` and `node:udp_socket`; base policy denies a dyntransition into it, so `android:isolatedProcess="true"` is the only way in. OEM SELinux customizations could weaken this and are unchecked.
+- `frameworks/base/core/java/android/os/Process.java`: isolated UIDs are 90000-99999 (`FIRST_ISOLATED_UID` to `LAST_ISOLATED_UID`).
+- `libpdfium.so` is world-readable: under `/system/lib*`, or on API 34+ inside the `com.android.mediaprovider` apex (`com.google.android.mediaprovider` on GMS builds; the APK package name differs from the apex name).
+
+The release gate "empirical device matrix before the renderer ships" was never met; no row of that matrix is recorded.
+
+Rejected:
+
+- PdfBox-Android: larger in-process code surface, parses content not needed (forms, annotations, signatures) which the no-extraction rule wants closed, and the app would own CVE response.
+- MuPDF: AGPL/commercial licence conflicts with the open-source-for-trust positioning.
 
 ### D3. Renderer runs in an isolated process
 
-A `Service` annotated `android:isolatedProcess="true"` hosts the renderer. The main wallet process binds the service, sends a `ParcelFileDescriptor` to the PDF bytes, receives a `Bitmap` over shared memory, and unbinds. The service has no app-data access, no inherited network permission, and OS-level crash containment.
+A `Service` with `android:isolatedProcess="true"` hosts the renderer. The wallet process binds it, sends a `ParcelFileDescriptor` to the PDF bytes, receives a `Bitmap` over shared memory and unbinds. The service has no app-data access, no inherited network permission and OS-level crash containment.
 
-This is the load-bearing control. A PDFium use-after-free or out-of-bounds read in the main process would share an address space with the SQLCipher key, the Keystore session, and decoded bytes from other passes. The same exploit in an isolated process compromises an empty sandbox that returns to the OS on crash. Walt observes a `RemoteException`, surfaces "could not render," and the wallet process keeps running.
+This is the load-bearing control. A PDFium memory-safety bug in the main process would share an address space with the SQLCipher key, the Keystore session and decoded bytes of other passes. The same exploit in the isolated process compromises an empty sandbox that returns to the OS on crash; the wallet sees a `RemoteException`, surfaces "could not render" and keeps running.
 
-`wpass-6m9` empirically verifies this isolation on at least one Pixel device and one OEM device before the service ships.
+#### F.1 FD transport is a `memfd_create`-backed `ParcelFileDescriptor`
+
+Decision: the main process allocates a memfd, populates it with `write(2)` of the decrypted PDF bytes (no writable `mmap` is ever taken in the main process) and seals it before adopting the fd into a `ParcelFileDescriptor` for the renderer. The intended seal set is `F_SEAL_SEAL | F_SEAL_WRITE | F_SEAL_GROW | F_SEAL_SHRINK`:
+
+- `F_SEAL_WRITE` makes the buffer read-only across future mappings, so a PDFium write-via-mmap primitive in the renderer cannot mutate bytes the main process still holds.
+- `F_SEAL_GROW` / `F_SEAL_SHRINK` pin the size.
+- `F_SEAL_SEAL` stops later code weakening the others.
+
+`write(2)` rather than mmap-write-munmap because `F_ADD_SEALS` does not invalidate writable mappings that already exist, only new ones; with `write(2)` no writable mapping exists in either process. No plaintext PDF reaches the filesystem at any point.
+
+Rejected transports: `MemoryFile` (fd only via hidden API, closed on API 28+); `SharedMemory.fileDescriptor` (ashmem fd does not satisfy PDFium's `lseek` + `pread64`); `File.createTempFile` (plaintext on disk, defeating SQLCipher's at-rest guarantee); `ParcelFileDescriptor.fromSocket` (not seekable). The transport choice does not widen the binder surface D4 locks down.
+
+Implementation: `MemfdPfdFactory` in `passes-isolation` (`PfdFactory.fromBytes`), used by `DefaultPdfImporter` and by all three `DocumentImporter` branches (PDF, image, barcode). `Os.memfd_create` needs API 30; `DefaultPdfImporter` is gated at 34 (G.1), but `DocumentImporter` calls the factory before any gate.
+
+Known gap: `MemfdPfdFactory` calls `Os.memfd_create(name, 0)` and applies no seals, and no JNI shim or native method exists, so the seal set above is the decision, not current behavior (`PfdFactory.kt:53`). Flags 0 also omit `MFD_ALLOW_SEALING`. Residual: each memfd is handed over writable, but the host never reads it back and persists from its own `ByteArray` (`DefaultPdfImporter.renderAndPersist`), and each fd is closed after one import, so a compromised worker can only alter its own input.
 
 ### D4. No extraction
 
-The PDF is opaque from import to deletion. Walt does not extract text, metadata (`/Title`, `/Author`, XMP), form-field values, annotations, links, or attached files. The only operation Walt performs on a PDF is `PdfRenderer.openPage(N).render(bitmap, ...)`.
+The PDF is opaque from import to deletion. The kernel does not extract text, metadata (`/Title`, `/Author`, XMP), form-field values, annotations, links or attached files. The only operation on a PDF is `PdfRenderer.openPage(N).render(bitmap, ...)`.
 
-Every extraction codepath is an attack surface (`Launch`/`URI`/`SubmitForm` actions hide in annotations and bookmarks; XFA forms are arbitrary XML execution; embedded files are arbitrary payloads). Refusing to invoke those codepaths collapses the attack surface to "what the rasterizer touches," which is what the system renderer is hardened against and what the isolated process contains.
+Every extraction codepath is an attack surface (`Launch`/`URI`/`SubmitForm` actions hide in annotations and bookmarks; XFA is arbitrary XML execution; embedded files are arbitrary payloads). Refusing them collapses the surface to what the rasterizer touches, which the system renderer is hardened against and the isolated process contains.
 
-The renderer service's binder API exposes exactly two methods, `probe(fd)` and `render(fd, page, w, h)`. Adding any extraction method (`getText`, `getMetadata`, `getAnnotations`) is a security-policy change requiring an ADR amendment.
+The renderer binder (`PdfRendererBinder`) exposes exactly two methods, `probe` and `render`. Adding an extraction method (`getText`, `getMetadata`, `getAnnotations`) is a security-policy change requiring an ADR amendment.
 
-The `passes-pdf-ui` module exposes a Compose-level facade, `rememberPdfThumbnail(...) -> PdfThumbnailState` (with sibling `PdfThumbnailCache`), so consumers that need an asynchronously-rendered page bitmap in a list row do not have to reach for the binder primitives directly. The facade preserves D3 — it does not bind its own service connection, it consumes a [PdfRendererBinder] supplied by the caller — and preserves D4 — its body invokes only `render(...)` and its return type [PdfThumbnailState] exposes a single `ImageBitmap` + aspect float (no metadata accessor, no annotation list, no field through which a future contributor could quietly thread an extraction surface). `PdfThumbnailSurfaceTest` reflection-locks the arm list, the per-arm field shape, and the absence of any `getText` / `getMetadata` / `getAnnotations` / `getAttachments` accessor on every public symbol the facade introduces. Adding a fourth arm to [PdfThumbnailState] or a non-trivial accessor to [PdfThumbnailCache] is a security-policy change in the same audit register as adding a binder method.
+`passes-document-ui` exposes a Compose facade, `rememberPdfThumbnail(...) -> PdfThumbnailState` (with `PdfThumbnailCache`), so a list row can show an asynchronously rendered page without touching binder primitives. It preserves D3 (it consumes a caller-supplied `PdfRendererBinder` and binds nothing itself) and D4 (its body only calls `render(...)`, and `PdfThumbnailState` exposes a single `ImageBitmap` plus an aspect float, with no metadata accessor). `PdfThumbnailSurfaceTest` reflection-locks the arm list, the per-arm fields and the absence of any `getText` / `getMetadata` / `getAnnotations` / `getAttachments` accessor. Adding a state arm or a non-trivial `PdfThumbnailCache` accessor is a security-policy change like adding a binder method.
 
 ### D5. PDF digital signatures are not verified
 
-Walt does not parse `/AcroForm/SigFlags`, does not validate PAdES/CMS signatures, does not surface a "signed" indicator.
+The kernel does not parse `/AcroForm/SigFlags`, validate PAdES/CMS signatures or surface a "signed" indicator. PDF signature semantics are inconsistent in the wild (whole vs partial, certification vs approval, MDP transforms) and there is no equivalent of Apple's WWDR root for tickets. A "verified" signal the kernel cannot honestly back would dilute the PKPASS signature trust signal. Accepting every PDF as `Provenance.UserProvided` is the honest position.
 
-PDF signature semantics are inconsistent in the wild (whole-document vs. partial-document signatures, certification vs. approval signatures, MDP transforms). There is no equivalent to Apple's WWDR root for ticket issuance. A "verified" UI signal that Walt cannot honestly back would dilute the PKPASS signature trust signal. Accepting all PDFs as `Provenance.UserProvided` is the honest position.
+The trust caption is non-suppressible: `DocumentTrustCaption`, reading "User-provided document. This app has not verified the source." (`TRUST_CAPTION_TEXT`).
+
+#### D5.N The actor in kernel copy is "this app"
+
+The kernel does not know what a host calls itself; a trust claim attributed to a name the user sees nowhere else in the app reads as someone else's claim. The same rule covers every kernel sentence that could name the host: the PKPASS import-confirm trust caption (`PassImportConfirm`), the import rejection sheet (`PassImportRejectionSheet`), the unknown-scheme barcode confirmation (`barcode_create_confirm_unknown`) and the `B3EmphasisStyle.DomainHero` URL eyebrow ("LEAVING THIS APP"). D5, Z.8 and D5.T apply to the sentence as worded now.
+
+"This app" relies on the host's window: a host renders kernel trust surfaces in its own opaque window, so the app in front is the app the sentence means. A translucent or dialog-themed window over another app would let it read as that app's claim.
+
+Rejected: a host-supplied name (a host-controlled string inside sentences the kernel pins verbatim, and copy tests could no longer assert a whole sentence); the passive voice ("The source has not been verified."), which drops the actor.
+
+Prose and identifiers in this repository that call the consumer Walt are not copy.
+
+#### D5.T The provenance signal may be carried by a host "Pass type" row
+
+`DocumentView(trustCaption = TrustCaptionPlacement.HostedTypeRow)` renders no kernel caption on the inline detail surface; the host carries the claim with its own type label. This is an explicit policy concession to D5, with its trade:
+
+- **Neutral-type-label substitution is accepted.** A "Pass type: PDF" row names the artifact class rather than stating in words that the document is user-provided and unverified. That is weaker than the verbatim sentence; the consumer accepts it to keep one provenance/type row across artifact classes.
+- **Collapsed-by-default placement is accepted.** A user who never expands the foldout does not see the provenance signal on the detail surface.
+- `TrustCaptionPlacement` is `Docked | HostedTypeRow`. There is no `showCaption: Boolean`: the placement is the audited carrier-of-provenance choice, pinned by `documentViewTrustCaptionParamIsThePlacementType`.
+
+Why bounded: documents already carry `Provenance.UserProvided` and no "verified" signal (D5), so there is no ladder to conflate; the row is still a labelled, discoverable location; the kernel remains a display device (D4). The residual risk is a user who never expands the foldout losing the in-words reminder, judged acceptable for a document they imported themselves. A host using `HostedTypeRow` must render the row; the kernel cannot verify that at runtime, so the host pins it with its own test.
+
+Scope: inline `DocumentView` only. `FullScreenDocumentView` keeps its caption docked and non-suppressible (Z.8); a host's collapsible details have no place to fold into on the zoom surface.
 
 ### D6. Encrypted PDFs are rejected at import
 
-Password-protected PDFs are detected at the encryption-probe step in the renderer service and refused. Walt does not surface a password prompt.
-
-A password prompt invoked from PDF-encryption metadata is a UI vector controlled by an untrusted file. A user habituated to typing passwords into Walt is one prompt-spoof exploit away from a real credential leak. The cost is that users with password-protected files must decrypt elsewhere first; this is a deliberate trade.
+Password-protected PDFs are detected at the encryption probe in the renderer service and refused. There is no password prompt: a prompt driven by PDF-encryption metadata is a UI vector controlled by an untrusted file, and a user habituated to typing passwords into the app is one prompt-spoof from a credential leak. Users decrypt elsewhere first; that cost is deliberate.
 
 ### D7. Hard caps: 25 MB, 10 pages, 4 MP per rendered bitmap, 5 s render timeout
 
-Import-time validation rejects:
+Import-time validation (`PdfImportConfig` defaults) rejects:
 
-| Reject reason          | Threshold                                                  |
-|------------------------|------------------------------------------------------------|
-| `OversizedAtImport`    | size > 25 MB                                               |
-| `NotAPdf`              | first 8 bytes not `%PDF-` with version in 1.0..2.0         |
-| `Encrypted`            | renderer reports the encrypted flag                        |
-| `TooManyPages`         | pageCount > 10                                             |
-| `RendererFailed`       | page-0 smoke render fails or exceeds 5 s timeout           |
+| Reject reason | Threshold |
+|---|---|
+| `OversizedAtImport` | size > 25 MB |
+| `NotAPdf` | first 8 bytes not `%PDF-X.Y` with `X` 1 or 2 and `Y` any ASCII digit |
+| `Encrypted` | renderer reports the encrypted flag |
+| `TooManyPages` | pageCount > 10 |
+| `RendererFailed` | page-0 smoke render fails or exceeds the 5 s timeout |
 
-Per-page rendered bitmaps are bounded at 4 MP, mirroring `ImageRenderBounds.Default` for PKPASS images.
-
-The 10-page ceiling sits well above legitimate ticket density (1-3 pages typical) and well below page-tree-bomb territory. The 5 s timeout caps resource exhaustion via deeply pathological PDFs; on timeout, the service is killed via `Process.killProcess(Process.myPid())` and the binder surfaces `RemoteException`.
-
-The caps are defense-in-depth: storage layer re-checks `byteCount <= 25 MB` and `pageCount <= 10` on insert so a future caller bug cannot land an oversized blob.
+The header check accepts any minor digit rather than a closed list, since the renderer is hardened for the whole 1.x/2.x lineage and a closed list would fail-stop on future minors for no security gain. Per-page rendered bitmaps are bounded at 4 MP (`PdfRendererService.MAX_PIXELS`), mirroring `ImageRenderBounds.Default` for PKPASS images. The 10-page ceiling sits above legitimate ticket density (1-3 pages) and well below page-tree-bomb territory; on timeout the service kills its own process and the binder surfaces `RemoteException`. Storage re-checks `byteCount <= 25 MB` and `pageCount <= 10` on insert, so a caller bug cannot land an oversized blob. The 10-page ceiling will reject some legitimate documents (multi-leg itineraries, booklets with vouchers); raising it is an ADR amendment, not a code-only change.
 
 ### D8. No share-out
 
-Documents in Walt have no "share" or "export" affordance. The bytes are one-way: file picker in, no UI path back to a sharing intent.
+Documents have no share or export affordance. Bytes go one way: file picker in, no UI path back to a sharing intent. Every egress path is a potential exfiltration path if a future bug routes content through it, and the user can re-obtain the original from where they imported it. A bytecode scan (`DocumentPublicApiSurfaceTest` in `passes-document-ui`, `PublicApiSurfaceTest` in `passes-ui`) fails on any construction of `Intent.ACTION_SEND` / `ACTION_SEND_MULTIPLE` or an `application/pdf` share.
 
-Every egress codepath is a potential exfiltration path if a future bug routes content through it implicitly. The user can re-obtain the original PDF from the source they imported it from. The forward-only flow simplifies the trust audit: "PDF bytes leave this app" is structurally false.
+### G.1 PDF import is gated on `Build.VERSION.SDK_INT >= 34`
 
-A `PublicApiSurfaceTest` enforces this by classpath-scanning `passes-ui` and `passes-pdf` for any construction of `Intent.ACTION_SEND` with a PDF MIME type.
+A Mainline-backed PDFium is reachable only on API 34+ via `android.graphics.pdf.PdfRenderer` (API 35 adds `PdfRendererPreV`, also Mainline-backed but with a higher call-site requirement and no extra reach). On API 30-33 `libpdfium.so` is the platform-bundled copy and updates only with full-OS patches. The single import entry point (`DefaultPdfImporter`) therefore rejects below API 34 with `DocumentRejectedKind.UnsupportedAndroidVersion` ("Android 14 or newer required") without invoking the renderer. Every PDF the app renders goes through a Mainline-updated PDFium on devices that receive MediaProvider Mainline updates; builds without Play System Updates update PDFium only with OS releases (residual risk). The repo-wide `minSdk` (28) is unchanged; the gate is a runtime check, not a manifest floor, and the PKPASS path is unaffected.
 
-## Module changes
+## Telemetry
 
-A new `passes-pdf` Android Gradle module hosts the renderer service, the `PassDocument` model, and import-time validation. The module is self-contained for audit: a reviewer reads one module to see every byte of code that touches the PDF format.
-
-`passes-storage` schema migrates v1 to v2: new tables `documents` and `document_thumbnails`, new `StorageTelemetryGuard` events `onDocumentImported` / `onDocumentRejected(kind)` / `onDocumentDeleted` mirroring the existing pass-event PII discipline (no `String` parameters, no labels in events). Migration is forward-only per ADR 0002.
-
-`passes-ui` adds a `DocumentView` composable bound to the `passes-pdf` service over an internal `Binder`, plus the "Documents" list lane and a non-suppressible `DocumentTrustCaption` ("User-provided document. Walt has not verified the source.") in the same visual register as the existing "Self-signed" pill.
-
-`passes-core` is unchanged.
-
-walt-android (consumer-side, closed source) registers the `application/pdf` intent filter, widens the in-app file picker MIME filter to include PDF, and wires the `passes-pdf` and `passes-storage` modules through Hilt. Tracked separately as a cross-repo task in walt-android's beads database.
-
-## Telemetry discipline
-
-`DocumentTelemetryGuard` (in `passes-pdf`) and the new `StorageTelemetryGuard` events all accept exclusively enums, counts, and durations. No `String`, `CharSequence`, `ByteArray`, or `Map` parameters. This mirrors the load-bearing rule from the existing `passes-core/TelemetryGuard`: a future addition of a `String` parameter is a security-policy change requiring re-review.
-
-A reflection-based `DocumentTelemetryGuardSurfaceTest` enforces this structurally.
+`DocumentTelemetryGuard` and the document events on `StorageTelemetryGuard` accept only enums, counts and durations: no `String`, `CharSequence`, `ByteArray` or `Map`. This mirrors `TelemetryGuard`; adding a `String` parameter is a security-policy change. `DocumentTelemetryGuardSurfaceTest` enforces it by reflection. The composite import (C) reuses the image import event verbatim; a decoded barcode payload is never written to telemetry.
 
 ## Consequences
 
-- PDFs imported into Walt are strongly contained but minimally featured: no search, no auto-expiration, no labels beyond filename, no sharing. This matches v1 product intent. Future work that wants any of those features re-opens the threat model and amends this ADR.
-- The isolated-process service adds approximately 200-400 ms of binder-call latency per first-render. Subsequent pages within a session are LRU-cached in main memory and avoid the round-trip.
-- The 10-page ceiling will reject some legitimate documents (multi-leg flight itineraries, event-ticket booklets with vouchers). Rejection telemetry will be monitored; raising the ceiling is a future ADR amendment, not a code-only change.
-- Users running Android versions older than 13 do not benefit from PDFium Mainline updates; PDFium fixes ship via full-OS updates only on those versions. The exposure window is documented in `wpass-6m9`. If the window is too wide, a feature-gate raising minSdk for PDF import (without raising it for the rest of Walt) is the fallback, recorded as an addendum to this ADR if invoked.
+- PDFs are strongly contained but minimally featured: no search, no auto-expiration, no labels beyond filename, no sharing. A feature that wants any of those re-opens the threat model and amends this ADR.
+- The isolated process adds roughly 200-400 ms on first render (cold start of the isolated service; Pixel 6 historical figure, not measured here); later pages in a session are cached in main memory.
+- Devices below API 34 cannot import PDFs at all (G.1).
 
-## Tests pinning the controls above
+## Zoom: full-screen surface only (Z)
 
-Each decision maps to at least one test:
+Pinch-zoom and pan exist because the main reason to import a PDF is to scan an embedded barcode at a gate, and a fit-resolution page does not enlarge it enough. Inline `DocumentView` stays fixed at 1x (zoom inside a surface the host embeds in a vertical scroll needs a nested-gesture interlock at every embedding site, and a small slot still leaves the barcode too small).
 
-| Decision | Test                                                                                                  |
-|----------|-------------------------------------------------------------------------------------------------------|
-| D1       | `PublicApiSurfaceTest`: `PassDocument` is not assignable to `Pass` and shares no superclass.          |
-| D2       | classpath-scan test: `passes-pdf` declares no dependency on `pdfbox-android`, `mupdf`, or similar.    |
-| D3       | instrumented test: malformed PDF crashes the renderer service; main process survives; rebind succeeds.|
-| D4       | reflection test: renderer binder exposes exactly `probe` and `render`; no extraction methods.         |
-| D5       | reflection test: no public symbol named `verifySignature` / `signatureStatus` in `passes-pdf`.        |
-| D6       | unit test: encrypted PDF probe returns `Rejected(Encrypted)`.                                         |
-| D7       | unit tests at each cap boundary; watchdog test covers timeout-then-kill.                              |
-| D8       | classpath-scan test: no `Intent.ACTION_SEND` construction in `passes-ui` or `passes-pdf`.             |
+### Z.2 The 4 MP per-bitmap cap (D7) stands
 
-## Out of scope for this ADR
-
-- PDF metadata-driven labels, OCR, or barcode extraction. Re-considering any of these requires re-opening the threat model.
-- PDF digital signature display ("this PDF is signed by Foo Inc."). The format's signature semantics do not justify the chrome.
-- Sharing PDFs out of Walt. See D8.
-- Inter-document linking, search, or tagging. Documents are sorted by import date only.
-
-## Addendum 2026-05-06: FD transport + Mainline-floor refinement
-
-Tracks: `wpass-0dq` (this addendum) under parent epic `wpass-i2r`. Source:
-empirical findings F and G in `docs/research/pdf-renderer-validation.md`
-(`wpass-6m9`).
-
-The renderer-validation pass surfaced two architectural details that the
-original ADR text under-specified. Both refinements are recorded here as
-amendments to D3 and to the Consequences section, respectively. The rest
-of the ADR stands as written.
-
-### Amendment to D3: FD transport is `memfd_create` with write-seal
-
-D3 mandates that the renderer runs in an isolated process and receives the
-PDF bytes via `ParcelFileDescriptor` over binder. The original text did
-not specify the *backing* of that FD. Empirical analysis showed the
-obvious candidates fail Walt's invariants:
-
-- `MemoryFile` exposes its FD only via reflection on a hidden API; the
-  hidden-api list closes that path on API 28+.
-- `SharedMemory.fileDescriptor` returns an ashmem FD that does not satisfy
-  PDFium's `lseek` + `pread64` access pattern.
-- `File.createTempFile` in `cacheDir` works but writes plaintext PDF
-  bytes to disk for the lifetime of the render call, defeating the
-  at-rest encryption guarantee that SQLCipher provides.
-- `ParcelFileDescriptor.fromSocket` returns a non-seekable FD; PDFium
-  rejects it.
-
-D3 is therefore amended to specify **F.1: `memfd_create`-backed
-`ParcelFileDescriptor`**. The main process allocates a memfd via
-`syscall(__NR_memfd_create, name, MFD_CLOEXEC | MFD_ALLOW_SEALING)`,
-populates it via `write(2)` of the SQLCipher-decrypted PDF bytes (no
-writable `mmap` is ever taken in the main process), then issues
-`fcntl(fd, F_ADD_SEALS, F_SEAL_SEAL | F_SEAL_WRITE | F_SEAL_GROW |
-F_SEAL_SHRINK)` before adopting the int FD into a
-`ParcelFileDescriptor` and transferring it to the renderer service over
-binder.
-
-The seal sequence is load-bearing and the order matters:
-
-- `F_SEAL_WRITE` is what makes the buffer read-only across **future**
-  mappings. A `mmap(PROT_WRITE)` against the FD from the renderer side
-  fails with `EPERM`; a `write(2)` against the FD fails with `EPERM`.
-  This is what protects against a hypothetical PDFium write-via-mmap
-  primitive in the renderer mutating bytes the main process still
-  holds.
-- `F_SEAL_GROW` / `F_SEAL_SHRINK` pin the size, so a renderer compromise
-  cannot resize the backing buffer underneath the main process.
-- `F_SEAL_SEAL` prevents future code from removing or weakening any of
-  the above. Without it, a contributor could land a patch that drops
-  the write-seal and the existing surface-area pin tests would not
-  catch the regression.
-
-The reason `write(2)` rather than mmap-then-write-then-munmap is that
-`F_ADD_SEALS` does **not** invalidate writable mappings that already
-exist; it only blocks new ones. Using `write(2)` means no writable
-mapping ever exists in either process, so the "buffer is read-only by
-the time the FD crosses binder" invariant holds without depending on
-a `munmap` ordering between two processes.
-
-The implementation lives in `passes-pdf` as a small `MemFdAllocator`
-Kotlin class plus one JNI source file
-(`passes-pdf/src/main/cpp/memfd.cpp`, ~30 lines). `passes-pdf` thereby
-gains its first JNI surface; the audit story stays contained because the
-surface is a single function with documented arguments and no buffer
-handling. No plaintext PDF reaches the filesystem at any point.
-
-The renderer service binder API stays at exactly two methods (`probe`,
-`render`). The transport choice does not widen the binder surface that D4
-locks down.
-
-A `MemFdAllocatorJniSurfaceTest` pins the constraint that `passes-pdf`
-declares exactly one native method. Adding a second is a security-policy
-change requiring a follow-up addendum.
-
-### Amendment to Consequences: Mainline floor is API 34, not API 13
-
-The original Consequences text stated: "Users running Android versions
-older than 13 do not benefit from PDFium Mainline updates; PDFium fixes
-ship via full-OS updates only on those versions." That threshold is
-wrong.
-
-Source-level analysis of `packages/providers/MediaProvider/pdf/`
-established that the Mainline-backed PDFium binary is reachable on
-**API 34 and above** via the legacy `android.graphics.pdf.PdfRenderer`
-class. On API 35 the platform additionally exposes `PdfRendererPreV`,
-which is also Mainline-backed but raises the call-site requirement to
-API 35; using it does not buy back user reach. On **API 30-33 there is
-no path that exposes a Mainline-backed PDFium**: those releases predate
-the MediaProvider apex, so `libpdfium.so` is the platform-bundled copy
-and updates only via full-OS security patches.
-
-The Consequences section is therefore amended by replacing "older than
-13" with "older than 14 (API 34)" and by adopting **G.1: PDF import is
-feature-gated on `Build.VERSION.SDK_INT >= 34`**.
-
-The Walt app's overall `minSdk` does not change. The PDF feature gate is
-a runtime check at the single import entry point in `passes-pdf`. Users
-on API 26-33 see the existing PKPASS import path and an explicit "Android
-14 or newer required" message when attempting PDF import. This guarantees
-that every PDF Walt renders goes through a Mainline-updated PDFium with
-current CVE coverage, which was the security argument for system-renderer-only
-in the first place. Accepting a stale-PDFium tail on older devices would
-have weakened that argument; G.1 closes the exposure window instead.
-
-`passes-pdf`'s `minSdk` follows the project default. The API 34
-requirement is enforced as a runtime gate, not a manifest floor. F.1's
-`memfd_create` is reachable below API 34 either through the bionic
-libc wrapper (API 30+) or, on devices below API 30 that nevertheless
-ship a Linux kernel ≥3.17, through a raw `syscall(__NR_memfd_create,
-…)` call. Walt's implementation calls `syscall()` directly so the
-floor is the kernel, not bionic; vendor kernels are not strictly bound
-to API level, but the project's `minSdk` is high enough that no
-shipping device fails the kernel check in practice. F.1 and G.1 are
-therefore independent invariants that do not interact on `minSdk`.
-
-### Tests pinning the amendments
-
-| Decision | Test                                                                                                  |
-|----------|-------------------------------------------------------------------------------------------------------|
-| D3 (F.1) | `MemFdAllocatorJniSurfaceTest`: `passes-pdf` declares exactly one native method (`memfd_create` shim).|
-| D3 (F.1) | classpath-scan test: no `java.io.File` / `java.io.FileOutputStream` / `java.io.RandomAccessFile` / `java.nio.file.Files` write APIs inside `passes-pdf`'s renderer-handoff code path. The handoff path is structurally forbidden from touching the filesystem. |
-| Consequences (G.1) | unit test: import entry point on `Build.VERSION.SDK_INT < 34` returns the "Android 14 or newer required" rejection without invoking the renderer service. |
-
-## Addendum 2026-05-06: model name, version-range wording, module split
-
-Editorial reconciliation, not a substantive policy change. PR #34 review
-flagged three drift points between this ADR and the implementation in
-`wpass-jsb`. The implementation names are the correct ones; the ADR text
-is amended here.
-
-### Model name: `PassDocument` -> `PdfDocument`
-
-D1, the Module changes section, and the D1 row of the test table refer to
-the model class as `PassDocument`. The implementation calls it
-`PdfDocument`. The implementation name is preferred because it removes
-naming collision with `Pass` (which would be a hazard the moment a
-reviewer skim-reads `PassDocument` and assumes a subclass relationship)
-and because it is the audit-readable name for "the PDF model."
-
-Read every occurrence of `PassDocument` in this ADR as `PdfDocument`. The
-sibling-of-`Pass` argument under D1 stands unchanged: `PdfDocument` and
-`Pass` share no superclass and are not assignable to each other. The
-trust-shape distinction is the same.
-
-### Header version range: `1.0..2.0` -> `1.x or 2.x`
-
-The D7 reject-reason table specifies `NotAPdf` as "first 8 bytes not
-`%PDF-` with version in 1.0..2.0". The implementation accepts any minor
-digit in the major-1 and major-2 ranges (`%PDF-1.0` through `%PDF-1.9`
-and `%PDF-2.0` through `%PDF-2.9`). The implementation behavior is
-correct: clamping the minor to a closed list would fail-stop on
-legitimate future PDF specifications without buying any security
-property, since the renderer is hardened for the entire 1.x/2.x lineage
-the system PDFium supports.
-
-Read the D7 row as: "first 8 bytes not `%PDF-X.Y` where `X` is `1` or `2`
-and `Y` is any ASCII digit."
-
-### Module split: `passes-pdf-core` (pure Kotlin) and `passes-pdf` (Android)
-
-The "Module changes" section described "a new `passes-pdf` Android Gradle
-module" hosting the renderer service, the `PdfDocument` model, and
-import-time validation. PR #34 split this single module into two, matching
-the existing `passes-core` / `passes-storage` precedent in the project:
-
-- **`passes-pdf-core`** — pure Kotlin/JVM. Hosts `PdfDocument`,
-  `PdfImportConfig`, `PdfImportResult`, `DocumentRejectedKind`,
-  `Provenance`, `DocumentTelemetryGuard`, and the `isPdfHeader` magic-byte
-  gate. No Android framework dependencies. Audit-readable in isolation.
-- **`passes-pdf`** — Android. Hosts the `android:isolatedProcess`
-  renderer service, the `MemFdAllocator` plus `memfd.cpp` JNI shim, the
-  binder API, and the import-time validation that needs Android types.
-
-The split moves the single-source-of-truth contract types out of an
-Android module so they can be reasoned about, tested, and audited without
-the Android Gradle Plugin in the loop, the same way `passes-core` is.
-
-Read the references in this ADR as follows:
-
-- "`PdfDocument` model" / "`DocumentTelemetryGuard`" / "import-time
-  validation" / "`PublicApiSurfaceTest`" → **`passes-pdf-core`**.
-- "renderer service" / "`MemFdAllocator`" / "`memfd.cpp`" / "binder API"
-  / "`MemFdAllocatorJniSurfaceTest`" / "G.1 runtime API-34 gate" →
-  **`passes-pdf`**.
-
-Tests that scan a module's classpath or symbols (D2's third-party-PDF-lib
-exclusion, D5's no-`verifySignature` symbol, D8's no-`ACTION_SEND`
-construction) apply to **both** modules. The exclusions only hold if
-neither module hosts the forbidden surface.
-
-The Android-side renderer module remains tracked under `wpass-5v9`. Its
-manifest, JNI source, and binder code land there.
-
-## Addendum 2026-05-15: Pinch-zoom + pan in `DocumentView`
-
-**Superseded by the 2026-05-15 follow-on addendum below ("Zoom moves to a
-dedicated full-screen surface"). The follow-on retains Z.2, Z.3, and Z.5
-verbatim and replaces Z.1, Z.4, and Z.6.** The text below is retained for
-audit continuity; consult the follow-on for current behaviour.
-
-Tracks: `wpass-6ag` (parent), `wpass-1wq` (UI gesture surface), `wpass-f4b`
-(renderer zoom-aware path), `wpass-0nn` (this addendum). Cross-repo
-consumer-side tracker: walt-android `wlt-o72.4`. Storage precondition
-verified by walt-android `wlt-o72.3` (imported PDF bytes are persisted at
-full resolution, no re-encode or downscale).
-
-### Context
-
-The original Consequences section framed `DocumentView` as "minimally
-featured", and `DocumentView` shipped as a `HorizontalPager` of
-`ContentScale.Fit`-letterboxed pages with no zoom and no pan. In
-practice, the #1 reason a user imports a PDF into the wallet is to
-scan an embedded barcode (PDF417 / QR / EAN) at a venue or transit
-gate. A fit-resolution rasterised page does not enlarge a typical
-barcode enough for a scanner to read it, so the feature as originally
-shipped fails its primary use case.
-
-This addendum records pinch-to-zoom and single-touch pan-when-zoomed as
-explicit features of `DocumentView`, and reconciles them with the trust
-contracts in D4, D5, D7, and D8.
-
-### Z.1 Pinch-zoom and pan are features; gesture priority interlocks with the pager
-
-Pinch-to-zoom (two-finger) and pan-when-zoomed (single-finger, only when
-`scale > 1`) are part of `DocumentView`'s gesture surface. Implementation
-constants live in `passes-pdf-ui/.../DocumentView.kt`:
-
-- `MIN_SCALE = 1f` (zooming out below fit is meaningless on a
-  single-page surface).
-- `MAX_SCALE = 3f` (interim ceiling against the current fit-resolution
-  bitmap — at 5x, each source pixel becomes a 5x5 bilinear block and
-  the smearing crosses into "bigger but less scannable" territory for
-  phone-camera barcode decoders. Moves to 5f once `wpass-f4b` lands the
-  viewport-aware renderer so the upsampling cost disappears).
-- `DOUBLE_TAP_SCALE = 2f` (double-tap toggle target).
-
-Gesture priority with the enclosing `HorizontalPager` is the
-load-bearing UX interlock:
-
-- Two-finger pinch is always consumed by the page-scoped zoom surface.
-  It never advances the pager.
-- Single-touch drag is consumed by the zoom surface only when
-  `scale > MIN_SCALE`. At fit, single-touch horizontal drag passes
-  through to the pager — page-swipe behaviour is unchanged from before
-  the addendum.
-- Translation is clamped so the scaled page cannot be panned entirely
-  off the slot. The user cannot lose the barcode by overshooting.
-
-Zoom state is per-page and resets on page change (the
-`remember(document.id, pageIndex)` frame in the rendering composable
-owns it). Paging away from a zoomed-in barcode and back returns the
-page to fit — no cross-page zoom persistence, which keeps the swipe
-gesture's mental model clean.
-
-### Z.2 The 4 MP per-bitmap cap (D7) stands unchanged
-
-`PdfRendererService.MAX_PIXELS = 4 MP` is **not** raised by this
-addendum. The cap is defense-in-depth against
-decompression-bomb-style memory abuse; raising it would be a
-separate security-policy change requiring its own addendum.
-
-Both candidate renderer designs under evaluation in `wpass-f4b` (tiled
-rendering; viewport re-render) fit within the cap:
-
-- Tiled rendering caps **per-tile** at <= 4 MP. Total tile RAM is
-  bounded by how many tiles are visible in the zoomed viewport, not
-  by the zoom factor.
-- Viewport re-render caps the **single** bitmap at <= 4 MP. One
-  bitmap per zoom level; the visible document-rect is what gets
-  rasterised at viewport resolution.
-
-The gesture surface (Z.1) is correct against the existing
-fit-resolution bitmap — pixelated when zoomed past about 1.3-1.5x, but
-functionally correct. The renderer change in `wpass-f4b` is what
-delivers sharp-at-zoom; it can land independently as a follow-up.
+`PdfRendererService.MAX_PIXELS` is not raised for zoom. The cap is defense-in-depth against decompression-bomb memory abuse; raising it is its own security-policy change. Zoom-aware rendering (tiled or viewport re-render) stays within it: per-tile or per-bitmap at 4 MP or less.
 
 ### Z.3 The binder API surface does not widen
 
-`PdfRendererBinder` continues to expose exactly two methods: `probe`
-and `render`. The renderer zoom-aware path (`wpass-f4b`) extends
-`render`'s parameter shape with a sub-rect / viewport indicator (see
-that bead for the exact wire shape), but does not add a third
-transaction. D4's no-extraction guarantee is therefore preserved:
-`PublicApiSurfaceTest`'s reflection check still passes after
-`wpass-f4b` lands.
-
-### Z.4 The non-suppressible trust caption (D5) stays docked above the pager
-
-> **Wording updated (2026-11-21).** The caption now says "This app". See the
-> 2026-11-21 addendum (D5.N) below.
-
-This is the explicit decision the addendum is being filed to record:
-**the trust caption ("User-provided document. Walt has not verified
-the source.") stays docked above the pager and is NOT subject to the
-zoom transform.** It cannot be panned off-screen, and it remains
-visible at every zoom level.
-
-Two implementation options were considered:
-
-- (a) Caption stays in its row in `DocumentView`'s `Column`, above the
-  pager. The zoom transform applies inside the pager slot only.
-- (b) Caption pans / scales with the page. Could be scrolled off
-  screen if the user pans up while zoomed.
-
-Option (a) is adopted. The reasoning:
-
-- D5's "non-suppressible" promise reads naturally as "the user can
-  always see it." Option (b) makes the caption *suppressible by pan*
-  in practice — a user zoomed in on the lower half of a page would
-  not see the caption, which dilutes the trust signal.
-- Option (a) is what the current `DocumentView` layout already does:
-  the caption is a sibling of the pager in a `Column`, and the zoom
-  transform is structurally scoped to the page slot inside the
-  pager. No layout change is needed for the addendum.
-- The cost of option (a) is zero: caption never interferes with the
-  gesture surface, and the gesture surface never interferes with the
-  caption.
+`PdfRendererBinder` keeps exactly `probe` and `render`. A zoom-aware path extends `render`'s parameter shape (sub-rect / viewport); it adds no third transaction, so D4's no-extraction guarantee holds.
 
 ### Z.5 No share-out path is introduced (D8 unchanged)
 
-Zoom is a view-side affordance. No new code path moves PDF bytes off
-device or into a sharing intent. D8's classpath-scan test
-(`Intent.ACTION_SEND` is forbidden in `passes-ui`, `passes-pdf-ui`,
-and `passes-pdf`) continues to pass.
+Zoom is a view-side affordance; no new path moves bytes off device or into a sharing intent.
 
-### Z.6 Consumer-side integration is the host's responsibility
+### Z.7 Zoom lives in a full-screen detail surface only
 
-walt-android embeds `DocumentView` inside a vertical scroll container
-on the document-detail screen. Now that `DocumentView` consumes
-single-touch drags when zoomed, the host screen will need to defer to
-the embedded gesture (nested-scroll or zoom-state-gated suppression).
-Tracked on the consumer side as walt-android `wlt-o72.4`. This
-addendum does not commit `passes-pdf-ui` to a nested-scroll API; the
-gesture surface is self-contained at scale > 1 and the integration
-contract is documented in the bead.
-
-### Tests pinning the addendum
-
-| Decision | Test                                                                                                  |
-|----------|-------------------------------------------------------------------------------------------------------|
-| Z.1      | `DocumentViewInstrumentedTest.pinchToZoomDoesNotAdvanceThePagerAndKeepsTheTrustCaptionVisible`        |
-| Z.1      | `DocumentViewInstrumentedTest.singleTouchHorizontalDragAtFitScaleStillAdvancesThePager`               |
-| Z.1      | `DocumentViewInstrumentedTest.singleTouchHorizontalDragWhileZoomedDoesNotAdvanceThePager`             |
-| Z.1      | `DocumentViewInstrumentedTest.doubleTapOnThePageDoesNotAdvanceThePager`                               |
-| Z.2      | existing `PdfRendererService.MAX_PIXELS` pin in renderer service code — value unchanged.              |
-| Z.3      | existing `PublicApiSurfaceTest` reflection check on `PdfRendererBinder` — still exactly two methods.  |
-| Z.4      | `DocumentViewInstrumentedTest.pinchToZoomDoesNotAdvanceThePagerAndKeepsTheTrustCaptionVisible` asserts caption visibility post-pinch; existing `trustCaptionDoesNotOverlapThePageWhenTheConsumerGivesAShortSlot` pins the structural layout boundary. |
-| Z.5      | existing classpath-scan test for `Intent.ACTION_SEND` — surface unchanged.                            |
-
-## Addendum 2026-05-15: Zoom moves to a dedicated full-screen surface
-
-Tracks: `wpass-6ag` (parent), `wpass-jil` (full-screen surface + banner),
-`wpass-ny4` (inline pinch removal), `wpass-f4b` (renderer sub-rect path),
-`wpass-5n1` (this addendum). Supersedes the immediately-preceding
-`wpass-0nn` addendum.
-
-### Context
-
-The `wpass-0nn` addendum landed pinch-zoom and pan inside the inline
-`DocumentView`. Practical use surfaced two problems:
-
-- Mounting zoom in the same surface that the host app embeds inside a
-  vertical scroll forces a nested-gesture interlock at every embedding
-  site, with `scale > 1` as the toggle. The contract is correct but
-  fragile — a host that forgets to consume vertical drags appropriately
-  produces a pager that fights the parent scroll.
-- The inline surface is sized for browsing (a tile-shaped 360x480dp
-  slot). The zoom-to-scan use case wants the page to take the whole
-  screen; inline zoom against a small slot still leaves the barcode
-  smaller than the user wants even at `MAX_SCALE`.
-
-The pivot: inline `DocumentView` returns to a fixed 1x display. A
-dedicated full-screen detail surface in `passes-pdf-ui` hosts pinch-zoom
-and pan, entered from a "Tap for full screen" banner docked inside the
-inline `DocumentView`.
-
-This addendum records the resulting decisions and reconciles them with
-D4, D5, D7, and D8. Z.2, Z.3, and Z.5 from the prior addendum are
-retained verbatim; Z.1, Z.4, and Z.6 are replaced.
-
-### Z.7 Zoom lives in a full-screen detail surface only; inline `DocumentView` is fixed 1x
-
-The inline `DocumentView` carries no zoom, no pan, and no double-tap
-toggle. The pager-swipe gesture inside it is unchanged from the
-pre-`wpass-0nn` baseline: single-touch horizontal drag advances the
-pager, two-finger gestures are ignored by the surface, and the page is
-drawn at fit resolution into the slot the host gives it.
-
-Pinch-zoom (two-finger) and pan-when-zoomed (single-finger when
-`scale > 1`) live in a new full-screen detail surface in
-`passes-pdf-ui`. The surface is entered from a "Tap for full screen"
-banner docked at the bottom of the inline `DocumentView`, above the
-trust caption. The banner is themed via `DocumentSemantics`
-/ `DocumentTheme` — walt-android supplies the label string and the
-visual tokens; `passes-pdf-ui` ships the structural slot.
-
-The full-screen surface owns the same gesture-priority interlock the
-prior addendum specified, now inside its own root rather than inside an
-embedded pager:
+Inline `DocumentView` has no zoom, pan or double-tap toggle: single-touch horizontal drag advances its pager, two-finger gestures are ignored, and pages draw at fit resolution into the host's slot. A "Tap for full screen" banner docked inside the inline view, above the trust caption, enters `FullScreenDocumentView`, which owns the gesture interlock:
 
 - Two-finger pinch always drives zoom.
-- Single-touch drag drives pan only when `scale > MIN_SCALE`. At fit,
-  single-touch horizontal drag advances the in-surface pager (if more
-  than one page) or is a no-op.
-- Translation is clamped so the scaled page cannot be panned entirely
-  off the slot.
+- Single-touch drag pans only when `scale > MIN_SCALE`; at fit it advances the in-surface pager (if more than one page) or does nothing.
+- Translation is clamped so the page cannot be panned entirely off the slot.
+- Zoom state is per page and resets on page change and on reopening the surface.
 
-Zoom state is per-page and resets on page change inside the full-screen
-surface. Closing the full-screen surface and reopening it returns the
-page to fit — no cross-session zoom persistence. Exiting the surface
-(back gesture or close affordance) returns the user to the inline
-`DocumentView` in the document-detail screen.
+The banner is themed through `DocumentSemantics` / `DocumentTheme`; the consumer supplies the label and tokens, the kernel the structural slot. The full-screen surface takes the whole screen outside any host scroll container, so the host's integration is a navigation hop, not a gesture contract (Z.9).
 
-The implementation reuses the gesture surface from `wpass-1wq`,
-relocated to the full-screen composable per `wpass-ny4`. No duplicate
-gesture implementation exists across surfaces.
+### Z.8 Trust caption (D5) stays non-suppressible in full-screen and docks to a screen edge
 
-### Z.8 Trust caption (D5) remains non-suppressible in full-screen and docks to a screen edge
+The caption is not subject to the zoom transform. It docks to an edge of the full-screen root, outside the pannable and zoomable region, and stays visible at any pan position and zoom. The dock is a sibling of the arm dispatch, so no arm can scale it. Rejected: a caption that pans and zooms with the page plus a duplicate docked indicator, which makes the in-page caption suppressible by pan in practice and adds a second copy as a new audit surface. Inline `DocumentView` keeps the caption in its slot above the pager (D5.T aside).
 
-> **Wording updated (2026-11-21).** The caption now says "This app". See the
-> 2026-11-21 addendum (D5.N) below.
+### Z.9 Consumer integration
 
-The trust caption ("User-provided document. Walt has not verified the
-source.") is rendered on the full-screen surface and is NOT subject to
-the zoom transform. It docks to a screen edge — concretely, an edge of
-the full-screen root, outside the pannable / zoomable page region — and
-stays visible regardless of pan position or zoom factor.
+Because the inline surface consumes no single-touch drags at any zoom level, the host embeds `DocumentView` in a vertical scroll with no nested-scroll interlock. Launching the full-screen surface and back-navigation are the host's navigation concern.
 
-This is the decisive choice between the two options the bead flagged:
+## Documents generalize to PDF + image (I)
 
-- (a) Caption docks to a screen edge and stays visible regardless of
-  pan/zoom. Adopted.
-- (b) Caption pans/zooms with the page and a duplicate docked
-  indicator stays visible. Rejected.
+The same trust posture (user-supplied file, never signature-verified, non-suppressible caption, isolated process, no share-out) applies verbatim to PNG / JPEG / WebP, which users receive as screenshots and photos at least as often as PDFs. D1 through D8 extend to the image arm unchanged; only what differs is recorded.
 
-Option (a) is adopted because D5's "non-suppressible" reads naturally
-as "the user can always see it." Option (b) would make the in-page
-caption suppressible by pan in practice, and adds a second copy that
-itself becomes a new audit surface for the trust signal. The cost of
-(a) is zero: caption never interferes with the gesture surface and
-vice versa. This is the same structural argument the prior addendum
-used for Z.4 in the inline case, now applied to the full-screen root.
+### I1. `Document` is sealed: `PdfDocument | ImageDocument` (plus the composite arm, C1)
 
-Inline `DocumentView` continues to render the trust caption in its
-existing layout slot above the pager (now with the full-screen banner
-between caption and pager region). Inline behaviour is unchanged
-from before `wpass-0nn`.
+`PdfDocument` keeps `pageCount`; `ImageDocument` carries `widthPx` / `heightPx` instead (the kind-specific field lives on its arm, never on the supertype). `ImageDocument` shares no superclass with `Pass` and has no `SignatureStatus`. The dimensions are the bounded raster decoded inside the sandbox, never derived from an in-process decode of untrusted bytes, never upscaled beyond source. The model carries no container format; that is a persistence detail.
 
-### Z.9 Consumer-side integration is simpler than under `wpass-0nn`
+### I2. The image reject taxonomy is not merged into `DocumentRejectedKind`
 
-Because inline `DocumentView` no longer consumes single-touch drags at
-any zoom level, the nested-scroll interlock that `wpass-0nn`'s Z.6
-made the host responsible for goes away on the inline surface. The
-host embeds `DocumentView` inside a vertical scroll exactly as before
-the gesture work landed.
+PDFs fail as `Encrypted` or `TooManyPages`; images as `NotAnImage` or `DimensionsTooLarge` (a decompression bomb). One enum would force every consumer to branch on arms that cannot occur for its kind. The image taxonomy is `passes-image`'s `ImageDecodeRejectedKind` (`NotAnImage` / `OversizedAtImport` / `DimensionsTooLarge` / `DecodeFailed` / `DecoderUnavailable`), reused verbatim. `DocumentImportResult` (in `passes-document`) carries the PDF taxonomy on `PdfRejected`, the image taxonomy on `ImageRejected`, plus kind-agnostic arms (`Unrecognized`, `StorageHandoffFailed`).
 
-The full-screen surface takes the whole screen and is outside any host
-scroll container, so the gesture surface there is self-contained by
-construction. No nested-gesture API is committed to `passes-pdf-ui` by
-this addendum.
+### I3. `passes-document` owns the sniff-and-branch orchestration
 
-Cross-repo: walt-android `wlt-o72.4` covers the consumer-side wiring
-(launching the full-screen surface from `DocumentDetailScreen.kt`,
-back-navigation handling). The wiring is a navigation hop only, not a
-gesture contract.
+`DocumentImporter` magic-byte-sniffs PDF vs image and branches to `passes-pdf`'s renderer service or `passes-image`'s decode sandbox. It sits above both backends, and a `passes-pdf` to `passes-image` edge is deliberately avoided; the only other module above both is `passes-document-ui` (display). It declares no service; all decode and render work stays in the isolated backends. The orchestration lives here so it is not reassembled in the host.
 
-### Z.2, Z.3, Z.5 retained from the prior addendum
+The importer reads the source once into a bounded buffer, sniffs, then materializes the bytes into a memfd PFD (unsealed today; F.1 Known gap) via `passes-isolation` for the winning backend, so a one-shot fd source is never read twice and the original bytes are what get persisted.
 
-The 4 MP per-bitmap cap (Z.2), the no-binder-widening guarantee (Z.3),
-and the no-share-out rule (Z.5) are unchanged. The sub-rect / viewport
-re-render path in `wpass-f4b` extends `render`'s parameter shape in
-place; it remains a single transaction. The full-screen surface
-consumes the same `PdfRendererBinder.render` call site shape that the
-inline surface used.
+### I4. Storage: forward-only `documents` columns
 
-### Tests pinning the addendum
+The `documents` table has a `format` discriminator (`'pdf' / 'png' / 'jpeg' / 'webp'`, default `'pdf'` so existing rows migrate untouched) and nullable `width_px` / `height_px`. The `pdf_bytes` BLOB column holds the original bytes of either kind (renaming forces a table rewrite for no audit gain). `insertDocument` takes a sealed `DocumentInsert` (`Pdf(pageCount)`, `Image(format, widthPx, heightPx)`, `BarcodedImage`). The D7 size and label caps apply to both kinds; the page cap is PDF-only. Migrations are forward-only (ADR 0002).
 
-| Decision | Test                                                                                                  |
-|----------|-------------------------------------------------------------------------------------------------------|
-| Z.7      | Compose test: inline `DocumentView` does not respond to pinch gestures (regression after `wpass-ny4`).|
-| Z.7      | Compose test: tapping the full-screen banner inside `DocumentView` navigates to the full-screen surface. |
-| Z.7      | Compose test: the full-screen surface drives a zoom-aware re-render call on pinch (mock binder).      |
-| Z.8      | Compose test: trust caption is visible on the full-screen surface at fit, after zoom, and after pan.  |
-| Z.8      | Existing inline `DocumentTrustSurfaceTest` continues to pin caption visibility on the inline surface. |
-| Z.2      | existing `PdfRendererService.MAX_PIXELS` pin — value unchanged.                                       |
-| Z.3      | existing `PublicApiSurfaceTest` reflection check on `PdfRendererBinder` — still exactly two methods.  |
-| Z.5      | existing classpath-scan test for `Intent.ACTION_SEND` — surface unchanged.                            |
+### I5. The image arm reuses the trust caption and `DocumentView`
 
-## Addendum 2026-06-16: Documents generalize to PDF + image (`Document = PDF | image`)
+`DocumentView` dispatches on the sealed `Document`: PDF is the swipeable pager; image is a single fixed-fit image decoded once in the sandbox. The same verbatim `DocumentTrustCaption` is composed inside both view arms; the only parameter that omits it is `trustCaption = HostedTypeRow`, the audited D5.T concession. The dispatcher takes the kind-specific `imageFile` / `imageDecoder` pair alongside `pdfFile` / `renderer`; `passes-document-ui` depends on `passes-image` for this. `FullScreenDocumentView` serves all three arms; Z.7 and Z.8 (pinch-zoom, docked non-suppressible caption) apply to image and composite documents as to PDFs. D8 holds across all three arms.
 
-Tracks: parent epic `wpass-i9x` (generalize Document to cover images); steps
-`wpass-gnp` (bounded `decodeBounded` primitive), `wpass-gyn` (sealed `Document` +
-`DocumentView` dispatcher, PDF-only arm), `wpass-6yp` (isolated image-decode
-service), `wpass-bsf` (this addendum — the image arm end-to-end). Cross-repo
-consumer wiring: walt-android `wlt-4pg`.
+## Composite artifact: PDF | image | barcoded-image (C)
 
-### Context
-
-The original ADR scoped "documents" to PDFs. The same trust posture — a
-user-supplied file Walt renders but never signature-verifies, behind a
-non-suppressible caption, in an isolated process, with no share-out — applies
-verbatim to still images (PNG / JPEG / WebP). Users receive event tickets and
-transit passes as screenshots and photos at least as often as PDFs. Rather than
-stand up a parallel "image" concept, the document model is generalized so an
-image is a second kind of `Document`, reusing the storage, trust-caption, and
-display machinery the PDF arm already established.
-
-This addendum blesses that generalization. D1's "sibling of `Pass`" framing, the
-isolation posture (D2/D3), no-extraction (D4), no-signature-verification (D5),
-the hard caps as defense-in-depth (D7), and no-share-out (D8) all extend to the
-image arm unchanged. The decisions below record only what is **new or different**
-for images.
-
-### I1. `Document` is a sealed type with two arms: `PdfDocument | ImageDocument`
-
-`passes-pdf-core` promotes `Document` to the sealed supertype (it already held the
-common fields). `PdfDocument` keeps `pageCount`; the new `ImageDocument` carries
-`widthPx` / `heightPx` instead — the kind-specific field lives on its arm, never on
-the supertype. `ImageDocument` shares no superclass with `Pass` (D1 unchanged) and
-has no `SignatureStatus` (D5 unchanged). The dimensions are the bounded raster Walt
-decoded **inside the sandbox**, never derived from an in-process decode of the
-untrusted source bytes, and never upscaled beyond source. `ImageDocument` carries
-no container format — that is a persistence detail, kept off the model.
-
-### I2. The image reject taxonomy is NOT merged into `DocumentRejectedKind`
-
-Images fail in different ways than PDFs (a PDF is `Encrypted` or has `TooManyPages`;
-an image is `NotAnImage` or a `DimensionsTooLarge` decompression bomb). Folding both
-into one enum would force every consumer to branch on arms that cannot occur for its
-kind. The image taxonomy is `passes-image`'s existing `ImageDecodeRejectedKind`
-(`NotAnImage` / `OversizedAtImport` / `DimensionsTooLarge` / `DecodeFailed` /
-`DecoderUnavailable`), reused verbatim. There is **no new "document reject" enum**:
-the importer-facing result (`DocumentImportResult`, in `passes-document`) carries the
-PDF taxonomy on its `PdfRejected` arm and the image taxonomy on its `ImageRejected`
-arm, plus two kind-agnostic arms (`Unrecognized`, `StorageHandoffFailed`).
-
-### I3. A new `passes-document` module owns the sniff-and-branch orchestration
-
-`DocumentImporter` magic-byte-sniffs PDF vs image and branches to the right isolated
-backend: `passes-pdf`'s renderer service for PDFs, `passes-image`'s decode sandbox
-for images. It is a new Android module that sits ABOVE both backends (the way
-`passes-pdf-ui` sits above `passes-pdf`) and is the **single** place the two
-otherwise-independent peers meet — a peer-to-peer `passes-pdf → passes-image` edge is
-deliberately avoided. The module declares no service of its own; every byte of
-decode/render work still happens inside the isolated backends. Per the DECISIVE
-CONSTRAINT, this orchestration lives here, not reassembled in walt-android.
-
-The importer reads the source ONCE into a bounded buffer, sniffs, then materializes
-the bytes into a single sealed `memfd` PFD (via `passes-isolation`) handed to the
-winning backend — so a one-shot fd source is never read twice (no offset corruption),
-and the original bytes are what get persisted ("persist original").
-
-### I4. Storage: `documents` schema v5 → v6 (forward-only)
-
-The `documents` table gains a `format` discriminator column
-(`'pdf' / 'png' / 'jpeg' / 'webp'`, `NOT NULL DEFAULT 'pdf'` so existing PDF rows
-migrate untouched) and nullable `width_px` / `height_px`. The `pdf_bytes` BLOB column
-is reused verbatim to hold the original bytes of either kind — renaming it would force
-a table rewrite for no audit gain, and `loadDocumentBytes` / `loadDocumentThumbnail`
-are already kind-agnostic. `insertDocument` takes a sealed `DocumentInsert`
-(`Pdf(pageCount)` | `Image(format, widthPx, heightPx)`). The D7 size and label caps
-apply to both kinds; the page cap is PDF-only (an image is a single page). Migration is
-forward-only per ADR 0002.
-
-### I5. The image arm reuses the trust caption and `DocumentView` verbatim; full-screen is out of scope
-
-`DocumentView` dispatches on the sealed `Document`: the PDF arm is the existing
-swipeable pager; the image arm is a single, fixed-fit, no-pager image decoded once in
-the sandbox. The non-suppressible `DocumentTrustCaption` (D5) is composed inside BOTH
-arms from the same verbatim composable — there is no parameter on `DocumentView` that
-can hide it. The dispatcher gains the kind-specific `imageFile` / `imageDecoder`
-backend pair alongside the existing `pdfFile` / `renderer` pair (its user-visible
-parameter count moves 7 → 9; `DocumentSurfaceLockTest` is updated deliberately, as it
-was for the wpass-emn slot). `passes-pdf-ui → passes-image` is the reserved edge this
-step lands. Zoom / full-screen for images is intentionally NOT in this step: the
-PDF-only `FullScreenDocumentView` is unchanged; the inline fixed-1x image is the
-presentation shipped here. D8 (no share-out) holds — the `passes-pdf-ui` bytecode scan
-for `Intent.ACTION_SEND` / `application/pdf` stays green across both arms.
-
-### Tests pinning this addendum
-
-| Decision | Test                                                                                                  |
-|----------|-------------------------------------------------------------------------------------------------------|
-| I1       | `passes-pdf-core` `PublicApiSurfaceTest`: `Document` has exactly the `PdfDocument` + `ImageDocument` arms; `ImageDocument` shape is exercised. |
-| I2       | `DocumentImportResult` reuses `ImageDecodeRejectedKind` verbatim; `passes-document` `DocumentImporterTest` maps each backend outcome onto the right arm. |
-| I3       | `DocumentImporterTest`: PDF magic routes to the PDF backend, image magic to the image backend, unrecognized bytes touch neither; original bytes reach `persist`. |
-| I4       | `passes-storage` `SchemaMigrationTest.migrationFromV5AddsDocumentFormatAndDimensionColumns` + `...DefaultsExistingDocumentsToPdfFormat...`; `DocumentRepositoryTest` image-insert tests. |
-| I5       | `DocumentSurfaceLockTest` (9-param lock + `ImageDecodeBinder`-interface lock); `DocumentTrustSurfaceTest.imageDocumentViewRendersTheNonSuppressibleTrustCaption`; existing `application/pdf` / `ACTION_SEND` bytecode scan. |
-
-## Addendum 2026-06-17: Composite artifact — `Document = PDF | image | barcoded-image`
-
-Tracks: `wpass-8lu` (first-class composite artifact: image + extracted/generated
-barcode, one wallet item). Consumer-requested by walt-android epic `wlt-yjn5`
-(add-to-wallet UX rethink); blocks consumer `wlt-u3tk → wlt-2ub2`. Follow-on to the
-2026-06-16 image addendum (`wpass-i9x`). Module names below are the post-`wpass-xmp`
-names (`passes-document-core` / `passes-document-ui`, formerly `passes-pdf-core` /
-`passes-pdf-ui`).
-
-### Context
-
-A common add-flow input is a photographed or screenshotted membership / loyalty card
-that *carries a barcode* — the user wants both the picture (to recognise the card) and
-a crisp, re-renderable native barcode (to scan at a terminal). The image-only arm
-(`wpass-i9x`) covers the barcode-*less* case; a separate `ScannableCard` (ADR 0001)
-covers the barcode-*only* case. The composite is the union: ONE artifact carrying an
-image AND a barcode extracted from that image. Rather than a fourth artifact tower or a
-host-side join of two rows, it is a **third `Document` arm** that is a strict superset
-of `ImageDocument`, so it reuses the image isolation, storage, trust-caption, and
-display substrate verbatim and degrades to a plain `ImageDocument` when no code is
-found. The decisions below record only what is **new or different** for the composite.
+A photographed or screenshotted membership card that carries a barcode wants both the picture (to recognise the card) and a crisp re-renderable native barcode (to scan). The image arm covers the barcode-less case and `ScannableCard` the barcode-only case; the composite is one artifact carrying an image and a barcode extracted from it. It is a strict superset of `ImageDocument`, reusing its isolation, storage, caption and display substrate, and degrades to a plain image when no code is found.
 
 ### C1. `Document` gains a third arm: `BarcodedImageDocument`
 
-`passes-document-core` adds `BarcodedImageDocument` (with `BarcodedImageDocumentId`)
-alongside `PdfDocument` and `ImageDocument`. It carries every `ImageDocument` field
-(`widthPx` / `heightPx`, original bytes persisted) PLUS `barcodePayload: String` and
-`barcodeFormat: ScannableFormat`. It shares no superclass with `Pass` (D1 unchanged)
-and has no `SignatureStatus` (D5 unchanged — a barcode extracted from a user image is
-not a verified credential). The arm exists **only when a code was actually found and
-(consumer-side) confirmed**; an image with no barcode stays an `ImageDocument`, never a
-`BarcodedImageDocument` with an empty payload. This forces a deliberate, security-
-reviewed edit to `passes-document-core`'s `PublicApiSurfaceTest` arm-set lock, in the
-same audit register as adding a binder method. `passes-document-core` takes a new
-pure-JVM `api` edge to `passes-core` for `ScannableFormat` (mirrors
-`passes-barcode-core → passes-core`; adds no Android dependency).
+It carries every `ImageDocument` field plus `barcodePayload: String` and `barcodeFormat: ScannableFormat`. It shares no superclass with `Pass` and has no `SignatureStatus` (a barcode extracted from a user image is not a verified credential). The arm exists only when a code was found and the consumer confirmed it; an image with no barcode stays an `ImageDocument`, never a composite with an empty payload. Adding an arm forces a deliberate, security-reviewed edit to `PublicApiSurfaceTest`'s arm-set lock, in the same audit register as adding a binder method. `passes-document-core` has a pure-JVM `api` edge to `passes-core` for `ScannableFormat`.
 
-### C2. Barcode extraction runs in the isolated worker — the load-bearing constraint
+### C2. Barcode extraction runs in the isolated worker
 
-The user-imported image is the hostile-input surface (the same `CVE-2023-4863`
-libwebp / codec-RCE class D3 and `wpass-i9x` exist to contain). Extracting a barcode
-from it means decoding the image and running a symbol reader over the pixels — both
-MUST happen in the permissionless sandbox, never in the host process. The importer
-reuses `passes-barcode`'s existing isolated `BarcodeImageDecoder` (the static-image
-posture, `wpass-zrt`): the original bytes are decoded in-sandbox and **only**
-`{payload, ScannableFormat}` (the pure `BarcodeDecodeResult` from `passes-core`) crosses
-the binder — never a `Bitmap`, never the source bytes. No `BitmapFactory` / `ImageDecoder`
-/ ZXing call touches user-image bytes in the host process. This is the same invariant
-that gates `wpass-i9x` acceptance, extended to the barcode read.
+The user-imported image is the hostile-input surface (the `CVE-2023-4863` libwebp / codec-RCE class D3 exists to contain). Decoding it and running a symbol reader over the pixels both happen in the permissionless sandbox, never the host process. The importer reuses `passes-barcode`'s isolated `BarcodeImageDecoder`: the bytes are decoded in-sandbox and only `{payload, ScannableFormat}` (`BarcodeDecodeResult`) crosses the binder, never a `Bitmap` or the source bytes. No `BitmapFactory` / `ImageDecoder` / ZXing call touches user-image bytes in the host process.
 
-The composite import runs **two** isolated decodes of the same bytes — the image-decode
-sandbox (for the display raster / thumbnail / dimensions) and the barcode-decode sandbox
-(for the symbol) — each on its **own** `memfd` PFD materialized from the single bounded
-read. The source fd is still read exactly once (no offset corruption); holding the
-compressed bytes in a host `ByteArray` is not a decode and is not the RCE surface.
+A composite import runs two isolated decodes of the same bytes, the image sandbox (display raster, thumbnail, dimensions) and the barcode sandbox (symbol), each on its own memfd PFD from the single bounded read. The source fd is still read once; holding compressed bytes in a host `ByteArray` is not a decode.
 
 ### C3. Confirm-before-persist; first code wins; graceful degradation
 
-A misread barcode that only surfaces at a checkout terminal is a real failure mode.
-`DocumentImporter.import` therefore gains a `confirmBarcode: (suspend (payload, format) ->
-Boolean)?` hook, invoked with the decoded value **before anything is persisted**, so the
-consumer can gate on its `BarcodeCreateConfirmSheet` (the decoded payload is the value
-shown for verification). Returning `true` persists a composite; returning `false`
-degrades to a plain image. The hook is **`null` by default, and that default means the
-composite path is opt-in: with no hook the isolated barcode extraction does NOT run at
-all** — the import is a plain image at zero extra cost, identical to the wpass-i9x
-behavior, and an incidental barcode in a photo the user only wanted to store is never
-silently turned into a composite. A consumer wanting composites without a confirm UX can
-pass `{ _, _ -> true }` explicitly. When (with the hook supplied) an image yields no code,
-the extraction fails, or confirmation is declined, the import lands on `ImportedImage`
-(plain `Document.Image`) — extraction failure NEVER fails the whole import. When an
-image contains several codes, the kernel returns the **first** detected code (consumer
-decision, `wlt-yjn5`; ZXing's `MultiFormatReader` stops at the first match). No content
-beyond the barcode is extracted (D4 holds: no EXIF / XMP / payload-derived label).
+A misread barcode that only surfaces at a checkout terminal is a real failure mode, so `DocumentImporter.import` takes `confirmBarcode: (suspend (payload, format) -> Boolean)?`, invoked with the decoded value before anything is persisted so the consumer can gate on its `BarcodeCreateConfirmSheet`. `true` persists a composite; `false` degrades to a plain image.
 
-**Degrading names its reason (`wpass-pl7.5`).** Every non-composite outcome reaches the
-consumer as `DocumentPersist.Image.barcodeExtraction`: `NotAttempted` (no hook),
-`NoCodeFound`, `Failed(DecodeFailureReason)` — the decoder's own bucket verbatim,
-including the `DecodeTimedOut` / `DecoderUnavailable` split `wpass-qw3` exists to
-preserve — or `Declined`. Collapsing all four to one null made a watchdog kill read as
-"no code found in this image" to the user and to whoever was debugging, which is exactly
-the failure mode the `wpass-pl7.2` scale ladder is most likely to introduce. The outcome
-carries **no payload and no image bytes**: a BCBP payload holds passenger name and PNR,
-and the composite arm (`DocumentPersist.BarcodedImage`) stays the only place a payload
-crosses this seam — and only after the user confirmed it. Rendering per-reason copy is
-the consumer's half.
+- The hook is `null` by default, which makes the composite path opt-in: with no hook the isolated extraction does not run at all, and an incidental barcode in a photo the user only wanted to store is never silently turned into a composite. A consumer wanting composites without a confirm UX passes `{ _, _ -> true }`.
+- No code found, extraction failure or declined confirmation all land on a plain `ImportedImage`; extraction failure never fails the import.
+- With several codes, the first detected wins (ZXing's `MultiFormatReader` stops at the first match). Nothing beyond the barcode is extracted (D4: no EXIF / XMP / payload-derived label).
+- Every non-composite outcome reaches the consumer as `DocumentPersist.Image.barcodeExtraction`: `NotAttempted`, `NoCodeFound`, `Failed(DecodeFailureReason)` (the decoder's own bucket, keeping the `DecodeTimedOut` / `DecoderUnavailable` split so a watchdog kill is not read as "no code found") or `Declined`. The outcome carries no payload and no image bytes: a BCBP payload holds passenger name and PNR, so `DocumentPersist.BarcodedImage` is the only place a payload crosses this seam, and only after the user confirmed. Per-reason copy is the consumer's half.
 
-### C4. Storage: `documents` schema v6 → v7 (forward-only)
+### C4. Storage: composite columns on the image row
 
-The `documents` table gains nullable `barcode_payload TEXT` / `barcode_format TEXT`
-columns. A row is a composite **iff** both are non-null; the `format` column stays the
-image container format (`'png' / 'jpeg' / 'webp'`), so a composite reads back as an
-image row that additionally carries a barcode — there is **no** new `format` value and
-**no** third reject enum. `barcode_format` stores the `ScannableFormat` name, matching
-the `scannable_cards.format` vocabulary; an unrecognised name (DB tampering only — this
-module is the sole writer) decodes to "no barcode" rather than throwing on a list query.
-`insertDocument`'s sealed `DocumentInsert` gains a `BarcodedImage` arm. The D7 size and
-label caps apply; the page cap does not (a composite is a single-page image). The barcode
-is carried on the SAME row as its image — one artifact, one wallet entry, never a
-host-side join. Migration is forward-only per ADR 0002; existing rows read back NULL.
+Nullable `barcode_payload TEXT` / `barcode_format TEXT` columns on `documents`. A row is a composite iff both are non-null; `format` stays the image container format, so there is no new `format` value and no third reject enum. `barcode_format` stores the `ScannableFormat` name (matching `scannable_cards.format`); an unrecognised name (DB tampering only, this module is the sole writer) decodes to "no barcode" rather than throwing on a list query. The barcode lives on the same row as its image: one artifact, one wallet entry, never a host-side join. D7 size and label caps apply; the page cap does not.
 
-### C5. The composite reuses `DocumentView` for its image half; the barcode UI is consumer-composed
+### C5. The composite reuses `DocumentView` for its image half
 
-`DocumentView` dispatches `BarcodedImageDocument` to the **same** `ImageDocumentView` as
-a plain image, over the **same** `imageFile` / `imageDecoder` backend pair — so the
-dispatcher gains NO new parameter and the `DocumentSurfaceLockTest` 9-param shape lock
-stays green. The non-suppressible `DocumentTrustCaption` (D5) is therefore present
-unchanged. The generated barcode and its format switcher are **not** rendered here: they
-are composed by the consumer with `passes-ui`'s `ScannableCardView` + `passes-core`'s
-`BarcodeEncoder.encode(payload, format)`, which re-encodes the one stored payload across
-symbologies. This keeps the two UI towers (`passes-ui` for PKPASS/scannable surfaces,
-`passes-document-ui` for document surfaces) independent — the composite is the one place
-they are *combined*, and that combination lives in the consumer, not in a new kernel
-cross-tower edge. D8 (no share-out) holds.
+`DocumentView` dispatches `BarcodedImageDocument` to the same `ImageDocumentView` over the same backend pair, so the dispatcher gains no parameter and the trust caption is present unchanged. The generated barcode and its format switcher are composed by the consumer from `passes-ui`'s `ScannableCardView` and `passes-core`'s `BarcodeEncoder.encode(payload, format)`, which re-encodes the stored payload across symbologies. This keeps the two UI towers (`passes-ui`, `passes-document-ui`) independent: the composite is the one place they combine, and that lives in the consumer, not in a kernel cross-tower edge.
 
-### Telemetry discipline (unchanged, reaffirmed)
+## List-surface presentation
 
-The composite import reuses the image `onImportSucceeded` event verbatim — byte count /
-format / dimensions only. The decoded barcode **payload is never written to telemetry**;
-a composite import is indistinguishable from a plain image import in the telemetry stream.
+Document list cards (a consumer concern) take a class tint (D1.C), name the artifact class in the eyebrow ("PDF" / "IMAGE" / "IMAGE, QR CODE"), carry no verified affordance of any kind and no content preview. Detail-surface provenance (D5, Z.8, D5.T) is where the in-words signal lives. The composite code-on-card-face posture is a C1/C2 concession recorded as "list-face code render" in `SCANNABLE_CARD_THREAT_MODEL.md`; issuer color never reaches a list card (ADR 0003 D4 addendum).
 
-### Tests pinning this addendum
+## Out of scope
 
-| Decision | Test                                                                                                  |
-|----------|-------------------------------------------------------------------------------------------------------|
-| C1       | `passes-document-core` `PublicApiSurfaceTest`: `Document` has exactly `PdfDocument` + `ImageDocument` + `BarcodedImageDocument`; the composite shape is exercised. |
-| C2       | `passes-document` `DocumentImporterTest.imageWithBarcodeRoutesToCompositeAndPersistsPayloadAndFormat` (the barcode seam sees the same ORIGINAL bytes; only `{payload, format}` cross); on-device `wpass-k9t`. |
-| C3       | `DocumentImporterTest`: no-code / extraction-failure / declined-confirmation all degrade to `ImportedImage`; `confirmHookSeesTheDecodedPayloadBeforePersist`; `pdfWithEmbeddedBytesNeverRunsBarcodeExtraction`. |
-| C4       | `passes-storage` `SchemaMigrationTest` (v6→v7 barcode columns, version/DDL/migration-keys locks in `PublicApiSurfaceTest`); `DocumentRepositoryTest` composite round-trip + plain-image-null-barcode tests. |
-| C5       | `DocumentSurfaceLockTest` (9-param lock holds — composite adds no `DocumentView` param); `DocumentTrustSurfaceTest`; `application/pdf` / `ACTION_SEND` bytecode scan stays green. |
+- PDF metadata-driven labels, OCR or barcode extraction from PDFs: any of these re-opens the threat model.
+- PDF digital signature display: the format's signature semantics do not justify the chrome.
+- Sharing documents out of the app (D8).
+- Inter-document linking, search or tagging; documents sort by import date.
 
-## Addendum 2026-06-18: D5 trust caption may be carried by a host "Pass type" row
+## Tests
 
-Tracks: `wpass-gv6` (this addendum). Cross-repo consumer: walt-android
-`wlt-3cer` (the "Pass type" details row, held pending this decision).
-
-### Context
-
-The consumer (Walt) wants to consolidate the document provenance signal into a
-single "Pass type" row inside its own host-rendered details section — values
-*PDF / Image / "Image, Scanned"* — instead of the kernel's docked
-`DocumentTrustCaption`. Read literally, D5 and the Z.4 / Z.8 addenda forbid this:
-the caption is non-suppressible and docked.
-
-This addendum first considered preserving the caption verbatim and only letting
-the host *relocate* it (an earlier draft, "D5.R: relocatable, not suppressible").
-That did not match the consumer's actual design: Walt wants one neutral
-provenance/type row across all artifact classes, and wants it to live inside a
-**collapsed-by-default** details foldout. A verbatim-relocation contract forbade
-both (no neutral-label substitution; the relocated caption had to be
-always-visible). The kernel owner chose to grant the consumer's design instead,
-as an explicit policy change to D5 — recorded here with its trade.
-
-### D5.T The provenance signal may be carried by a host "Pass type" row
-
-The kernel exposes
-`DocumentView(trustCaption = TrustCaptionPlacement.HostedTypeRow)`
-(`passes-document-ui`). Under that mode the kernel renders **no** trust caption on
-the detail surface; the host carries the claim with its own type label. The
-contract, and what it deliberately gives up versus docked D5:
-
-- **Neutral-type-label substitution is blessed.** A "Pass type: PDF" row is an
-  accepted carrier of the provenance claim. This is weaker than the verbatim
-  "User-provided document. Walt has not verified the source." sentence: it names
-  the artifact class rather than stating, in words, that the document is
-  user-provided and unverified. The consumer accepts that to keep one consistent
-  provenance/type row across artifact classes.
-
-  > **Wording updated (2026-11-21).** The caption now says "This app". See the
-  > 2026-11-21 addendum (D5.N) below.
-
-- **Collapsible, not-always-visible placement is blessed.** The "Pass type" row
-  may sit inside a collapsed-by-default foldout. A user who never expands it does
-  not see the provenance signal on the detail surface.
-- `TrustCaptionPlacement` is `Docked | HostedTypeRow`. There is no
-  `showCaption: Boolean`: the placement is the audited carrier-of-provenance
-  choice, pinned by `documentViewTrustCaptionParamIsThePlacementType`. The param
-  count lock moves from 9 to 10, superseding the 9-param assertion in the prior
-  (composite) addendum. The lock is now
-  `documentViewHasExactlyElevenUserVisibleParameters`, having gone to 11 when
-  `wpass-80y.2` added `faceTint`.
-
-**Why this is bounded.** D5 already accepts all PDFs as `Provenance.UserProvided`
-and never shows a "verified" signal; the document tower has no verified-vs-
-unverified ladder to conflate (unlike the PKPASS `SignatureStatus` badge). The
-"Pass type" row, even collapsed, is a labelled, discoverable, consistent location
-for provenance, and Walt remains a display device (D4: no extraction; the
-document is shown, not attested). The residual risk is that a user who never
-expands the foldout loses the in-words "unverified source" reminder on the detail
-surface; the kernel owner judges that acceptable for a user viewing a document
-they themselves imported. A host using `HostedTypeRow` is obliged to render the
-"Pass type" row; the kernel cannot verify this at runtime, so the obligation is
-pinned consumer-side by a walt-android test (the pin moved from the earlier
-draft's "host renders the kernel caption" to "host renders a Pass type row").
-
-### Scope: inline `DocumentView` only; full-screen stays docked
-
-`HostedTypeRow` applies to the inline `DocumentView` detail surface only.
-`FullScreenDocumentView` is unchanged: its caption stays docked to a screen edge
-and non-suppressible (Z.8). A host's collapsible details section is an
-inline-surface affordance; the full-screen zoom surface has no host details
-chrome to fold into, so the Z.4 / Z.8 "cannot be panned off, visible at every
-zoom level" guarantees stand verbatim.
-
-### Tests pinning this addendum
-
-| Decision | Test                                                                                                  |
-|----------|-------------------------------------------------------------------------------------------------------|
-| D5.T     | `DocumentSurfaceLockTest.documentViewHasExactlyElevenUserVisibleParameters` + `documentViewTrustCaptionParamIsThePlacementType` (placement is the audited choice, not a Boolean) |
-| D5.T     | `DocumentTrustSurfaceTest.documentViewHostedTypeRowOmitsKernelCaption` (HostedTypeRow renders no kernel caption); `documentTrustCaptionRendersTheVerbatimTrustText` (the docked-mode caption still renders verbatim) |
-| Consumer | walt-android `wlt-3cer`: the details section renders a "Pass type" row enumerating the artifact class |
-| Scope    | `FullScreenDocumentView` shape lock unchanged (7 params); Z.8 full-screen caption tests stay green |
-
-## Addendum 2026-07-18: List-surface presentation — content-true previews on neutral cards
-
-Tracks: kernel `wpass-tjc.4`; consumer epic `wlt-mx2d` (wallet redesign).
-
-Walt's redesigned wallet list presents documents as neutral cards with
-content-true previews rendered inline on the card face: a PDF card shows its
-page-0 thumbnail, an image card its photo thumbnail, and a composite card its
-EXTRACTED code (via `passes-ui`'s `CompactCodeView`; the kept image reduces to
-a small corner badge, with the full image behind the detail surface).
-
-Nothing here is mechanically new: previews come from the existing
-Walt-produced rasters (stored thumbnails / `rememberPdfThumbnail`), so no new
-render, decode, or extraction surface is introduced (D2/D3/D4 unchanged).
-What this addendum records is the presentation posture:
-
-- List cards are neutral surfaces with the artifact class named in the
-  eyebrow ("PDF" / "IMAGE" / "IMAGE, QR CODE"); they never take issuer color
-  (ADR 0003 D4 addendum) and carry no verified affordance of any kind.
-- Detail-surface trust posture is unchanged: the non-suppressible caption
-  (D5, Z.4/Z.8) and the audited `HostedTypeRow` concession (D5.T) stand
-  verbatim. The list preview adds no caption of its own — provenance stays a
-  detail-surface signal, exactly as the D5.T addendum records.
-- The composite code-on-card-face posture is recorded as a C1/C2 concession
-  in `SCANNABLE_CARD_THREAT_MODEL.md` ("list-face code render"); this
-  addendum and that row cross-reference each other deliberately.
-
-> **Partly superseded (wpass-80y, 2026-08-08).** Documents now take a class
-> tint rather than staying neutral, and list cards carry no content preview.
-> The no-verified-affordance and detail-surface-provenance postures stand. See
-> the D1 addendum below.
-
-## Addendum 2026-08-08: D1 - color is not a trust signal; documents may render inline
-
-Tracks: kernel `wpass-80y.3` (this addendum), `wpass-80y.2` (the `faceTint`
-parameter). Cross-repo consumers: walt-android `wlt-38v8` (color system),
-`wlt-o72.6` (inline document rows, held open since 2026-05-14 for this text).
-
-Two long-standing UI expressions of D1 are amended here. Both are presentation;
-the D1 contract they were expressing - a document is a structural sibling of a
-`Pass`, with no `PassType`, no `SignatureStatus`, and no path to a "Verified"
-pill - is untouched by either, and is what D1 actually protects.
-
-### D1.C Color carries no trust meaning; documents take a class tint
-
-D1 gave documents a separate lane, and the 2026-07-18 list-surface addendum gave
-them neutral card faces, because at the time color *was* the issuer signal:
-letting a user-provided document take issuer color would have let it present as
-an issuer-signed pass. The consumer's 26.08.08 revision decouples color from
-the issuer entirely - "Colour means class. Nothing else. The pass file's
-backgroundColor is read, never rendered." - and applies a class tint to every
-artifact class, user-reassignable per item. The neutral-surface rule loses its
-premise and is withdrawn for documents.
-
-What replaces it as the argument that a document cannot present as verified:
-
-1. No document surface, at list or detail scale, renders a signature affordance
-   or verified indicator - D5 has always been "PDF signatures are not verified
-   and no signed indicator is surfaced", so the document tower has no
-   verified-vs-unverified ladder for a color to imitate in the first place.
-2. Provenance is stated in words on the detail surface: the non-suppressible
-   `DocumentTrustCaption` (D5, Z.4 / Z.8), or the host "Pass type" row under the
-   audited D5.T concession. Text, not chrome.
-3. Color is a per-class default that the user can reassign at will, so it
-   cannot encode provenance even accidentally. A Bronze PDF is a user
-   preference and is explicitly not a violation.
-
-The kernel's part is `DocumentView(faceTint = …)` (`wpass-80y.2`), which exists
-so the consumer tints the document detail surface instead of reimplementing it.
-Bounded deliberately: the tint reaches the frame only - the rasterised page and
-the decoded image are real content and render identically tinted or not, and
-identically in light and dark - and it cannot suppress the trust caption or
-change the render request. D2 / D3 / D4 are untouched: no new render, decode, or
-extraction surface. No `Document` arm carries a color field and none may be
-added; which color an item carries is consumer state
-(walt-android's `WalletColorRepository`). Deriving a color from signature
-status, verification outcome, or issuer identity anywhere in the kernel is an
-amendment to this row, not a PR. The mirror row for scannable cards is
-"colour carries no trust meaning" in `SCANNABLE_CARD_THREAT_MODEL.md`; the two
-cross-reference each other deliberately.
-
-### D1.L Consumers may render documents inline in a unified wallet list
-
-D1's stated UI expression - "A separate 'Documents' lane appears below the
-passes list in `passes-ui`" - has been inaccurate for walt-android since
-`wlt-o72.1` (2026-05-14), which replaced `DocumentsLane` with inline
-`DocumentSummaryRow` entries interleaved with passes in one list. That
-divergence is recorded consumer-side in walt-android
-`docs/decisions-and-learnings.md`; this row is the kernel-side amendment
-`wlt-o72.6` was holding for, and it generalises rather than blessing one
-consumer.
-
-A consumer MAY render documents inline in a unified wallet list, or in a
-separate lane, provided:
-
-1. **The sibling data-model contract holds.** The merge is render-time only.
-   A document row is built from `DocumentRow` / `PdfDocument` (or the image /
-   composite arms), never by widening it into a `Pass` or a shared supertype
-   with one. No `PassType`, no `SignatureStatus`, no verified-pill path.
-2. **The row carries no signature or verified affordance**, and none can be
-   themed onto it - D5 forbids a signed indicator for documents at every
-   surface, and the unified list is where a document sits closest to a pkpass.
-3. **Detail-surface provenance is unchanged**: the docked non-suppressible
-   caption, or the host "Pass type" row under D5.T. Dropping `DocumentsLane`
-   drops its list-level caption, so the detail surface is where the in-words
-   signal lives - the same shift the C1 / C2 wallet-row concession records for
-   scannable cards.
-
-`DocumentsLane` remains in `passes-document-ui` and remains the recommended
-surface for a host that wants the kernel to carry the list-level presentation;
-it is no longer the only conforming one. A consumer that renders documents
-inline AND drops the detail-surface provenance signal without a "Pass type" row
-is amending D5.T, not filing a PR.
-
-### Tests pinning this addendum
-
-| Decision | Test                                                                                          |
-|----------|-------------------------------------------------------------------------------------------------|
-| D1.C     | `DocumentFaceTintTest.faceTintDoesNotSuppressTheTrustCaptionOnEitherArm`; `faceTintLeavesThePageRenderRequestUnchanged` (tint reaches the frame, not the render); `fullyTransparentTintFallsBackToTheDefaultFrame` |
-| D1.C     | `DocumentSurfaceLockTest.documentViewHasExactlyElevenUserVisibleParameters` (the tint is the audited 11th param; no color field on any `Document` arm) |
-| D1.L     | Consumer-side: walt-android's wallet-list tests (no signature affordance on a document row; render-time merge only). The kernel cannot verify a consumer's list at runtime - same posture as D5.T. |
-
-## Addendum 2026-11-21: D5 caption and kernel copy name no host app
-
-### Context
-
-Kernel-rendered sentences named the consumer as their actor ("Walt has not
-verified the source."). The kernel does not know what a host calls itself: the
-name a user sees is the host's launcher label, which a host sets and changes
-without touching this repository. A trust claim attributed to a name the user
-does not see anywhere else in the app reads as a claim made by someone else.
-
-### D5.N The actor in kernel copy is "this app"
-
-- **The caption is now "User-provided document. This app has not verified the
-  source."** (`TRUST_CAPTION_TEXT`). The claim is unchanged: the document is
-  user-provided, its source is unverified, and the software showing it says so
-  in words. Only the actor's name changed.
-- D5, Z.4, Z.8 and D5.T apply to the new sentence as they did to the old one.
-  Earlier sections of this ADR quote the wording of their time.
-- **The same rule covers every other kernel sentence that named the host:** the
-  PKPASS import-confirm trust caption (`PassImportConfirm`), the import
-  rejection sheet (`PassImportRejectionSheet`), the unknown-scheme barcode
-  confirmation (`barcode_create_confirm_unknown`) and the URL eyebrow of the
-  `B3EmphasisStyle.DomainHero` security sheet, now "LEAVING THIS APP".
-- **"This app" relies on the host's window.** A host renders kernel trust
-  surfaces in its own opaque window, so the app in front is the app the
-  sentence means. A translucent or dialog-themed window over another app would
-  let the sentence read as that app's claim.
-- **Rejected: a host-supplied name.** It would put a host-controlled string
-  inside sentences the kernel pins verbatim, and the copy tests could no longer
-  assert a whole sentence.
-- **Rejected: the passive voice** ("The source has not been verified."). It
-  drops the actor and leaves open who did not verify.
-
-Prose and identifiers in this repository that call the consumer Walt are not
-copy and are unchanged.
-
-### Tests pinning this addendum
-
-| Decision | Test                                                                                                  |
-|----------|-------------------------------------------------------------------------------------------------------|
-| D5.N     | `DocumentTrustSurfaceTest` and `DocumentViewInstrumentedTest` assert the caption verbatim on every surface that renders it |
-| D5.N     | `TrustClaimSurfaceTest`: the import-confirm caption and the import rejection sheet, title and body, for every band and failure kind |
-| D5.N     | `BarcodeCreateConfirmSheetTest`: the unknown-scheme confirmation sentence |
-| D5.N     | `TrustClaimSurfaceTest`: the `DomainHero` URL eyebrow |
-| D5.N     | `CopyNamesNoHostTest` in `passes-ui` and `passes-document-ui`: no string literal or string resource in the module's main sources names Walt |
+| Decision | Pinned by |
+|---|---|
+| D1, I1, C1 | `PublicApiSurfaceTest` in `passes-document-core` (arm set; no shared superclass with `Pass`) |
+| D1.C | `DocumentFaceTintTest` (tint cannot suppress the caption or change the render request; transparent tint falls back); `DocumentSurfaceLockTest.documentViewHasExactlyElevenUserVisibleParameters` (no color field on any arm) |
+| D1.L | Consumer-side: the kernel cannot verify a host's list at runtime |
+| D2 | No test (no classpath scan for `pdfbox-android` / `mupdf`) |
+| D3 | `@Ignore`d stub, not run: malformed PDF crashes the renderer, the main process survives, rebind succeeds (`PdfRendererServiceInstrumentedTest`) |
+| D4 | reflection: binder has exactly `probe` and `render`; `PdfThumbnailSurfaceTest` |
+| D5, D5.N, D5.T | `DocumentTrustSurfaceTest`, `DocumentViewInstrumentedTest`, `TrustClaimSurfaceTest`, `BarcodeCreateConfirmSheetTest`, `CopyNamesNoHostTest` (in `passes-ui` and `passes-document-ui`: no string in main sources names Walt); `documentViewTrustCaptionParamIsThePlacementType`, `documentViewHostedTypeRowOmitsKernelCaption` |
+| D6 | `encryptedPdfRejectsAtProbe` is an `@Ignore`d stub, not run; `PdfImporterTest` checks the rejection mapping against a fake binder only |
+| D7 | unit tests at each cap boundary; watchdog test covers timeout-then-kill |
+| D8, Z.5 | bytecode scan for `Intent.ACTION_SEND` and `application/pdf` |
+| G.1 | unit: import below API 34 returns the rejection without invoking the renderer |
+| Z.3 | reflection: binder still exactly two methods |
+| Z.7, Z.8 | `DocumentSurfaceLockTest` (full-screen shape lock); Compose tests: banner navigates, caption visible at fit, after zoom and after pan; the inline-view-ignores-pinch test is `@Ignore`d, not run |
+| I2, I3 | `DocumentImporterTest` (backend outcome to arm mapping; PDF magic routes to PDF backend, image to image backend, unrecognised touches neither; original bytes reach `persist`) |
+| I4, C4 | `SchemaMigrationTest`, `DocumentRepositoryTest` |
+| I5, C5 | `DocumentSurfaceLockTest` (dispatcher parameter lock; no new parameter for the composite) |
+| C2, C3 | `DocumentImporterTest` (`imageWithBarcodeRoutesToCompositeAndPersistsPayloadAndFormat`, `confirmHookSeesTheDecodedPayloadBeforePersist`, `pdfWithEmbeddedBytesNeverRunsBarcodeExtraction`, degrade-to-image cases) |
