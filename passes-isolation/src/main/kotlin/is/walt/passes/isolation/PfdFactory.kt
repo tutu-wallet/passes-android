@@ -10,13 +10,12 @@ import android.system.OsConstants
  * Materializes a byte payload into a [ParcelFileDescriptor] suitable for handing across a
  * bind to an isolated worker service. The shared seam both [is.walt.passes.isolation]
  * consumers reach for when they need to put *bytes already in the main process* into an
- * fd the sandbox can mmap — no plaintext touches disk (ADR 0005 F.1).
+ * fd the sandbox can read — no plaintext touches disk (ADR 0005 F.1). Consumers read with
+ * `pread`/`read` or private mappings: before Linux 6.7 a write-sealed memfd refuses even a
+ * read-only shared mapping.
  *
- * Not every consumer needs this: a worker whose hostile input must never enter the main
- * process at all (e.g. image decode) hands the *source* fd across directly instead of
- * reading the bytes here. Those consumers use only the bind-session facade and skip this
- * factory. The factory exists for the PDF path, which header-sniffs and size-bounds the
- * bytes in the main process before binding and therefore already holds them in RAM.
+ * Callers that already hold the bytes in RAM (the PDF importer, the document importer) use it;
+ * a standalone decoder whose input must never enter the main process passes the source fd instead.
  *
  * Kept behind an interface so unit tests can inject a pipe-backed fake (the real
  * [MemfdPfdFactory] calls `Os.memfd_create`, which is not reachable from the JVM-side test
@@ -27,7 +26,8 @@ import android.system.OsConstants
 public interface PfdFactory {
     /**
      * Allocate an in-memory PFD, write [bytes] into it, then rewind so the worker reads
-     * from offset 0.
+     * from offset 0. [MemfdPfdFactory] also seals the buffer read-only and fixed-size before
+     * returning it (ADR 0005 F.1).
      */
     public fun fromBytes(bytes: ByteArray): ParcelFileDescriptor
 }
@@ -37,10 +37,10 @@ public interface PfdFactory {
  * the kernel's purely-cosmetic label for the fd (visible in `/proc/<pid>/fd`); consumers
  * pass a per-worker name so a leaked fd is attributable.
  *
- * memfd_create lands in `android.system.Os` at API 30. Both consumers gate their import
- * paths on a higher floor before this factory is asked for a PFD; the [TargetApi] narrows
- * lint's view to API 30 and the inline `check` is defence in depth — a future caller that
- * wires the factory below that gate fails loudly here rather than crashing inside libcore.
+ * The buffer is written with `write(2)`, then sealed against write, grow, shrink and seal
+ * changes before it is adopted into the returned PFD (ADR 0005 F.1).
+ *
+ * `memfd_create` needs API 30; the inline `check` fails loudly if a caller skips its gate.
  */
 @TargetApi(Build.VERSION_CODES.R)
 public class MemfdPfdFactory(
@@ -50,11 +50,9 @@ public class MemfdPfdFactory(
         check(Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             "memfd_create requires Android 11 (API 30) or newer"
         }
-        val fd = Os.memfd_create(debugName, 0)
+        val fd = Os.memfd_create(debugName, OsConstants.MFD_CLOEXEC or MemfdSeals.MFD_ALLOW_SEALING)
         try {
-            // Os.write returns the count actually written; loop to drain the buffer in
-            // case the kernel short-writes. memfd-backed fds accept the whole buffer in
-            // one go in practice, but the loop is the defensive shape.
+            // Loop in case the kernel short-writes.
             var offset = 0
             while (offset < bytes.size) {
                 val written = Os.write(fd, bytes, offset, bytes.size - offset)
@@ -64,12 +62,28 @@ public class MemfdPfdFactory(
                 offset += written
             }
             Os.lseek(fd, 0, OsConstants.SEEK_SET)
+            Os.fcntlInt(fd, MemfdSeals.F_ADD_SEALS, MemfdSeals.ALL)
+            // Mask: newer kernels may add seals of their own (e.g. F_SEAL_EXEC).
+            val applied = Os.fcntlInt(fd, MemfdSeals.F_GET_SEALS, 0) and MemfdSeals.ALL
+            check(applied == MemfdSeals.ALL) {
+                "memfd seals not applied"
+            }
             return ParcelFileDescriptor.dup(fd)
         } finally {
-            // ParcelFileDescriptor.dup duplicates the underlying fd; close ours so the
-            // memfd is owned exclusively by the PFD handed back to the caller. runCatching
-            // covers the case where dup() failed and already dropped our ownership claim.
+            // dup() duplicated the fd; close ours so the returned PFD owns the memfd.
             runCatching { Os.close(fd) }
         }
     }
+}
+
+// OsConstants exposes only MFD_CLOEXEC; the rest are Linux ABI values, used via public Os calls.
+internal object MemfdSeals {
+    const val MFD_ALLOW_SEALING: Int = 0x0002
+    const val F_ADD_SEALS: Int = 1033
+    const val F_GET_SEALS: Int = 1034
+    const val F_SEAL_SEAL: Int = 0x0001
+    const val F_SEAL_SHRINK: Int = 0x0002
+    const val F_SEAL_GROW: Int = 0x0004
+    const val F_SEAL_WRITE: Int = 0x0008
+    const val ALL: Int = F_SEAL_SEAL or F_SEAL_WRITE or F_SEAL_GROW or F_SEAL_SHRINK
 }
