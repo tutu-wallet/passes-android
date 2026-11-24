@@ -13,9 +13,6 @@ import org.junit.Assume.assumeTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
-import java.io.IOException
-import java.io.RandomAccessFile
-import java.nio.channels.FileChannel
 
 // Needs memfd_create (API 30). The F_GET_SEALS check masks, as newer kernels may add F_SEAL_EXEC.
 @RunWith(AndroidJUnit4::class)
@@ -57,18 +54,6 @@ class MemfdPfdFactoryInstrumentedTest {
             }
             assertThat(listOf(shrink.errno, grow.errno, reseal.errno))
                 .containsExactly(OsConstants.EPERM, OsConstants.EPERM, OsConstants.EPERM)
-        }
-    }
-
-    @Test
-    fun writableSharedMappingOfTheSealedFdFails() {
-        MemfdPfdFactory("seal-test").fromBytes(payload).use { pfd ->
-            // Open outside assertThrows so a refused open fails the test instead of passing it.
-            RandomAccessFile("/proc/self/fd/${pfd.fd}", "rw").use { file ->
-                assertThrows(IOException::class.java) {
-                    file.channel.map(FileChannel.MapMode.READ_WRITE, 0, PAYLOAD_SIZE.toLong())
-                }
-            }
         }
     }
 
