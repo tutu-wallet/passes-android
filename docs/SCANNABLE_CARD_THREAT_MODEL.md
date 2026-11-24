@@ -93,7 +93,7 @@ taxonomy, or pkpass barcodes at list scale, amends this row.
 
 The concession is currently unexercised: the consumer's list cards carry no code
 tile, barcode band, image badge or photo thumbnail ("No previews on list cards"). It is
-not withdrawn; `CompactCodeView` stays. Conditions 1 and 3 govern any host that takes
+not withdrawn; `CompactCodeView` stays. All three conditions govern any host that takes
 it up again, and the accepted residual risk applies only while it is exercised.
 
 ### C1 / C2: list-level distinction in the redesigned wallet list
@@ -101,8 +101,9 @@ it up again, and the accepted residual risk applies only while it is exercised.
 No list card of any class carries a signature or verified affordance. The trust ladder
 (signature badge, trust captions) lives exclusively on detail surfaces, so the
 verified-band confusion class is structurally absent at list scale: there is no
-verified visual for a user-created card to imitate. This is pinned consumer-side by the
-`WalletListTest` "no signature dot" invariant extended to every card class.
+verified visual for a user-created card to imitate. Consumer-side, the host's
+wallet-list test is expected to pin a no-signature-dot invariant for every card class;
+this repository cannot verify it.
 
 ### C1 / C2 concession: colour carries no trust meaning, for any class
 
@@ -118,16 +119,17 @@ The consumer's rules block, verbatim:
 Colour is (a) decoupled from the issuer, so every pkpass renders the same class tint
 regardless of `pass.json` `backgroundColor`, (b) applied to every artifact class, and
 (c) user-reassignable per item from a picker on the detail surface, so any artifact can
-carry any of the seven palette colours. A white card is distinguished from the wallet
-background by a hairline, not by tinting.
+carry any of the seven palette colours.
 
 **The verified-band confusion class is closed on these premises.** It does not rest on
 "a user-created artifact cannot wear the chrome a signed pass wears," since per-item
 reassignment means no chrome is exclusive to a signed pass.
 
-1. **No surface presents as verified.** No card of any class renders a signature
-   affordance, verified band or pill, at list or detail scale. There is no verified
-   visual to imitate.
+1. **No surface presents as verified.** In the consumer's design, no card of any
+   class renders a signature affordance, verified band or pill at list or detail
+   scale; the kernel's `PassFront` pill is on by default and is suppressed only
+   through the bounded `showSignatureBadge` opt-out. There is no verified visual to
+   imitate.
 2. **Signature status is stated in words, on the detail surface only.** "Verified -
    signed by issuer" / "Unverified - unsigned by issuer" / "User provided pass, issuer
    cannot be verified". Text, not chrome, so a colour choice cannot imitate it; the
@@ -240,14 +242,16 @@ placeholder.
 **Charset pins.** The writers default to ISO-8859-1 while the validator admits any
 visible character on a byte-capable format, so an unpinned payload was unrenderable
 (`PDF417Writer` threw) or silently transliterated (Aztec, QR). The pins are
-`PDF417_AUTO_ECI` (a header only past ISO-8859-1) and `CHARACTER_SET`, applied
+`PDF417_AUTO_ECI` (unconditional; it adds a header only past ISO-8859-1,
+`ZxingBarcodeEncoder.kt:91`) and `CHARACTER_SET`, applied for Aztec and QR
 conditionally by `ScannableFormatConstraints.needsUtf8Eci`: Aztec takes a UTF-8 ECI
 header only past ISO-8859-1 (the spec default); QR takes it past ASCII, because QR
 decoders guess the charset of unannounced bytes (ZXing reads Latin-1 `ééé` back as
-Shift_JIS). An unconditional pin was tried and fails: the header rejects plain-ASCII
-symbols on scanners without ECI support (supermarket tills among them). ASCII QR
+Shift_JIS). An unconditional pin was tried and fails: scanners without ECI
+support (supermarket tills among them) reject symbols that carry the header. ASCII QR
 payloads keep one more byte of v40-M byte-mode capacity (2,331 against 2,330 for
-non-ASCII).
+non-ASCII). Stored Aztec cards that fit ISO-8859-1, and byte-mode ASCII QR cards,
+re-render as different symbols with the same text.
 
 **C4. Create-time URI-scheme preview for the byte-capable symbologies.** When the user
 creates a ScannableCard in a format that can carry an actionable payload, `passes-core`'s
@@ -267,7 +271,7 @@ call sites let `requiresCreateConfirmation(format)` decide alone. The sheet's co
 "this code", not "this QR", so a dialog about an Aztec boarding pass does not describe
 something other than what the user is saving.
 
-**C5. Untrusted-byte decoding is confined.** The kernel uses `com.google.zxing:core`
+**C5. Untrusted-byte barcode decoding is confined.** The kernel uses `com.google.zxing:core`
 (Apache 2.0, pure JVM) to encode a bit matrix from a user-typed payload and format, and
 to decode bytes the user did not type (composite image + extracted barcode artifact, and
 live scan). Decoding of untrusted bytes is confined to a sandbox or to a still-codec-free
@@ -593,9 +597,9 @@ Proposing any of these amends this document, not just a PR. They are not "deferr
 v2"; each is deliberately absent because it re-opens a threat row above.
 
 - **No unifying `DisplayableArtifact` interface or shared lane.** Re-opens row 1.
-- **No camera or image-upload payload entry for typed cards.** Image-upload re-opens an
-  OCR + binary-decoder surface; manual typing keeps the input boundary minimal. The
-  composite image artifact is a separate class with its own controls (Threat 14).
+- **No OCR payload entry.** Camera and image entry exist only as barcode decodes,
+  through the confined paths in C5 and the confirmation gate in Threat 14; text
+  recognition re-opens a parser surface this document does not cover.
 - **No "Verified" or "Trusted" badge on any ScannableCardTile** under any combination of
   consumer theming. C2 forbids it.
 - **No colour-derived trust signal anywhere in the kernel.** No surface may pick or vary a
@@ -606,9 +610,11 @@ v2"; each is deliberately absent because it re-opens a threat row above.
 - **No server-side validation of payloads against merchant APIs.** Re-opens row 9 and adds
   a key-custody / network surface.
 - **No TOTP / HMAC-OATH / rotating-secret support.** Re-opens row 11.
-- **No unconfined decoding of untrusted bytes.** Static image bytes decode only in the
-  isolated process; the only in-process decode is the codec-free live-frame path (C5).
-  Re-opens rows 6 and 14.
+- **No unconfined barcode decoding of untrusted bytes.** Image bytes reach the ZXing
+  decoder only inside the isolated `BarcodeImageDecoder` service; the only in-process
+  barcode decode is `decodeYPlane` on raw camera Y-planes. That path is codec-free only
+  while the consumer feeds `ImageAnalysis` YUV, never `ImageCapture` output (ADR 0008
+  constraint 1). Re-opens rows 6 and 14.
 - **No payload-bytes telemetry.** `ScannableCardTelemetryGuard` may surface format counts
   and create/delete event counts; payload contents and payload length distributions are PII
   and never leave the device.
@@ -624,12 +630,12 @@ v2"; each is deliberately absent because it re-opens a threat row above.
 
 | Control | Pinned by |
 |---------|-----------|
-| C1      | Data-model surface test, separate-table assertion, separate-lane composable test |
-| C2      | Non-suppressible caption test and the at-least-two-distinct-elements snapshot; `scannableCardScreenHasExactlyFiveUserVisibleParameters`; `scannableCardScreenTrustCaptionParamIsThePlacementType` (placement is the audited choice, not a Boolean); `fullScreenHostedTypeRowOmitsKernelCaption` and `hostedTypeRowStillRendersBarcodeAndPayloadCaption` (the "Pass type" concession); consumer-side, a test that the details section renders a "Pass type" row. Colour row: `ScannableCardTrustSurfaceTest.faceTintDoesNotSuppressBarcodeLabelPayloadOrTrustCaption` (and its dark-tint twin), `codePanelIsLiterallyWhiteNotAThemeTokenOrTheFaceTint`, `inkOnClearsWcagAaAgainstEveryTintIncludingTheWorstCase`, `DocumentFaceTintTest.faceTintDoesNotSuppressTheTrustCaptionOnEitherArm` and `faceTintLeavesThePageRenderRequestUnchanged`; the shared tint gate by `passes-ui-core`'s `FaceTintTest` |
-| C3      | Length-cap, charset and Cf/Cc rejection unit tests; `theTwoDimensionalFormatsEncodeAtTheirValidatorCap`, `theTwoDimensionalFormatsRoundTripAtTheirValidatorCap`, `nonAsciiPdf417PayloadSurvivesAutoCompaction`; `noFormatIsDecodeOnly` and `isCreatableAgreesWithWhatTheValidatorAccepts`; byte-capable charset rules in `ScannableFormatConstraintsTest` |
-| C4      | URI-classifier unit tests, dialog gating test |
+| C1      | `ScannableCardSurfaceTest.scannableCardDoesNotShareSupertypeWithPass`; storage `PublicApiSurfaceTest` `SCANNABLE_CARDS` assertion (separate table). No separate-lane composable test |
+| C2      | Non-suppressible caption test; no snapshot test of the at-least-two-distinct-elements rule; `scannableCardScreenHasExactlyFiveUserVisibleParameters`; `scannableCardScreenTrustCaptionParamIsThePlacementType` (placement is the audited choice, not a Boolean); `fullScreenHostedTypeRowOmitsKernelCaption` and `hostedTypeRowStillRendersBarcodeAndPayloadCaption` (the "Pass type" concession); consumer-side, a test that the details section renders a "Pass type" row. Colour row: `ScannableCardTrustSurfaceTest.faceTintDoesNotSuppressBarcodeLabelPayloadOrTrustCaption` (and its dark-tint twin), `codePanelIsLiterallyWhiteNotAThemeTokenOrTheFaceTint`, `inkOnClearsWcagAaAgainstEveryTintIncludingTheWorstCase`, `DocumentFaceTintTest.faceTintDoesNotSuppressTheTrustCaptionOnEitherArm` and `faceTintLeavesThePageRenderRequestUnchanged`; the shared tint gate by `passes-ui-core`'s `FaceTintTest` |
+| C3      | Length-cap, charset and Cf/Cc rejection unit tests; `theTwoDimensionalFormatsEncodeAtTheirValidatorCap`, `theTwoDimensionalFormatsRoundTripAtTheirValidatorCap`, `BarcodeEncoderRoundTripTest.nonAsciiPayloadsSurviveOnTheCharsetPinnedFormats`, `BarcodeEncoderCharsetTest`; `noFormatIsDecodeOnly` and `isCreatableAgreesWithWhatTheValidatorAccepts`; byte-capable charset rules in `ScannableFormatConstraintsTest` |
+| C4      | `QrPayloadClassifierTest`, `BarcodeCreateConfirmSheetTest` |
 | C5      | Encoder integration test; decode confinement by the isolated-decode tests (`BarcodeDecodeServiceInstrumentedTest`, `YPlaneFrameDecodeTest`) and, consumer-side, an instrumented composite-import test (no host-process decode of source bytes) and a guard test that no CameraX `ImageCapture` appears in the consumer's `src/main` |
-| C6      | Schema snapshot test (no `secret` / `hmac` / `totp` fields permitted) |
+| C6      | No test in this repo (no schema snapshot); closest is `ScannableCardSurfaceTest.scannableCardConstructorIsExercisedWithEveryShape` |
 
 ## Out of scope for this document
 
