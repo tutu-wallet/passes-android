@@ -103,9 +103,10 @@ to:
 - An overload of `ExpiredOverlay` or `BoundedImage` that elides the existing
   shape.
 
-`ComposableSurfaceLockTest` pins the user-visible parameter counts for each
-surface so any of the above would fail the lock before code review even
-opens the file.
+`ComposableSurfaceLockTest` pins the user-visible parameter count of each
+surface's widest overload (`PassFront`'s is nine), so adding a parameter fails the
+lock. It does not forbid a second `PassFront` overload or an overload of
+`ExpiredOverlay` or `BoundedImage`; review enforces those.
 
 ### D6. Telemetry follows the `TelemetryGuard` discipline
 
