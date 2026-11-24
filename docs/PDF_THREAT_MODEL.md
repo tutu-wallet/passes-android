@@ -1,21 +1,16 @@
 # PDF document import: threat model
 
-The trust claim that this repository carries is "every security-and-privacy-critical
-behavior Walt makes about pass handling lives in code you can read." For PDF
-import, that decomposes into a per-threat enumeration plus three load-bearing
-controls. Each threat is listed below with: where it lives in the format, what
-control mitigates it, and (for accepted-risk items) the rationale for accepting
-the residual exposure.
+For PDF import, the repository's trust claim ("every security-and-privacy-critical
+behavior Walt makes about pass handling lives in code you can read") decomposes into
+a per-threat enumeration plus three load-bearing controls. Each threat lists where it
+lives in the format, the mitigating control, and for accepted risks the rationale.
 
-This document is the security-side companion to ADR 0005 ("PDF document
-support"). Where ADR 0005 records *what* the architecture is, this document
-records *why each piece of it has to exist*.
+This is the security-side companion to ADR 0005 ("PDF document support"): the ADR
+records what the architecture is, this document records why each piece must exist.
 
 ## Three load-bearing controls
 
-The mitigations below all reduce to combinations of three structural controls.
-Each is named here so individual threats can reference them by short label
-rather than re-stating the rationale.
+The mitigations below reduce to three structural controls, referenced by label.
 
 **C1. System renderer only (`android.graphics.pdf.PdfRenderer`).** Walt does
 not bundle a PDF parser. PDFium ships in Android's MediaProvider Mainline
@@ -49,8 +44,8 @@ for two decades.
 **Mitigation.** C1: `PdfRenderer` does not implement the JavaScript runtime;
 script bytes are inert. C3: Walt never enumerates `/Names` or
 `/AcroForm/Fields`, so even the codepath that *discovers* JS-bearing nodes
-is never invoked. `wpass-6m9` empirically verifies non-execution against a
-PDF carrying a JS `/OpenAction`.
+is never invoked. No on-device check of non-execution is recorded; the claim
+rests on AOSP/PDFium source analysis (ADR 0005 D2).
 
 **Status.** Mitigated.
 
@@ -146,11 +141,13 @@ bitmap output, and no network. The blast radius of a successful exploit is
 "the user re-taps to view the document; the rendering service rebinds."
 
 C1: PDFium ships in MediaProvider Mainline on Android 14+ (API 34), so
-codec fixes flow via Play System Updates without a Walt release.
+codec fixes flow via Play System Updates without a Walt release on devices
+that receive MediaProvider Mainline updates.
 
 **Status.** Mitigated against persistence and lateral movement; CVE-window
-exposure in the renderer process itself is the residual risk and is
-quantified in `wpass-6m9`.
+exposure in the renderer process itself is the residual risk; it is not
+quantified. Builds without Play System Updates (no MediaProvider Mainline
+updates) receive PDFium fixes only with OS releases, which widens that window.
 
 ### 8. Object-graph attacks (deep nesting, malformed xref, oversized streams)
 
@@ -241,10 +238,10 @@ user-controlled and rendered alongside the trust caption. A filename
 containing U+202E or other Cf/Cc characters could rearrange visible glyphs
 to spoof Walt UI text.
 
-**Mitigation.** `DocumentTrustCaption` and the Documents-lane tile wrap
-the display label in U+2068 / U+2069 (FSI / PDI) bidi isolates, mirroring
+**Mitigation.** `DocumentTrustCaption` renders constant text and carries no label; only the
+Documents-lane tile wraps the display label in U+2068 / U+2069 (FSI / PDI) bidi isolates, mirroring
 the existing `B3UrlConfirmSheet` discipline (`passes-ui/TRUST_CLAIMS.md`
-section 2). `wpass-7wn`'s instrumentation tests verify the wrap.
+section 2). The JVM test `DocumentTrustSurfaceTest.documentTileWrapsDisplayLabelInBidiIsolates` verifies the wrap.
 
 **Status.** Mitigated.
 
@@ -267,10 +264,8 @@ section 2). `wpass-7wn`'s instrumentation tests verify the wrap.
 
 ## Explicit non-features
 
-The list below is load-bearing: a future contributor proposing any of these
-items must amend ADR 0005, not just file a PR. The non-features below are not
-"deferred to v2"; they are deliberately absent because each one re-opens a
-threat row above.
+Proposing any of these requires amending ADR 0005, not just a PR. They are not
+"deferred to v2"; each is deliberately absent because it re-opens a threat row above.
 
 - **No PDF digital-signature verification.** Re-opens row 5.
 - **No text, form-field, or annotation extraction.** Re-opens rows 1, 2, 3.
@@ -286,23 +281,15 @@ threat row above.
 
 ## How each control is tested
 
-The implementation beads (`wpass-jsb`, `wpass-pti`, `wpass-5v9`, `wpass-7wn`)
-each carry tests pinning the controls used here. The mapping is recorded in
-ADR 0005 ("Tests pinning the controls above") and is not duplicated here.
+The test table in ADR 0005 maps each control to its tests. No on-device
+reproduction of C1 (JS, URI/Launch and remote-reference PDFs on a Pixel and an
+OEM device) is recorded: `PdfRendererServiceInstrumentedTest` is `@Ignore`d
+stubs and no CI leg runs `passes-pdf` connected tests.
 
-The renderer-validation bead `wpass-6m9` is the empirical complement to this
-document: where this document asserts "C1 does not execute JavaScript," that
-bead's deliverable is a recorded reproduction with a JS-laden test PDF on at
-least one Pixel device and one OEM device.
+## Out of scope
 
-## Out of scope for this document
-
-- The wallet's payment / HCE surface is unchanged by PDF import; documented
-  in the parent epic `wpass-i2r` and in the existing payment-side trust
-  documentation.
-- The Walt-side onboarding, Hilt wiring, and intent-filter manifest are
-  consumer-side concerns tracked in walt-android's beads database.
-- Performance tuning of the renderer service (binder-call latency, LRU cache
-  sizing) is implementation detail for `wpass-5v9` and `wpass-7wn`; the
-  numbers in ADR 0005's Consequences section are targets, not security
-  controls.
+- The wallet's payment / HCE surface is unchanged by PDF import.
+- Consumer-side onboarding, dependency-injection wiring and the intent-filter manifest
+  live in walt-android.
+- Renderer performance tuning (binder-call latency, LRU cache sizing) is not a
+  security control; the numbers in ADR 0005's Consequences section are targets.

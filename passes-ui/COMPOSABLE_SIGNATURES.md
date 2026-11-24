@@ -1,14 +1,8 @@
 # passes-ui composable signatures
 
-The skeleton bead (`wpass-9vv.4`) ships the *theming contract* and *intent payload* types
-in Kotlin source. The composable functions themselves wait for the implementation bead,
-which lands the Android Gradle Plugin, Jetpack Compose, Material3, ZXing, and Coil.
-
-This document is the design output of the skeleton bead: the exact signatures the
-implementation bead is committed to producing. It is the public-API contract for every
-composable that the host (walt-android's `feature/passes`) calls.
-
-The signatures below assume the implementation bead's imports:
+The public-API contract for the composables the host (walt-android's `feature/passes`)
+calls, with the properties that carry trust claims (see `TRUST_CLAIMS.md`). The code is
+authoritative for exact signatures; imports assumed below:
 
 ```kotlin
 import androidx.compose.runtime.Composable
@@ -71,7 +65,7 @@ fails fast.
  * background) keeps using the host theme.
  *
  * The signature trust badge and expired overlay default to always-on. The two
- * opt-in booleans below (wpass-btz / wpass-d0k) let a host suppress the kernel
+ * opt-in booleans below let a host suppress the kernel
  * chrome only when it has disclosed the equivalent signal in its own surrounding
  * UI; see ADR 0003 D5 for the bounded-opt-in rules.
  */
@@ -82,6 +76,7 @@ public fun PassFront(
     telemetry: UiTelemetryGuard,
     modifier: Modifier = Modifier,
     locale: PassLocale = PassLocale("en"),
+    userLabel: String? = null,
     nowEpochMillis: Long = System.currentTimeMillis(),
     showSignatureBadge: Boolean = true,
     showExpiredOverlay: Boolean = true,
@@ -117,8 +112,8 @@ public fun PassBack(
 Public so consumers that render their own back-field layouts (no kernel `Surface`
 card, flat rows on a host-owned gradient, etc.) can route through the canonical
 detector instead of hand-rolling regex. The scanner returns spans whose intents
-carry the *verbatim* substring from the field — no normalization, no scheme
-injection — so a confirmation sheet built from a span shows the user exactly the
+carry the *verbatim* substring from the field (no normalization, no scheme
+injection), so a confirmation sheet built from a span shows the user exactly the
 string that will leave the device. The trust contract (bidi-spoofing rejection,
 RFC 3986 URL class, phone digit-count + adjacency hints, email shape) lives
 entirely inside [FieldLinkScanner.scan], and `LinkSpan`'s constructor is
@@ -126,7 +121,7 @@ entirely inside [FieldLinkScanner.scan], and `LinkSpan`'s constructor is
 `copy(...)` on a scanner-produced span still works for styling needs.
 
 `start` / `endExclusive` are UTF-16 char offsets into the field string passed to
-`scan` — the same units `Regex`, `String.substring`, and `AnnotatedString` use.
+`scan`, the same units `Regex`, `String.substring`, and `AnnotatedString` use.
 
 ```kotlin
 public object FieldLinkScanner {
@@ -145,7 +140,7 @@ public data class LinkSpan internal constructor(
 ```kotlin
 /**
  * Renders [barcode] using ZXing. The composable enforces a minimum on-screen size
- * (300 dp x 300 dp for QR / Aztec; 500 dp x 100 dp for PDF417 / Code128) so the
+ * (240 dp x 240 dp for QR / Aztec; 320 dp x 96 dp for PDF417 / Code128) so the
  * barcode is reliably scannable at gate distance.
  *
  * `altText`, when present in the [Barcode], is rendered below the barcode for
@@ -162,7 +157,7 @@ public fun BarcodeView(
 
 Each sheet displays the verbatim target string from its [SecurityIntent], the source
 field's label and the issuer's `organizationName`, then a confirm button.
-`emphasisStyle` (wpass-48v) chooses between the original `Container` layout and the
+`emphasisStyle` chooses between the original `Container` layout and the
 `DomainHero` layout; both display the verbatim target, fire the same telemetry, and
 block dispatch on explicit confirm. See ADR 0003 D5.
 
@@ -285,7 +280,7 @@ public fun ExpiredOverlay(
  * yield a placeholder and fire `telemetry.onImageDecodeRejected` with the
  * categorized reason; the composable never throws.
  *
- * The implementation bead must NOT use Coil's default decoder for these images:
+ * Coil's default decoder must NOT be used for these images:
  * the bounds enforcement is the trust claim, and a third-party loader would have
  * to be re-audited for that property on every dependency upgrade.
  */
@@ -300,7 +295,7 @@ public fun BoundedImage(
 )
 ```
 
-## What the implementation bead must NOT change
+## What must not change
 
 These signature properties are the trust-claim interface. Changing any of them is a
 security-policy edit, not a refactor:
@@ -308,10 +303,12 @@ security-policy edit, not a refactor:
 1. `onUrlIntent`, `onPhoneIntent`, `onEmailIntent` on `PassBack` are NOT defaulted to
    no-op. The host must supply them explicitly. This forces a conversation if a
    future host author "forgets" to wire confirmation sheets.
-2. The expiration overlay has no `enabled` / `suppress` parameter. It either applies
-   or it does not, based on `ExpiredOverlayState.from`.
-3. The signature trust badge has no `enabled` / `suppress` parameter. It is always
-   composited on top of `PassFront`, with the color sourced from
+2. `ExpiredOverlay` has no `enabled` / `suppress` parameter. On `PassFront` the state
+   comes only from `ExpiredOverlayState.from`; `showExpiredOverlay = false` is the
+   single bounded host opt-out (ADR 0003 D5, TRUST_CLAIMS section 5).
+3. The signature badge has no suppress parameter other than
+   `PassFront.showSignatureBadge`, the single bounded host opt-out;
+   `onPassRendered(type, band)` fires either way and the color comes from
    `PassesSemantics.signatureBadge`.
 4. `BoundedImage` has no `bounds: ImageRenderBounds? = null` form that would let a
    caller opt out of decoding limits. The default is the only way to take the

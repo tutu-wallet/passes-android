@@ -8,34 +8,30 @@ Walt is a privacy-focused NFC tap-to-pay wallet. Its core promise is that user d
 
 This repository answers that question by being the auditable source of truth for Walt's pass handling. Walt's main app is closed source. The pass-handling code is not. Every security-and-privacy claim Walt makes about pass handling is implemented in code that lives here.
 
-**This repository exists for transparency, not for library reuse.** Reuse is welcome as a side effect. The primary commitment is the audit trail.
+This repository exists for transparency, not for library reuse. Reuse is welcome as a side effect; the primary commitment is the audit trail.
 
 ## Status
 
-Pre-alpha. Architecture and design phase. No releases yet.
+Pre-alpha. No releases yet.
 
 ## Trust claim audit map
 
 | Walt claim | Where to look |
 |---|---|
-| PKPASS parser is hardened against malicious input | `passes-core` — `PassParser`, `ParserConfig`, ZIP/JSON/PNG hardening |
-| Signature verification rejects tampering; provenance is shown to the user | `passes-core` — `SignatureVerifier`, `SignatureStatus` |
-| Bundles of passes (`.pkpasses`) are capped at the outer layer before any inner pass is parsed | `passes-core` — `PassBundleReader`, `BundleConfig` (entry count, per-entry and cumulative decompressed bytes) |
-| Pass blob storage is encrypted at rest with hardware-backed keys | `passes-storage` — SQLCipher integration, Keystore key provider |
-| Pass data is excluded from Android Auto Backup | `passes-storage` — backup rules / manifest config |
-| Pass content never appears in logs or telemetry | `passes-core` — `TelemetryGuard` interface; structurally PII-forbidden by API shape |
-| Back-field URLs go through a visible-confirmation flow before opening | `passes-ui` — `UrlConfirmationSheet` composable |
-| Pass deletion is irreversible; caches are wiped | `passes-storage` — deletion logic |
+| PKPASS parser is hardened against malicious input | `passes-core` - `PassParser`, `ParserConfig`, ZIP/JSON/PNG hardening |
+| Signature verification rejects tampering; provenance is shown to the user | `passes-core` - `SignatureVerifier`, `SignatureStatus` |
+| Bundles of passes (`.pkpasses`) are capped at the outer layer before any inner pass is parsed | `passes-core` - `PassBundleReader`, `BundleConfig` (entry count, per-entry and cumulative decompressed bytes) |
+| Pass blob storage is encrypted at rest with hardware-backed keys | `passes-storage` - SQLCipher integration, Keystore key provider |
+| Pass data is excluded from Android Auto Backup | `passes-storage` - backup rules / manifest config |
+| Pass content never appears in logs or telemetry | `passes-core` - `TelemetryGuard` interface; structurally PII-forbidden by API shape |
+| Back-field URLs go through a visible-confirmation flow before opening | `passes-ui` - `B3UrlConfirmSheet` composable |
+| Pass deletion is irreversible; caches are wiped | `passes-storage` - deletion logic |
 | Expired passes show an "Expired" badge but are not auto-deleted | `passes-ui` + `passes-storage` |
-| PDF document import is contained in an isolated renderer process; bytes are never extracted, parsed for fields, or shared back out | [`docs/PDF_THREAT_MODEL.md`](docs/PDF_THREAT_MODEL.md); [`docs/adr/0005-pdf-document-support.md`](docs/adr/0005-pdf-document-support.md); `passes-pdf` (forthcoming) |
-
-(These point to *intended* locations; modules are not yet implemented.)
+| PDF document import is contained in an isolated renderer process; bytes are never extracted, parsed for fields, or shared back out | [`docs/PDF_THREAT_MODEL.md`](docs/PDF_THREAT_MODEL.md); [`docs/adr/0005-pdf-document-support.md`](docs/adr/0005-pdf-document-support.md); `passes-pdf` |
 
 ## Modules
 
-- **`passes-core`** — Pure Kotlin/JVM. PKPASS parser, model, signature verifier, `.strings` parser, secure-defaults `ParserConfig`, `TelemetryGuard` interface, `PassBundleReader` for `.pkpasses` bundles with outer-layer cumulative caps, and `PassEncoder` (parsed `Pass` back to an unsigned `.pkpass`; never writes a `signature`, so re-import surfaces as `Unsigned`). No Android dependencies. KMP-friendly.
-- **`passes-storage`** — Android. SQLCipher database with Keystore-sourced key, Android Auto Backup exclusion, irreversible deletion with cache wipe.
-- **`passes-ui`** — Android + Jetpack Compose. Pass front/back composables, barcode/QR rendering, B3 URL confirmation sheet, expired badge, bounded image rendering. Themable.
+Thirteen Gradle modules; [`docs/module-map.md`](docs/module-map.md) holds each one's contract. `passes-ui`'s trust claims are in [`passes-ui/TRUST_CLAIMS.md`](passes-ui/TRUST_CLAIMS.md); [`SECURITY.md`](SECURITY.md) and the threat models in `docs/` cover the rest.
 
 ## Scope (v1)
 
