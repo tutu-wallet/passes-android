@@ -27,7 +27,7 @@ Color is a per-class default the user can reassign, so it cannot encode provenan
 2. Provenance is stated in words on the detail surface: the non-suppressible `DocumentTrustCaption` (D5, Z.8) or the host "Pass type" row under the audited D5.T concession. Text, not chrome.
 3. A user-assigned color on a PDF is a preference, not a violation.
 
-`DocumentView(faceTint = ...)` lets the consumer tint the detail surface instead of reimplementing it. The tint reaches the frame only: the rasterised page and decoded image render identically tinted or not, and the tint cannot suppress the trust caption or change the render request. No `Document` arm carries a color field and none may be added; the color an item carries is consumer state. Deriving a color from signature status, verification outcome or issuer identity anywhere in the kernel is an amendment to this row, not a PR. The mirror row for scannable cards is "colour carries no trust meaning" in `SCANNABLE_CARD_THREAT_MODEL.md`.
+`DocumentView(faceTint = ...)` lets the consumer tint the detail surface instead of reimplementing it. The tint reaches the frame only: the rasterised page and decoded image render identically tinted or not, and identically in light and dark, and the tint cannot suppress the trust caption or change the render request. No `Document` arm carries a color field and none may be added; the color an item carries is consumer state. Deriving a color from signature status, verification outcome or issuer identity anywhere in the kernel is an amendment to this row, not a PR. The mirror row for scannable cards is "colour carries no trust meaning" in `SCANNABLE_CARD_THREAT_MODEL.md`.
 
 #### D1.L Consumers may render documents inline in a unified wallet list
 
@@ -49,6 +49,16 @@ Why the renderer is safe to feed hostile PDFs, from AOSP/PDFium source analysis 
 - The isolated service declares no `<uses-permission>`, runs in the `isolated_app` SELinux domain (denied TCP/UDP sockets by base policy) and needs only the transferred fd, a heap `Bitmap` and the world-readable `libpdfium.so`, so even a future implicit-egress PDFium change hits a kernel block.
 - After a renderer crash the binder proxy invalidates and calls surface `RemoteException`; the client re-binds to restart the isolated process.
 
+Evidence (source paths read, reproducible at cs.android.com; none confirmed on a device):
+
+- `frameworks/base/core/jni/android_graphics_pdf_PdfRenderer.cpp` (and the Mainline copy under `packages/providers/MediaProvider/pdf/`): the C calls listed above are the whole native surface. The binding does not call `FPDF_InitLibraryWithConfig` with a non-null `FPDF_LIBRARY_CONFIG.m_pIsolate`, the entry point that attaches V8, so the JavaScript engine (`fpdfsdk/fxjs/`) is never initialized.
+- `fpdfsdk/fpdf_view.cpp` (`FPDF_RenderPageBitmap`): the render call graph rasterizes content streams and does not reach action dispatch (`FPDFAction_*`, `FPDFLink_GetAction`) or external-resource resolution (`core/fpdfdoc/cpdf_filespec.cpp`, `core/fpdfapi/parser/cpdf_security_handler.cpp`).
+- `system/sepolicy/private/isolated_app.te`: the `isolated_app` domain is denied `node:tcp_socket` and `node:udp_socket`; base policy denies a dyntransition into it, so `android:isolatedProcess="true"` is the only way in. OEM SELinux customizations could weaken this and are unchecked.
+- `frameworks/base/core/java/android/os/Process.java`: isolated UIDs are 90000-99999 (`FIRST_ISOLATED_UID` to `LAST_ISOLATED_UID`).
+- `libpdfium.so` is world-readable: under `/system/lib*`, or on API 34+ inside the `com.android.mediaprovider` apex (`com.google.android.mediaprovider` on GMS builds; the APK package name differs from the apex name).
+
+The release gate "empirical device matrix before the renderer ships" was never met; no row of that matrix is recorded.
+
 Rejected:
 
 - PdfBox-Android: larger in-process code surface, parses content not needed (forms, annotations, signatures) which the no-extraction rule wants closed, and the app would own CVE response.
@@ -62,7 +72,7 @@ This is the load-bearing control. A PDFium memory-safety bug in the main process
 
 #### F.1 FD transport is a `memfd_create`-backed `ParcelFileDescriptor`
 
-The main process allocates a memfd, populates it with `write(2)` of the decrypted PDF bytes (no writable `mmap` is ever taken in the main process) and seals it before adopting the fd into a `ParcelFileDescriptor` for the renderer. The intended seal set is `F_SEAL_SEAL | F_SEAL_WRITE | F_SEAL_GROW | F_SEAL_SHRINK`:
+Decision: the main process allocates a memfd, populates it with `write(2)` of the decrypted PDF bytes (no writable `mmap` is ever taken in the main process) and seals it before adopting the fd into a `ParcelFileDescriptor` for the renderer. The intended seal set is `F_SEAL_SEAL | F_SEAL_WRITE | F_SEAL_GROW | F_SEAL_SHRINK`:
 
 - `F_SEAL_WRITE` makes the buffer read-only across future mappings, so a PDFium write-via-mmap primitive in the renderer cannot mutate bytes the main process still holds.
 - `F_SEAL_GROW` / `F_SEAL_SHRINK` pin the size.
@@ -72,7 +82,9 @@ The main process allocates a memfd, populates it with `write(2)` of the decrypte
 
 Rejected transports: `MemoryFile` (fd only via hidden API, closed on API 28+); `SharedMemory.fileDescriptor` (ashmem fd does not satisfy PDFium's `lseek` + `pread64`); `File.createTempFile` (plaintext on disk, defeating SQLCipher's at-rest guarantee); `ParcelFileDescriptor.fromSocket` (not seekable). The transport choice does not widen the binder surface D4 locks down.
 
-Implementation: `MemfdPfdFactory` in `passes-isolation` (`PfdFactory.fromBytes`), shared by the PDF path; `Os.memfd_create` needs API 30, covered by the import gates (G.1 is stricter). Known gap: `MemfdPfdFactory` calls `Os.memfd_create(name, 0)` and applies no seals, and no JNI shim or native method exists, so the seal set above is the decision, not current behavior (`PfdFactory.kt` lines 44-70).
+Implementation: `MemfdPfdFactory` in `passes-isolation` (`PfdFactory.fromBytes`), used by `DefaultPdfImporter` and by all three `DocumentImporter` branches (PDF, image, barcode). `Os.memfd_create` needs API 30; `DefaultPdfImporter` is gated at 34 (G.1), but `DocumentImporter` calls the factory before any gate.
+
+Known gap: `MemfdPfdFactory` calls `Os.memfd_create(name, 0)` and applies no seals, and no JNI shim or native method exists, so the seal set above is the decision, not current behavior (`PfdFactory.kt:53`). Flags 0 also omit `MFD_ALLOW_SEALING`. Residual: each memfd is handed over writable, but the host never reads it back and persists from its own `ByteArray` (`DefaultPdfImporter.renderAndPersist`), and each fd is closed after one import, so a compromised worker can only alter its own input.
 
 ### D4. No extraction
 
@@ -136,7 +148,7 @@ Documents have no share or export affordance. Bytes go one way: file picker in, 
 
 ### G.1 PDF import is gated on `Build.VERSION.SDK_INT >= 34`
 
-A Mainline-backed PDFium is reachable only on API 34+ via `android.graphics.pdf.PdfRenderer` (API 35 adds `PdfRendererPreV`, also Mainline-backed but with a higher call-site requirement and no extra reach). On API 30-33 `libpdfium.so` is the platform-bundled copy and updates only with full-OS patches. The single import entry point (`DefaultPdfImporter`) therefore rejects below API 34 with `DocumentRejectedKind.UnsupportedAndroidVersion` ("Android 14 or newer required") without invoking the renderer. Every PDF the app renders goes through a Mainline-updated PDFium. The repo-wide `minSdk` (28) is unchanged; the gate is a runtime check, not a manifest floor, and the PKPASS path is unaffected.
+A Mainline-backed PDFium is reachable only on API 34+ via `android.graphics.pdf.PdfRenderer` (API 35 adds `PdfRendererPreV`, also Mainline-backed but with a higher call-site requirement and no extra reach). On API 30-33 `libpdfium.so` is the platform-bundled copy and updates only with full-OS patches. The single import entry point (`DefaultPdfImporter`) therefore rejects below API 34 with `DocumentRejectedKind.UnsupportedAndroidVersion` ("Android 14 or newer required") without invoking the renderer. Every PDF the app renders goes through a Mainline-updated PDFium on devices that receive MediaProvider Mainline updates; builds without Play System Updates update PDFium only with OS releases (residual risk). The repo-wide `minSdk` (28) is unchanged; the gate is a runtime check, not a manifest floor, and the PKPASS path is unaffected.
 
 ## Telemetry
 
@@ -145,7 +157,7 @@ A Mainline-backed PDFium is reachable only on API 34+ via `android.graphics.pdf.
 ## Consequences
 
 - PDFs are strongly contained but minimally featured: no search, no auto-expiration, no labels beyond filename, no sharing. A feature that wants any of those re-opens the threat model and amends this ADR.
-- The isolated process adds binder latency on first render; later pages in a session are cached in main memory.
+- The isolated process adds roughly 200-400 ms on first render (cold start of the isolated service; Pixel 6 historical figure, not measured here); later pages in a session are cached in main memory.
 - Devices below API 34 cannot import PDFs at all (G.1).
 
 ## Zoom: full-screen surface only (Z)
@@ -197,9 +209,9 @@ PDFs fail as `Encrypted` or `TooManyPages`; images as `NotAnImage` or `Dimension
 
 ### I3. `passes-document` owns the sniff-and-branch orchestration
 
-`DocumentImporter` magic-byte-sniffs PDF vs image and branches to `passes-pdf`'s renderer service or `passes-image`'s decode sandbox. It sits above both backends and is the single place the two otherwise-independent peers meet; a `passes-pdf` to `passes-image` edge is deliberately avoided. It declares no service; all decode and render work stays in the isolated backends. The orchestration lives here so it is not reassembled in the host.
+`DocumentImporter` magic-byte-sniffs PDF vs image and branches to `passes-pdf`'s renderer service or `passes-image`'s decode sandbox. It sits above both backends, and a `passes-pdf` to `passes-image` edge is deliberately avoided; the only other module above both is `passes-document-ui` (display). It declares no service; all decode and render work stays in the isolated backends. The orchestration lives here so it is not reassembled in the host.
 
-The importer reads the source once into a bounded buffer, sniffs, then materializes the bytes into a sealed memfd PFD (via `passes-isolation`) for the winning backend, so a one-shot fd source is never read twice and the original bytes are what get persisted.
+The importer reads the source once into a bounded buffer, sniffs, then materializes the bytes into a memfd PFD (unsealed today; F.1 Known gap) via `passes-isolation` for the winning backend, so a one-shot fd source is never read twice and the original bytes are what get persisted.
 
 ### I4. Storage: forward-only `documents` columns
 
@@ -207,7 +219,7 @@ The `documents` table has a `format` discriminator (`'pdf' / 'png' / 'jpeg' / 'w
 
 ### I5. The image arm reuses the trust caption and `DocumentView`
 
-`DocumentView` dispatches on the sealed `Document`: PDF is the swipeable pager; image is a single fixed-fit image decoded once in the sandbox. The same verbatim `DocumentTrustCaption` is composed inside both arms, and no parameter can hide it. The dispatcher takes the kind-specific `imageFile` / `imageDecoder` pair alongside `pdfFile` / `renderer`; `passes-document-ui` depends on `passes-image` for this. Zoom and full-screen for images are not provided: `FullScreenDocumentView` is PDF-only. D8 holds across both arms.
+`DocumentView` dispatches on the sealed `Document`: PDF is the swipeable pager; image is a single fixed-fit image decoded once in the sandbox. The same verbatim `DocumentTrustCaption` is composed inside both arms, and no parameter can hide it. The dispatcher takes the kind-specific `imageFile` / `imageDecoder` pair alongside `pdfFile` / `renderer`; `passes-document-ui` depends on `passes-image` for this. `FullScreenDocumentView` serves all three arms; Z.7 and Z.8 (pinch-zoom, docked non-suppressible caption) apply to image and composite documents as to PDFs. D8 holds across both arms.
 
 ## Composite artifact: PDF | image | barcoded-image (C)
 
@@ -258,16 +270,16 @@ Document list cards (a consumer concern) take a class tint (D1.C), name the arti
 | D1, I1, C1 | `PublicApiSurfaceTest` in `passes-document-core` (arm set; no shared superclass with `Pass`) |
 | D1.C | `DocumentFaceTintTest` (tint cannot suppress the caption or change the render request; transparent tint falls back); `DocumentSurfaceLockTest.documentViewHasExactlyElevenUserVisibleParameters` (no color field on any arm) |
 | D1.L | Consumer-side: the kernel cannot verify a host's list at runtime |
-| D2 | classpath scan: no `pdfbox-android` / `mupdf` dependency |
-| D3 | instrumented: malformed PDF crashes the renderer, the main process survives, rebind succeeds |
+| D2 | No test (no classpath scan for `pdfbox-android` / `mupdf`) |
+| D3 | `@Ignore`d stub, not run: malformed PDF crashes the renderer, the main process survives, rebind succeeds (`PdfRendererServiceInstrumentedTest`) |
 | D4 | reflection: binder has exactly `probe` and `render`; `PdfThumbnailSurfaceTest` |
 | D5, D5.N, D5.T | `DocumentTrustSurfaceTest`, `DocumentViewInstrumentedTest`, `TrustClaimSurfaceTest`, `BarcodeCreateConfirmSheetTest`, `CopyNamesNoHostTest` (in `passes-ui` and `passes-document-ui`: no string in main sources names Walt); `documentViewTrustCaptionParamIsThePlacementType`, `documentViewHostedTypeRowOmitsKernelCaption` |
-| D6 | unit: encrypted probe returns `Rejected(Encrypted)` |
+| D6 | `encryptedPdfRejectsAtProbe` is an `@Ignore`d stub, not run; `PdfImporterTest` checks the rejection mapping against a fake binder only |
 | D7 | unit tests at each cap boundary; watchdog test covers timeout-then-kill |
 | D8, Z.5 | bytecode scan for `Intent.ACTION_SEND` and `application/pdf` |
 | G.1 | unit: import below API 34 returns the rejection without invoking the renderer |
 | Z.3 | reflection: binder still exactly two methods |
-| Z.7, Z.8 | `DocumentSurfaceLockTest` (full-screen shape lock); Compose tests: inline view ignores pinch, banner navigates, caption visible at fit, after zoom and after pan |
+| Z.7, Z.8 | `DocumentSurfaceLockTest` (full-screen shape lock); Compose tests: banner navigates, caption visible at fit, after zoom and after pan; the inline-view-ignores-pinch test is `@Ignore`d, not run |
 | I2, I3 | `DocumentImporterTest` (backend outcome to arm mapping; PDF magic routes to PDF backend, image to image backend, unrecognised touches neither; original bytes reach `persist`) |
 | I4, C4 | `SchemaMigrationTest`, `DocumentRepositoryTest` |
 | I5, C5 | `DocumentSurfaceLockTest` (dispatcher parameter lock; no new parameter for the composite) |
