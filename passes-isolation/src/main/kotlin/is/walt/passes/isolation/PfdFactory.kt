@@ -10,7 +10,9 @@ import android.system.OsConstants
  * Materializes a byte payload into a [ParcelFileDescriptor] suitable for handing across a
  * bind to an isolated worker service. The shared seam both [is.walt.passes.isolation]
  * consumers reach for when they need to put *bytes already in the main process* into an
- * fd the sandbox can mmap — no plaintext touches disk (ADR 0005 F.1).
+ * fd the sandbox can read — no plaintext touches disk (ADR 0005 F.1). Consumers read with
+ * `pread`/`read` or private mappings: before Linux 6.7 a write-sealed memfd refuses even a
+ * read-only shared mapping.
  *
  * Not every consumer needs this: a worker whose hostile input must never enter the main
  * process at all (e.g. image decode) hands the *source* fd across directly instead of
@@ -38,15 +40,10 @@ public interface PfdFactory {
  * the kernel's purely-cosmetic label for the fd (visible in `/proc/<pid>/fd`); consumers
  * pass a per-worker name so a leaked fd is attributable.
  *
- * The buffer is populated with `write(2)` (no writable mapping ever exists), then sealed with
- * `F_SEAL_SEAL | F_SEAL_WRITE | F_SEAL_GROW | F_SEAL_SHRINK` before it is adopted into the
- * returned PFD. A renderer or decoder that receives the fd can read it but cannot write it,
- * map it writable, resize it, or lift the seals (ADR 0005 F.1).
+ * The buffer is written with `write(2)`, then sealed against write, grow, shrink and seal
+ * changes before it is adopted into the returned PFD (ADR 0005 F.1).
  *
- * memfd_create lands in `android.system.Os` at API 30. Importers reject below their own
- * floor before this factory is asked for a PFD; the [TargetApi] narrows lint's view to API 30
- * and the inline `check` is defence in depth, so a caller that skips the gate fails loudly here
- * rather than crashing inside libcore.
+ * `memfd_create` needs API 30; the inline `check` fails loudly if a caller skips its gate.
  */
 @TargetApi(Build.VERSION_CODES.R)
 public class MemfdPfdFactory(
@@ -58,9 +55,7 @@ public class MemfdPfdFactory(
         }
         val fd = Os.memfd_create(debugName, OsConstants.MFD_CLOEXEC or MemfdSeals.MFD_ALLOW_SEALING)
         try {
-            // Os.write returns the count actually written; loop to drain the buffer in
-            // case the kernel short-writes. memfd-backed fds accept the whole buffer in
-            // one go in practice, but the loop is the defensive shape.
+            // Loop in case the kernel short-writes.
             var offset = 0
             while (offset < bytes.size) {
                 val written = Os.write(fd, bytes, offset, bytes.size - offset)
@@ -71,24 +66,20 @@ public class MemfdPfdFactory(
             }
             Os.lseek(fd, 0, OsConstants.SEEK_SET)
             Os.fcntlInt(fd, MemfdSeals.F_ADD_SEALS, MemfdSeals.ALL)
-            check(Os.fcntlInt(fd, MemfdSeals.F_GET_SEALS, 0) == MemfdSeals.ALL) {
+            // Mask: newer kernels may add seals of their own (e.g. F_SEAL_EXEC).
+            val applied = Os.fcntlInt(fd, MemfdSeals.F_GET_SEALS, 0) and MemfdSeals.ALL
+            check(applied == MemfdSeals.ALL) {
                 "memfd seals not applied"
             }
             return ParcelFileDescriptor.dup(fd)
         } finally {
-            // ParcelFileDescriptor.dup duplicates the underlying fd; close ours so the
-            // memfd is owned exclusively by the PFD handed back to the caller. runCatching
-            // covers the case where dup() failed and already dropped our ownership claim.
+            // dup() duplicated the fd; close ours so the returned PFD owns the memfd.
             runCatching { Os.close(fd) }
         }
     }
 }
 
-/**
- * Linux `memfd` sealing values. `OsConstants` exposes only `MFD_CLOEXEC`, so the rest are the
- * stable kernel ABI values from `<linux/memfd.h>` and `<linux/fcntl.h>`, used through the public
- * `Os.fcntlInt` call only.
- */
+// OsConstants exposes only MFD_CLOEXEC; the rest are Linux ABI values, used via public Os calls.
 internal object MemfdSeals {
     const val MFD_ALLOW_SEALING: Int = 0x0002
     const val F_ADD_SEALS: Int = 1033

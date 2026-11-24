@@ -13,12 +13,11 @@ import org.junit.Assume.assumeTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
+import java.io.IOException
+import java.io.RandomAccessFile
+import java.nio.channels.FileChannel
 
-/**
- * On-device proof of the ADR 0005 F.1 seal set: the PFD [MemfdPfdFactory] returns carries
- * `F_SEAL_SEAL | F_SEAL_WRITE | F_SEAL_GROW | F_SEAL_SHRINK`, so the receiving side can read
- * the bytes but cannot write, resize or unseal them. Needs `memfd_create` (API 30).
- */
+// Needs memfd_create (API 30). The F_GET_SEALS check masks, as newer kernels add F_SEAL_EXEC.
 @RunWith(AndroidJUnit4::class)
 class MemfdPfdFactoryInstrumentedTest {
     private val payload = ByteArray(PAYLOAD_SIZE) { it.toByte() }
@@ -32,7 +31,7 @@ class MemfdPfdFactoryInstrumentedTest {
     fun returnedFdCarriesTheFullSealSet() {
         MemfdPfdFactory("seal-test").fromBytes(payload).use { pfd ->
             val seals = Os.fcntlInt(pfd.fileDescriptor, MemfdSeals.F_GET_SEALS, 0)
-            assertThat(seals).isEqualTo(MemfdSeals.ALL)
+            assertThat(seals and MemfdSeals.ALL).isEqualTo(MemfdSeals.ALL)
         }
     }
 
@@ -50,11 +49,25 @@ class MemfdPfdFactoryInstrumentedTest {
     fun resizeAndFurtherSealChangesAreRefused() {
         MemfdPfdFactory("seal-test").fromBytes(payload).use { pfd ->
             val fd = pfd.fileDescriptor
-            assertThrows(ErrnoException::class.java) { Os.ftruncate(fd, 1L) }
-            assertThrows(ErrnoException::class.java) { Os.ftruncate(fd, PAYLOAD_SIZE * 2L) }
-            // F_SEAL_SEAL: no seal can be added or removed any more.
-            assertThrows(ErrnoException::class.java) {
+            val shrink = assertThrows(ErrnoException::class.java) { Os.ftruncate(fd, 1L) }
+            val grow = assertThrows(ErrnoException::class.java) { Os.ftruncate(fd, PAYLOAD_SIZE * 2L) }
+            // F_SEAL_SEAL: no seal can be added any more.
+            val reseal = assertThrows(ErrnoException::class.java) {
                 Os.fcntlInt(fd, MemfdSeals.F_ADD_SEALS, MemfdSeals.ALL)
+            }
+            assertThat(listOf(shrink.errno, grow.errno, reseal.errno))
+                .containsExactly(OsConstants.EPERM, OsConstants.EPERM, OsConstants.EPERM)
+        }
+    }
+
+    @Test
+    fun writableSharedMappingOfTheSealedFdFails() {
+        MemfdPfdFactory("seal-test").fromBytes(payload).use { pfd ->
+            val path = "/proc/self/fd/${pfd.fd}"
+            assertThrows(IOException::class.java) {
+                RandomAccessFile(path, "rw").use {
+                    it.channel.map(FileChannel.MapMode.READ_WRITE, 0, PAYLOAD_SIZE.toLong())
+                }
             }
         }
     }

@@ -10,12 +10,14 @@ import android.os.SystemClock
 import `is`.walt.passes.barcode.android.BarcodeImageDecoder
 import `is`.walt.passes.barcode.android.BarcodeImageSource
 import `is`.walt.passes.core.BarcodeDecodeResult
+import `is`.walt.passes.core.DecodeFailureReason
 import `is`.walt.passes.core.ScannableFormat
 import `is`.walt.passes.image.android.BoundedImageDecoder
 import `is`.walt.passes.image.android.ImageDecodeRejectedKind
 import `is`.walt.passes.image.android.ImageDecodeResult
 import `is`.walt.passes.image.android.ImageSource
 import `is`.walt.passes.isolation.MemfdPfdFactory
+import `is`.walt.passes.isolation.PfdFactory
 import `is`.walt.passes.pdf.android.PdfImportSource
 import `is`.walt.passes.pdf.android.PdfImporter
 import java.io.ByteArrayOutputStream
@@ -39,15 +41,10 @@ internal typealias PdfPersist = suspend (String, ByteArray, Int, ByteArray) -> U
  *     source.
  *  2. Sniff: `isPdfHeader` → PDF arm; else `sniffImageFormat` → image arm; else
  *     [DocumentImportResult.Unrecognized].
- *  3. Reject below API 30 (see [MEMFD_MIN_SDK]) before any memfd is allocated: PDFs as
- *     [DocumentRejectedKind.UnsupportedAndroidVersion], images as
- *     [ImageDecodeRejectedKind.DecoderUnavailable]. No file-backed fallback exists.
+ *  3. Reject below API 30 before any memfd is allocated; there is no file-backed fallback.
  *  4. Hand the buffered bytes to the chosen backend through the [pdfImport] / [imageDecode]
- *     seams. The production seams (built in [create]) materialize the bytes into an in-RAM
- *     `memfd` PFD sealed against write, grow, shrink and seal changes (ADR 0005 F.1), and
- *     bind the isolated service; oversize and the per-kind caps are enforced inside the
- *     backend (the buffer is capped at `maxBytes + 1`, exactly enough for the backend to
- *     observe an over-cap file without ever holding the whole thing).
+ *     seams, which pass them as a sealed in-RAM `memfd` PFD (ADR 0005 F.1). Oversize and the
+ *     per-kind caps are enforced inside the backend.
  *  5. Fold the per-backend outcome onto [DocumentImportResult].
  *
  * `StorageHandoffFailed` is hoisted to a shared arm for both kinds: the PDF backend's own
@@ -85,10 +82,10 @@ internal class DefaultDocumentImporter(
     ): DocumentImportResult {
         val bytes = readBounded(source) ?: return DocumentImportResult.Unrecognized
         val belowFloor = sdkInt < MEMFD_MIN_SDK
-        val format = if (isPdfHeader(bytes)) null else sniffImageFormat(bytes)
+        val isPdf = isPdfHeader(bytes)
+        val format = if (isPdf) null else sniffImageFormat(bytes)
         return when {
-            isPdfHeader(bytes) ->
-                if (belowFloor) rejectPdfBelowMemfdFloor() else importPdf(bytes, displayLabel, persist)
+            isPdf -> if (belowFloor) rejectPdfBelowMemfdFloor() else importPdf(bytes, displayLabel, persist)
             format == null -> DocumentImportResult.Unrecognized
             belowFloor -> rejectImageBelowMemfdFloor()
             else -> importImage(bytes, format, displayLabel, persist, confirmBarcode)
@@ -375,59 +372,101 @@ internal class DefaultDocumentImporter(
         // InputStream.copyTo default and keeps the read syscall count low.
         const val COPY_BUFFER_SIZE: Int = 64 * 1024
 
-        // `Os.memfd_create` is API 30 (Android 11). The PDF backend's own gate (API 34) is higher
-        // and still applies; this floor only keeps the factory from running where it cannot.
+        // `Os.memfd_create` needs API 30; the PDF backend's own API 34 gate still applies.
         const val MEMFD_MIN_SDK: Int = Build.VERSION_CODES.R
 
         // Cosmetic memfd label for the import PFD (visible in /proc/<pid>/fd).
         const val MEMFD_DEBUG_NAME: String = "walt-document-import"
 
-        /**
-         * Builds the production importer: the seams materialize the buffered bytes into a
-         * sealed in-RAM `memfd` PFD and bind the isolated backends. This glue is the only part
-         * not exercised by the JVM orchestration tests; the on-device suite covers it.
-         */
+        // Production wiring; the on-device suite covers it.
         internal fun create(context: Context, config: DocumentImportConfig): DocumentImporter {
             val appContext = context.applicationContext
-            val pfdFactory = MemfdPfdFactory(MEMFD_DEBUG_NAME)
-            val pdfImporter = PdfImporter.create(appContext, config.pdfConfig)
-            val imageDecoder = BoundedImageDecoder.create(appContext)
-            val barcodeDecoder = BarcodeImageDecoder.create(appContext)
-            return DefaultDocumentImporter(
+            return create(
                 config = config,
-                pdfImport = { bytes, label, persist ->
-                    val pfd = pfdFactory.fromBytes(bytes)
-                    try {
-                        pdfImporter.import(PdfImportSource.FileDescriptor(pfd), label, persist)
-                    } finally {
-                        runCatching { pfd.close() }
-                    }
-                },
-                imageDecode = { bytes, maxPx ->
-                    val pfd = pfdFactory.fromBytes(bytes)
-                    try {
-                        when (val r = imageDecoder.decode(ImageSource.FileDescriptor(pfd), maxPx, maxPx)) {
-                            is ImageDecodeResult.Rejected -> ImageDecodeOutcome.Rejected(r.kind)
-                            is ImageDecodeResult.Ok -> encodeRasterToThumbnail(r)
-                        }
-                    } finally {
-                        runCatching { pfd.close() }
-                    }
-                },
-                barcodeExtract = { bytes ->
-                    // A second memfd over the same bytes — the image-decode and barcode-extract
-                    // sandboxes each consume their own fd; the source was still read exactly once.
-                    val pfd = pfdFactory.fromBytes(bytes)
-                    try {
-                        barcodeDecoder.decode(BarcodeImageSource.FileDescriptor(pfd))
-                    } finally {
-                        runCatching { pfd.close() }
-                    }
-                },
+                pfdFactory = MemfdPfdFactory(MEMFD_DEBUG_NAME),
+                pdfImporter = PdfImporter.create(appContext, config.pdfConfig),
+                imageDecoder = BoundedImageDecoder.create(appContext),
+                barcodeDecoder = BarcodeImageDecoder.create(appContext),
+            )
+        }
+
+        internal fun create(
+            config: DocumentImportConfig,
+            pfdFactory: PfdFactory,
+            pdfImporter: PdfImporter,
+            imageDecoder: BoundedImageDecoder,
+            barcodeDecoder: BarcodeImageDecoder,
+        ): DocumentImporter =
+            DefaultDocumentImporter(
+                config = config,
+                pdfImport = pdfSeam(config, pfdFactory, pdfImporter),
+                imageDecode = imageSeam(pfdFactory, imageDecoder),
+                barcodeExtract = barcodeSeam(pfdFactory, barcodeDecoder),
                 now = { SystemClock.elapsedRealtime() },
                 wallClock = { System.currentTimeMillis() },
                 idGenerator = { UUID.randomUUID().toString() },
             )
+
+        // Each seam rejects fail-closed when the factory throws (allocation or sealing), so a
+        // factory failure never escapes import().
+        internal fun pdfSeam(
+            config: DocumentImportConfig,
+            pfdFactory: PfdFactory,
+            pdfImporter: PdfImporter,
+        ): suspend (ByteArray, String, PdfPersist) -> PdfImportResult = { bytes, label, persist ->
+            val pfd = runCatching { pfdFactory.fromBytes(bytes) }.getOrNull()
+            if (pfd == null) {
+                pdfAllocationFailed(config)
+            } else {
+                try {
+                    pdfImporter.import(PdfImportSource.FileDescriptor(pfd), label, persist)
+                } finally {
+                    runCatching { pfd.close() }
+                }
+            }
+        }
+
+        internal fun imageSeam(
+            pfdFactory: PfdFactory,
+            imageDecoder: BoundedImageDecoder,
+        ): suspend (ByteArray, Int) -> ImageDecodeOutcome = { bytes, maxPx ->
+            val pfd = runCatching { pfdFactory.fromBytes(bytes) }.getOrNull()
+            if (pfd == null) {
+                ImageDecodeOutcome.Rejected(ImageDecodeRejectedKind.DecodeFailed)
+            } else {
+                try {
+                    when (val r = imageDecoder.decode(ImageSource.FileDescriptor(pfd), maxPx, maxPx)) {
+                        is ImageDecodeResult.Rejected -> ImageDecodeOutcome.Rejected(r.kind)
+                        is ImageDecodeResult.Ok -> encodeRasterToThumbnail(r)
+                    }
+                } finally {
+                    runCatching { pfd.close() }
+                }
+            }
+        }
+
+        // Its own memfd: each sandbox consumes its own fd over the once-read bytes.
+        internal fun barcodeSeam(
+            pfdFactory: PfdFactory,
+            barcodeDecoder: BarcodeImageDecoder,
+        ): suspend (ByteArray) -> BarcodeDecodeResult = { bytes ->
+            val pfd = runCatching { pfdFactory.fromBytes(bytes) }.getOrNull()
+            if (pfd == null) {
+                BarcodeDecodeResult.DecodeFailed(DecodeFailureReason.SourceUnreadable)
+            } else {
+                try {
+                    barcodeDecoder.decode(BarcodeImageSource.FileDescriptor(pfd))
+                } finally {
+                    runCatching { pfd.close() }
+                }
+            }
+        }
+
+        private fun pdfAllocationFailed(config: DocumentImportConfig): PdfImportResult {
+            val kind = DocumentRejectedKind.RendererFailed
+            config.pdfConfig.telemetryGuard.onImportStarted()
+            config.pdfConfig.telemetryGuard.onImportFailed(DocumentImportFailedEvent(kind, 0L))
+            return PdfImportResult.Rejected(kind)
         }
 
         /**

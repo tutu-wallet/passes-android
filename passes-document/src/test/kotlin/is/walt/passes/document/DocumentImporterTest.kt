@@ -3,11 +3,19 @@ package `is`.walt.passes.document
 import android.os.ParcelFileDescriptor
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.google.common.truth.Truth.assertThat
+import `is`.walt.passes.barcode.android.BarcodeImageDecoder
+import `is`.walt.passes.barcode.android.BarcodeImageSource
 import `is`.walt.passes.core.BarcodeDecodeResult
 import `is`.walt.passes.core.DecodeFailureReason
 import `is`.walt.passes.core.ScannableFormat
 import `is`.walt.passes.document.DefaultDocumentImporter.ImageDecodeOutcome
+import `is`.walt.passes.image.android.BoundedImageDecoder
 import `is`.walt.passes.image.android.ImageDecodeRejectedKind
+import `is`.walt.passes.image.android.ImageDecodeResult
+import `is`.walt.passes.image.android.ImageSource
+import `is`.walt.passes.isolation.PfdFactory
+import `is`.walt.passes.pdf.android.PdfImportSource
+import `is`.walt.passes.pdf.android.PdfImporter
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.runTest
@@ -419,6 +427,32 @@ class DocumentImporterTest {
     }
 
     @Test
+    fun pdfBelowTheMemfdFloorReportsUnsupportedVersionTelemetry() = runTest {
+        val events = mutableListOf<DocumentRejectedKind>()
+        val guard = object : DocumentTelemetryGuard by DocumentTelemetryGuard.NoOp {
+            override fun onImportFailed(event: DocumentImportFailedEvent) {
+                events += event.outcome
+            }
+        }
+        val importer = importer(sdkInt = 29, pdfConfig = PdfImportConfig(telemetryGuard = guard))
+        importer.import(source(pdfBytes), "x.pdf") {}
+        assertThat(events).containsExactly(DocumentRejectedKind.UnsupportedAndroidVersion)
+    }
+
+    @Test
+    fun theMemfdFloorItselfIsAccepted() = runTest {
+        val importer = importer(
+            sdkInt = 30,
+            pdfImport = { _, label, _ -> PdfImportResult.Imported(pdfDoc(label, 1L, 1)) },
+            imageDecode = { _, _ -> ImageDecodeOutcome.Decoded(byteArrayOf(1), 10, 10) },
+        )
+        assertThat(importer.import(source(pdfBytes), "x.pdf") {})
+            .isInstanceOf(DocumentImportResult.ImportedPdf::class.java)
+        assertThat(importer.import(source(pngBytes), "x.png") {})
+            .isInstanceOf(DocumentImportResult.ImportedImage::class.java)
+    }
+
+    @Test
     fun imageBelowTheMemfdFloorIsRejectedBeforeAnyBackendRuns() = runTest {
         var backendCalled = false
         val telemetry = RecordingImageGuard()
@@ -447,6 +481,45 @@ class DocumentImporterTest {
         assertThat(result).isEqualTo(DocumentImportResult.Unrecognized)
     }
 
+    @Test
+    fun pdfSealFailureRejectsAsRendererFailedWithTelemetry() = runTest {
+        val started = mutableListOf<String>()
+        val guard = object : DocumentTelemetryGuard by DocumentTelemetryGuard.NoOp {
+            override fun onImportStarted() { started += "started" }
+            override fun onImportFailed(event: DocumentImportFailedEvent) { started += "failed:${event.outcome}" }
+        }
+        val importer = failingFactoryImporter(PdfImportConfig(telemetryGuard = guard))
+        val result = importer.import(source(pdfBytes), "x.pdf") {}
+        assertThat(result).isEqualTo(DocumentImportResult.PdfRejected(DocumentRejectedKind.RendererFailed))
+        assertThat(started).containsExactly("started", "failed:RendererFailed").inOrder()
+    }
+
+    @Test
+    fun imageSealFailureRejectsAsDecodeFailedWithTerminalTelemetry() = runTest {
+        val telemetry = RecordingImageGuard()
+        val importer = failingFactoryImporter(imageTelemetry = telemetry)
+        val result = importer.import(source(pngBytes), "x.png") {}
+        assertThat(result).isEqualTo(DocumentImportResult.ImageRejected(ImageDecodeRejectedKind.DecodeFailed))
+        assertThat(telemetry.events).containsExactly("started", "failed:Decode").inOrder()
+    }
+
+    @Test
+    fun barcodeSealFailureReturnsDecodeFailedSoTheImportDegrades() = runTest {
+        val noBackend = object : BarcodeImageDecoder {
+            override suspend fun decode(source: BarcodeImageSource): BarcodeDecodeResult =
+                error("backend must not run")
+        }
+        val result = DefaultDocumentImporter.barcodeSeam(throwingFactory, noBackend)(pngBytes)
+        assertThat(result).isEqualTo(BarcodeDecodeResult.DecodeFailed(DecodeFailureReason.SourceUnreadable))
+        // And the orchestrator turns that into a plain image rather than failing the import.
+        val importer = importer(
+            imageDecode = { _, _ -> ImageDecodeOutcome.Decoded(byteArrayOf(7), 10, 10) },
+            barcodeExtract = DefaultDocumentImporter.barcodeSeam(throwingFactory, noBackend),
+        )
+        val imported = importer.import(source(pngBytes), "x.png", confirmBarcode = { _, _ -> true }) {}
+        assertThat(imported).isInstanceOf(DocumentImportResult.ImportedImage::class.java)
+    }
+
     // -- helpers --------------------------------------------------------------------
 
     @Suppress("LongParameterList")
@@ -462,9 +535,10 @@ class DocumentImporterTest {
         imageTelemetry: ImageImportTelemetryGuard = ImageImportTelemetryGuard.NoOp,
         wallClock: () -> Long = { FIXED_WALL_CLOCK_MS },
         sdkInt: Int = 34,
+        pdfConfig: PdfImportConfig = PdfImportConfig(),
     ): DefaultDocumentImporter =
         DefaultDocumentImporter(
-            config = DocumentImportConfig(imageTelemetryGuard = imageTelemetry),
+            config = DocumentImportConfig(pdfConfig = pdfConfig, imageTelemetryGuard = imageTelemetry),
             pdfImport = pdfImport,
             imageDecode = imageDecode,
             barcodeExtract = barcodeExtract,
@@ -473,6 +547,36 @@ class DocumentImporterTest {
             idGenerator = { "fixed-id" },
             sdkInt = sdkInt,
         )
+
+    private val throwingFactory = object : PfdFactory {
+        override fun fromBytes(bytes: ByteArray): ParcelFileDescriptor = error("seal failed")
+    }
+
+    private val noPdfBackend = object : PdfImporter {
+        override suspend fun import(
+            source: PdfImportSource,
+            displayLabel: String,
+            persist: suspend (String, ByteArray, Int, ByteArray) -> Unit,
+        ): PdfImportResult = error("backend must not run")
+    }
+
+    /** Production seams wired over a factory that always throws, as a failed seal would. */
+    private fun failingFactoryImporter(
+        pdfConfig: PdfImportConfig = PdfImportConfig(),
+        imageTelemetry: ImageImportTelemetryGuard = ImageImportTelemetryGuard.NoOp,
+    ): DefaultDocumentImporter {
+        val config = DocumentImportConfig(pdfConfig = pdfConfig, imageTelemetryGuard = imageTelemetry)
+        val noImageBackend = object : BoundedImageDecoder {
+            override suspend fun decode(source: ImageSource, maxWidthPx: Int, maxHeightPx: Int): ImageDecodeResult =
+                error("backend must not run")
+        }
+        return importer(
+            pdfConfig = pdfConfig,
+            imageTelemetry = imageTelemetry,
+            pdfImport = DefaultDocumentImporter.pdfSeam(config, throwingFactory, noPdfBackend),
+            imageDecode = DefaultDocumentImporter.imageSeam(throwingFactory, noImageBackend),
+        )
+    }
 
     /** Imports an image whose isolated barcode extraction failed with [reason]. */
     private suspend fun persistedImageFor(reason: DecodeFailureReason): DocumentPersist.Image {
