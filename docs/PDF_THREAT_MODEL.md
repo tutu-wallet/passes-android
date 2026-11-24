@@ -44,8 +44,8 @@ for two decades.
 **Mitigation.** C1: `PdfRenderer` does not implement the JavaScript runtime;
 script bytes are inert. C3: Walt never enumerates `/Names` or
 `/AcroForm/Fields`, so even the codepath that *discovers* JS-bearing nodes
-is never invoked. Renderer validation checks non-execution against a PDF
-carrying a JS `/OpenAction` (see "How each control is tested").
+is never invoked. No on-device check of non-execution is recorded; the claim
+rests on AOSP/PDFium source analysis (ADR 0005 D2).
 
 **Status.** Mitigated.
 
@@ -141,11 +141,13 @@ bitmap output, and no network. The blast radius of a successful exploit is
 "the user re-taps to view the document; the rendering service rebinds."
 
 C1: PDFium ships in MediaProvider Mainline on Android 14+ (API 34), so
-codec fixes flow via Play System Updates without a Walt release.
+codec fixes flow via Play System Updates without a Walt release on devices
+that receive MediaProvider Mainline updates.
 
 **Status.** Mitigated against persistence and lateral movement; CVE-window
-exposure in the renderer process itself is the residual risk (quantified by
-the renderer validation, see "How each control is tested").
+exposure in the renderer process itself is the residual risk; it is not
+quantified. Builds without Play System Updates (no MediaProvider Mainline
+updates) receive PDFium fixes only with OS releases, which widens that window.
 
 ### 8. Object-graph attacks (deep nesting, malformed xref, oversized streams)
 
@@ -239,7 +241,7 @@ to spoof Walt UI text.
 **Mitigation.** `DocumentTrustCaption` and the Documents-lane tile wrap
 the display label in U+2068 / U+2069 (FSI / PDI) bidi isolates, mirroring
 the existing `B3UrlConfirmSheet` discipline (`passes-ui/TRUST_CLAIMS.md`
-section 2). Instrumentation tests verify the wrap.
+section 2). The JVM test `DocumentTrustSurfaceTest.documentTileWrapsDisplayLabelInBidiIsolates` verifies the wrap.
 
 **Status.** Mitigated.
 
@@ -279,10 +281,10 @@ Proposing any of these requires amending ADR 0005, not just a PR. They are not
 
 ## How each control is tested
 
-The tests pinning each control are mapped in ADR 0005 ("Tests pinning the controls
-above"). Renderer validation is the empirical complement to C1: where this document
-asserts "C1 does not execute JavaScript," the validation is a recorded reproduction
-with a JS-laden test PDF on at least one Pixel device and one OEM device.
+The test table in ADR 0005 maps each control to its tests. No on-device
+reproduction of C1 (JS, URI/Launch and remote-reference PDFs on a Pixel and an
+OEM device) is recorded: `PdfRendererServiceInstrumentedTest` is `@Ignore`d
+stubs and no CI leg runs `passes-pdf` connected tests.
 
 ## Out of scope
 
