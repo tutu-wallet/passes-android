@@ -62,7 +62,6 @@ Rationale: walt-android imports this module directly. A removed `public` modifie
 
 ## Open questions
 
-- Cert-chain trust anchors (which Apple WWDR roots ship in the parser, how they rotate) are deferred.
 - `BarcodeFormat` includes `Code128`; revisit if it complicates renderer surface area.
 
 ## Addendum: bundle reader and nested archives
