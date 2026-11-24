@@ -43,6 +43,23 @@ class MemfdPfdFactoryInstrumentedTest {
     }
 
     @Test
+    fun writableSharedMappingOfTheSealedFdFails() {
+        MemfdPfdFactory("seal-test").fromBytes(payload).use { pfd ->
+            val e = assertThrows(ErrnoException::class.java) {
+                Os.mmap(
+                    0L,
+                    PAYLOAD_SIZE.toLong(),
+                    OsConstants.PROT_READ or OsConstants.PROT_WRITE,
+                    OsConstants.MAP_SHARED,
+                    pfd.fileDescriptor,
+                    0L,
+                )
+            }
+            assertThat(e.errno).isEqualTo(OsConstants.EPERM)
+        }
+    }
+
+    @Test
     fun resizeAndFurtherSealChangesAreRefused() {
         MemfdPfdFactory("seal-test").fromBytes(payload).use { pfd ->
             val fd = pfd.fileDescriptor
