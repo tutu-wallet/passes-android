@@ -17,9 +17,10 @@ how tests pin it.
 | `AppleVerified`         | "Verified"          | The PKCS#7 signature chained to Apple's WWDR root.       |
 | `CertChainIncomplete`   | "Signature unknown" | A signature was present but the chain was incomplete.    |
 
-**Trust claim.** The badge reflects the `SignatureStatus` recorded by `passes-core` at
-parse time and persisted by `passes-storage`. The UI cannot upgrade or downgrade a
-status, and the status cannot be rebound by the host.
+**Trust claim.** The badge reflects the `SignatureStatus` the host passes to
+`PassFront`; the UI cannot upgrade or downgrade it. Passing the status
+`passes-storage` recorded (`StoredPass`) is a host obligation the kernel cannot
+enforce.
 
 `PassFront.showSignatureBadge` (default `true`) is a presentation opt-out for a host
 that has already disclosed the band in its own chrome (e.g. walt-android's
@@ -33,10 +34,10 @@ reviewer conversation if anyone adds a further suppression parameter.
 **How tested.**
 
 - `PublicApiSurfaceTest` pins `SignatureBand` to the four documented bands.
-- Not present in this repo: screenshot tests asserting the pill color comes from
-  `PassesSemantics.signatureBadge.<bandBackground>`, and instrumentation tests
-  asserting no public API lets a caller display a `SignatureStatus` different from
-  the stored one.
+- No test in this repo pins the pill color to
+  `PassesSemantics.signatureBadge.<bandBackground>`, and none can pin that a caller
+  displays the stored `SignatureStatus` while `PassFront` takes the status as a
+  parameter.
 
 ## 2. URL confirmation (B3 sheet family)
 
@@ -123,8 +124,9 @@ URL the host is about to open, and a "Confirm" / "Cancel" pair.
 - `TrustClaimSurfaceTest.securitySheetUrlIsBidiIsolated` and
   `securitySheetIsolatesOrganizationName` verify the sheet's rendered text is
   bracketed by FSI / PDI.
-- Not present in this repo: instrumentation tests asserting no `ACTION_VIEW` intent
-  is dispatched without the user crossing the sheet (the host builds the intent).
+- No test in this repo asserts that no `ACTION_VIEW` intent is dispatched without
+  the user crossing the sheet; the host builds the intent, so this is a host
+  obligation.
 
 ## 3. Phone confirmation
 
@@ -134,8 +136,9 @@ source field label, verbatim phone digits, confirm/cancel pair.
 **Trust claim.** A pass-embedded phone number cannot trigger `Intent.ACTION_DIAL`
 without explicit confirmation. The displayed digits are the digits dialled.
 
-**How tested.** Same shape as URL. Not present in this repo: a harness test asserting
-no dial intent fires without confirmation (the host builds the intent).
+**How tested.** Same shape as URL. No test in this repo asserts that no dial
+intent fires without confirmation; the host builds the intent, so this is a host
+obligation.
 
 ## 4. Email confirmation
 
@@ -148,9 +151,11 @@ forwarded into the composer's pre-fill.
 recipient address. (Subject and body could be a phishing vector if pre-filled
 under the user's display name.)
 
-**How tested.** Not present in this repo: tests asserting the resulting `Intent`'s
-extras contain no `Intent.EXTRA_SUBJECT` or `Intent.EXTRA_TEXT` (the host builds
-the intent).
+**How tested.** No test in this repo asserts that the resulting `Intent`'s extras
+contain no `Intent.EXTRA_SUBJECT` or `Intent.EXTRA_TEXT`; the host builds the
+intent, so this is a host obligation. `EmailIntent` carries only `emailAddress`
+and `sourceField` (`SecurityIntent.kt:64-67`), so the kernel gives the host no
+subject or body to forward.
 
 ## 5. Expired / voided overlay
 
@@ -175,10 +180,10 @@ code review.
 - `PublicApiSurfaceTest` covers `ExpiredOverlayState.from` end-to-end: voided over
   date, equal epoch as expired, future as none, no expiration as none.
 - `TrustClaimSurfaceTest` covers the default overlay and each opt-out on `PassFront`.
-- `ComposableSurfaceLockTest` pins `PassFront`'s parameter count, so no overload can
-  accept an explicit `ExpiredOverlayState`; the only path is `ExpiredOverlayState.from`,
-  computed inside the composable from the pass's own fields.
-- Not present in this repo: screenshot tests asserting the scrim and pill render.
+- `ComposableSurfaceLockTest.passFrontHasExactlyNineUserVisibleParameters` pins the
+  widest `PassFront` overload, which has no `ExpiredOverlayState` parameter. No test
+  forbids a second `PassFront` overload; review enforces it.
+- No test in this repo asserts that the scrim and pill render.
 
 ## 6. Bounded image rendering
 
@@ -198,7 +203,10 @@ the configured ceiling. The host's process stays alive even when handed a 50000 
 - `PublicApiSurfaceTest` pins `ImageRenderBounds.Default` to 1920 x 1920 / 4 MP and
   rejects non-positive dimensions at construction.
 - `TrustClaimSurfaceTest` drives the bounded decoder with tight bounds and asserts an
-  `ExceedsWidth`, `ExceedsHeight` or `ExceedsArea` rejection.
+  `ExceedsWidth`, `ExceedsHeight` or `ExceedsArea` rejection. That Robolectric test
+  runs against a stub decoder; the real no-full-allocation check is
+  `passes-image-decode`'s `BoundedBitmapDecodeInstrumentedTest.rejectsOverCapImageByGateWithoutFullAllocation`
+  (CI on API 28, 31, 34 and 36).
 - Coil's default decoder is not used for pass images; only the
   `ImageDecoder.setOnHeaderDecodedListener` path is.
 
