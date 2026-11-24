@@ -219,7 +219,7 @@ The `documents` table has a `format` discriminator (`'pdf' / 'png' / 'jpeg' / 'w
 
 ### I5. The image arm reuses the trust caption and `DocumentView`
 
-`DocumentView` dispatches on the sealed `Document`: PDF is the swipeable pager; image is a single fixed-fit image decoded once in the sandbox. The same verbatim `DocumentTrustCaption` is composed inside both arms; the only parameter that omits it is `trustCaption = HostedTypeRow`, the audited D5.T concession. The dispatcher takes the kind-specific `imageFile` / `imageDecoder` pair alongside `pdfFile` / `renderer`; `passes-document-ui` depends on `passes-image` for this. `FullScreenDocumentView` serves all three arms; Z.7 and Z.8 (pinch-zoom, docked non-suppressible caption) apply to image and composite documents as to PDFs. D8 holds across all three arms.
+`DocumentView` dispatches on the sealed `Document`: PDF is the swipeable pager; image is a single fixed-fit image decoded once in the sandbox. The same verbatim `DocumentTrustCaption` is composed inside both view arms; the only parameter that omits it is `trustCaption = HostedTypeRow`, the audited D5.T concession. The dispatcher takes the kind-specific `imageFile` / `imageDecoder` pair alongside `pdfFile` / `renderer`; `passes-document-ui` depends on `passes-image` for this. `FullScreenDocumentView` serves all three arms; Z.7 and Z.8 (pinch-zoom, docked non-suppressible caption) apply to image and composite documents as to PDFs. D8 holds across all three arms.
 
 ## Composite artifact: PDF | image | barcoded-image (C)
 
