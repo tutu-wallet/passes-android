@@ -238,8 +238,8 @@ user-controlled and rendered alongside the trust caption. A filename
 containing U+202E or other Cf/Cc characters could rearrange visible glyphs
 to spoof Walt UI text.
 
-**Mitigation.** `DocumentTrustCaption` and the Documents-lane tile wrap
-the display label in U+2068 / U+2069 (FSI / PDI) bidi isolates, mirroring
+**Mitigation.** `DocumentTrustCaption` renders constant text and carries no label; only the
+Documents-lane tile wraps the display label in U+2068 / U+2069 (FSI / PDI) bidi isolates, mirroring
 the existing `B3UrlConfirmSheet` discipline (`passes-ui/TRUST_CLAIMS.md`
 section 2). The JVM test `DocumentTrustSurfaceTest.documentTileWrapsDisplayLabelInBidiIsolates` verifies the wrap.
 

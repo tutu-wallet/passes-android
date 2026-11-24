@@ -274,7 +274,7 @@ something other than what the user is saving.
 **C5. Untrusted-byte barcode decoding is confined.** The kernel uses `com.google.zxing:core`
 (Apache 2.0, pure JVM) to encode a bit matrix from a user-typed payload and format, and
 to decode bytes the user did not type (composite image + extracted barcode artifact, and
-live scan). Decoding of untrusted bytes is confined to a sandbox or to a still-codec-free
+live scan). Barcode decoding of untrusted bytes is confined to a sandbox or to a still-codec-free
 path:
 
 - **Static image bytes decode in a permission-stripped isolated process.** Gallery picks,
@@ -287,7 +287,7 @@ path:
   (`passes-barcode-core`) reads a first-party `YUV_420_888` luminance plane from CameraX
   `ImageAnalysis`: already-decoded sensor pixels, never a file format, so the RCE class
   that justifies isolating the static path is structurally absent. Decode is pure-JVM
-  ZXing. This is the one place untrusted bytes decode in-process.
+  ZXing. This is the one place untrusted bytes reach a barcode decoder in-process.
 
 The decoder core (`MultiFormatReader`) is in the dependency closure, so Threat 6's
 upgrade cadence covers decoder advisories on these two paths. The decoded payload is

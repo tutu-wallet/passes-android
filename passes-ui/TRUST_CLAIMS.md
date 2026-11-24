@@ -26,7 +26,7 @@ enforce.
 that has already disclosed the band in its own chrome (e.g. walt-android's
 import-confirm `TrustChip`), so the user is not shown two different "verified"
 affordances. The band itself remains non-suppressible: `onPassRendered(type, band)`
-fires regardless of the boolean, and the status is still derived from `passes-core`.
+fires regardless of the boolean, and the band is derived from the status the host passes.
 A host that opts out without disclosing the band elsewhere breaks the contract.
 `ComposableSurfaceLockTest.passFrontHasExactlyNineUserVisibleParameters` forces a
 reviewer conversation if anyone adds a further suppression parameter.
@@ -183,7 +183,7 @@ code review.
 - `ComposableSurfaceLockTest.passFrontHasExactlyNineUserVisibleParameters` pins the
   widest `PassFront` overload, which has no `ExpiredOverlayState` parameter. No test
   forbids a second `PassFront` overload; review enforces it.
-- No test in this repo asserts that the scrim and pill render.
+- No screenshot test pins how the scrim and pill render; `TrustClaimSurfaceTest` asserts the pill text is displayed.
 
 ## 6. Bounded image rendering
 
