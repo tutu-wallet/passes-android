@@ -1,7 +1,7 @@
 # ADR 0006: rotating-credential ticket scope
 
 - Status: Accepted
-- Decision context: `decision-wlt-0tn-q1` (PKPASS file import as primary path) and `decision-wlt-0tn-q3` (`webServiceURL` polling, dynamic updates, manual entry and QR scan import are out of v1), in [`docs/brainstorm-decisions.md`](../brainstorm-decisions.md)
+- Decision context: `decision-wlt-0tn-q1` (PKPASS file import as primary path) and `decision-wlt-0tn-q3` (`webServiceURL` polling and dynamic updates are out), in [`docs/brainstorm-decisions.md`](../brainstorm-decisions.md)
 
 ## Context
 
@@ -22,7 +22,7 @@ This ADR preserves the trust claim by refusing to ship rotating-credential rende
 
 ### D1. Rotating-credential tickets are out of scope
 
-The import surface is PKPASS file import and document import (ADR 0005). Rotating-credential tickets, whatever the issuer, are out of scope. The kernel does not register a Smart Tap HCE service, does not poll `webServiceURL` at any cadence, does not implement reverse-engineered SafeTix rendering, and does not intercept Save-to-Google-Wallet intents or decode their JWTs for secrets the JWTs do not carry. Each closed path fails technically (`FLAG_SECURE`, explicit GMS intents, Smart Tap merchant binding, APNs rate caps) or fails the trust-claim posture.
+This ADR adds no import path. Rotating-credential tickets, whatever the issuer, are out of scope. The kernel does not register a Smart Tap HCE service, does not poll `webServiceURL` at any cadence, does not implement reverse-engineered SafeTix rendering, and does not intercept Save-to-Google-Wallet intents or decode their JWTs for secrets the JWTs do not carry. Each closed path fails technically (`FLAG_SECURE`, explicit GMS intents, Smart Tap merchant binding, APNs rate caps) or fails the trust-claim posture.
 
 ### D2. Import surfaces detect and explain rather than fail silently
 
@@ -61,7 +61,7 @@ Enforcement is this ADR plus code review against the catalogued shapes; no symbo
 
 ## Consequences
 
-- The import surface is unchanged: PKPASS and document import are the only acquisition paths.
+- Rotating-credential handling adds no acquisition path.
 - PRs that add `webServiceURL` handling, JWT decoding for rotation secrets, accessibility-service use touching third-party wallet windows, or Smart Tap HCE registration need an ADR amendment; the D5 exclusions are the test.
 - Documenting what the kernel does not do, and why, is part of the transparency-for-trust commitment; this ADR is the canonical statement for rotating-credential tickets.
 
@@ -71,3 +71,22 @@ Enforcement is this ADR plus code review against the catalogued shapes; no symbo
 - The extension spec and its threat model (D3) are not written.
 - The EUDI-holder posture (D4) has no work item until an issuer signal or the 2026-09 mandate produces demand.
 - The research is dated 2026-05-07. The standards and antitrust horizons (US v. Live Nation remedy, EUDI member-state delivery, any new EU Commission proceeding) are time-sensitive; revisit when one moves materially.
+
+## Sources
+
+Primary sources behind the research (dated 2026-05-07):
+
+- Ticketmaster SafeTix reverse engineering: https://conduition.io/coding/ticketmaster/ and https://www.schneier.com/blog/archives/2024/07/reverse-engineering-ticketmasters-barcode-system.html
+- Ticketmaster SafeTix partner documentation: https://developer.ticketmaster.com/products-and-docs/apis/partner/safetix/
+- Google Wallet `RotatingBarcode` reference: https://developers.google.com/wallet/reference/rest/v1/RotatingBarcode
+- Google Wallet rotating-barcode practices and JWT save flow: https://developers.google.com/wallet/tickets/events/resources/rotating-barcodes and https://developers.google.com/wallet/tickets/events/use-cases/jwt
+- Google Wallet Smart Tap: https://developers.google.com/wallet/smart-tap/introduction/overview
+- Google `pass-converter`: https://github.com/google-wallet/pass-converter
+- Apple PassKit updating passes (`webServiceURL`): https://developer.apple.com/library/archive/documentation/UserExperience/Conceptual/PassKit_PG/Updating.html
+- Android `FLAG_SECURE`: https://developer.android.com/reference/android/view/WindowManager.LayoutParams#FLAG_SECURE
+- W3C Verifiable Credentials 2.0: https://www.w3.org/press-releases/2025/verifiable-credentials-2-0/
+- EUDI wallet architecture and reference framework: https://eu-digital-identity-wallet.github.io/eudi-doc-architecture-and-reference-framework/2.7.3/technical-specifications/
+- Regulation (EU) 2024/1183 (eIDAS 2): https://www.european-digital-identity-regulation.com/Article_3_(Regulation_EU_2024_1183).html
+- Digital Markets Act interoperability: https://digital-markets-act.ec.europa.eu/questions-and-answers/interoperability_en
+- US DOJ complaint against Live Nation-Ticketmaster: https://www.justice.gov/archives/opa/pr/justice-department-sues-live-nation-ticketmaster-monopolizing-markets-across-live-concert
+- GDPR Article 20 (portability): https://gdpr-info.eu/art-20-gdpr/
