@@ -402,8 +402,54 @@ class DocumentImporterTest {
         assertThat(extractionCalled).isFalse()
     }
 
+    @Test
+    fun pdfBelowTheMemfdFloorIsRejectedBeforeAnyBackendRuns() = runTest {
+        var backendCalled = false
+        val importer = importer(
+            sdkInt = 29,
+            pdfImport = { _, _, _ ->
+                backendCalled = true
+                PdfImportResult.Rejected(DocumentRejectedKind.NotAPdf)
+            },
+        )
+        val result = importer.import(source(pdfBytes), "x.pdf") {}
+        assertThat(result)
+            .isEqualTo(DocumentImportResult.PdfRejected(DocumentRejectedKind.UnsupportedAndroidVersion))
+        assertThat(backendCalled).isFalse()
+    }
+
+    @Test
+    fun imageBelowTheMemfdFloorIsRejectedBeforeAnyBackendRuns() = runTest {
+        var backendCalled = false
+        val telemetry = RecordingImageGuard()
+        val importer = importer(
+            sdkInt = 29,
+            imageTelemetry = telemetry,
+            imageDecode = { _, _ ->
+                backendCalled = true
+                ImageDecodeOutcome.Decoded(byteArrayOf(1), 10, 10)
+            },
+            barcodeExtract = {
+                backendCalled = true
+                BarcodeDecodeResult.NoBarcodeFound
+            },
+        )
+        val result = importer.import(source(pngBytes), "x.png", confirmBarcode = { _, _ -> true }) {}
+        assertThat(result)
+            .isEqualTo(DocumentImportResult.ImageRejected(ImageDecodeRejectedKind.DecoderUnavailable))
+        assertThat(backendCalled).isFalse()
+        assertThat(telemetry.events).containsExactly("started", "failed:Decode").inOrder()
+    }
+
+    @Test
+    fun unrecognizedBytesBelowTheMemfdFloorStayUnrecognized() = runTest {
+        val result = importer(sdkInt = 29).import(source(byteArrayOf(1, 2, 3)), "x.bin") {}
+        assertThat(result).isEqualTo(DocumentImportResult.Unrecognized)
+    }
+
     // -- helpers --------------------------------------------------------------------
 
+    @Suppress("LongParameterList")
     private fun importer(
         pdfImport: suspend (ByteArray, String, PdfPersist) -> PdfImportResult =
             { _, _, _ -> PdfImportResult.Rejected(DocumentRejectedKind.NotAPdf) },
@@ -415,6 +461,7 @@ class DocumentImporterTest {
             { BarcodeDecodeResult.NoBarcodeFound },
         imageTelemetry: ImageImportTelemetryGuard = ImageImportTelemetryGuard.NoOp,
         wallClock: () -> Long = { FIXED_WALL_CLOCK_MS },
+        sdkInt: Int = 34,
     ): DefaultDocumentImporter =
         DefaultDocumentImporter(
             config = DocumentImportConfig(imageTelemetryGuard = imageTelemetry),
@@ -424,6 +471,7 @@ class DocumentImporterTest {
             now = { 0L },
             wallClock = wallClock,
             idGenerator = { "fixed-id" },
+            sdkInt = sdkInt,
         )
 
     /** Imports an image whose isolated barcode extraction failed with [reason]. */

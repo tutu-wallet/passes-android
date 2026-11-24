@@ -3,6 +3,7 @@ package `is`.walt.passes.document
 import android.content.ContentResolver
 import android.content.Context
 import android.graphics.Bitmap
+import android.os.Build
 import android.os.ParcelFileDescriptor
 import android.os.SharedMemory
 import android.os.SystemClock
@@ -38,12 +39,16 @@ internal typealias PdfPersist = suspend (String, ByteArray, Int, ByteArray) -> U
  *     source.
  *  2. Sniff: `isPdfHeader` → PDF arm; else `sniffImageFormat` → image arm; else
  *     [DocumentImportResult.Unrecognized].
- *  3. Hand the buffered bytes to the chosen backend through the [pdfImport] / [imageDecode]
- *     seams. The production seams (built in [create]) materialize the bytes into a sealed
- *     in-RAM `memfd` PFD and bind the isolated service; oversize and the per-kind caps are
- *     enforced inside the backend (the buffer is capped at `maxBytes + 1`, exactly enough for
- *     the backend to observe an over-cap file without ever holding the whole thing).
- *  4. Fold the per-backend outcome onto [DocumentImportResult].
+ *  3. Reject below API 30 (see [MEMFD_MIN_SDK]) before any memfd is allocated: PDFs as
+ *     [DocumentRejectedKind.UnsupportedAndroidVersion], images as
+ *     [ImageDecodeRejectedKind.DecoderUnavailable]. No file-backed fallback exists.
+ *  4. Hand the buffered bytes to the chosen backend through the [pdfImport] / [imageDecode]
+ *     seams. The production seams (built in [create]) materialize the bytes into an in-RAM
+ *     `memfd` PFD sealed against write, grow, shrink and seal changes (ADR 0005 F.1), and
+ *     bind the isolated service; oversize and the per-kind caps are enforced inside the
+ *     backend (the buffer is capped at `maxBytes + 1`, exactly enough for the backend to
+ *     observe an over-cap file without ever holding the whole thing).
+ *  5. Fold the per-backend outcome onto [DocumentImportResult].
  *
  * `StorageHandoffFailed` is hoisted to a shared arm for both kinds: the PDF backend's own
  * [DocumentRejectedKind.StorageHandoffFailed] is translated to it so a persist failure reads
@@ -69,6 +74,7 @@ internal class DefaultDocumentImporter(
     // serve here because it is monotonic (elapsedRealtime), not epoch time.
     private val wallClock: () -> Long,
     private val idGenerator: () -> String,
+    private val sdkInt: Int = Build.VERSION.SDK_INT,
 ) : DocumentImporter {
 
     override suspend fun import(
@@ -78,17 +84,27 @@ internal class DefaultDocumentImporter(
         persist: suspend (DocumentPersist) -> Unit,
     ): DocumentImportResult {
         val bytes = readBounded(source) ?: return DocumentImportResult.Unrecognized
+        val belowFloor = sdkInt < MEMFD_MIN_SDK
+        val format = if (isPdfHeader(bytes)) null else sniffImageFormat(bytes)
         return when {
-            isPdfHeader(bytes) -> importPdf(bytes, displayLabel, persist)
-            else -> {
-                val format = sniffImageFormat(bytes)
-                if (format != null) {
-                    importImage(bytes, format, displayLabel, persist, confirmBarcode)
-                } else {
-                    DocumentImportResult.Unrecognized
-                }
-            }
+            isPdfHeader(bytes) ->
+                if (belowFloor) rejectPdfBelowMemfdFloor() else importPdf(bytes, displayLabel, persist)
+            format == null -> DocumentImportResult.Unrecognized
+            belowFloor -> rejectImageBelowMemfdFloor()
+            else -> importImage(bytes, format, displayLabel, persist, confirmBarcode)
         }
+    }
+
+    private fun rejectPdfBelowMemfdFloor(): DocumentImportResult {
+        val kind = DocumentRejectedKind.UnsupportedAndroidVersion
+        config.pdfConfig.telemetryGuard.onImportFailed(DocumentImportFailedEvent(kind, 0L))
+        return DocumentImportResult.PdfRejected(kind)
+    }
+
+    private fun rejectImageBelowMemfdFloor(): DocumentImportResult {
+        config.imageTelemetryGuard.onImportStarted()
+        config.imageTelemetryGuard.onImportFailed(ImageImportFailedEvent(ImageImportFailureKind.Decode, 0L))
+        return DocumentImportResult.ImageRejected(ImageDecodeRejectedKind.DecoderUnavailable)
     }
 
     private suspend fun importPdf(
@@ -358,6 +374,10 @@ internal class DefaultDocumentImporter(
         // Read buffer for the bounded materialization loop. 64 KiB matches the
         // InputStream.copyTo default and keeps the read syscall count low.
         const val COPY_BUFFER_SIZE: Int = 64 * 1024
+
+        // `Os.memfd_create` is API 30 (Android 11). The PDF backend's own gate (API 34) is higher
+        // and still applies; this floor only keeps the factory from running where it cannot.
+        const val MEMFD_MIN_SDK: Int = Build.VERSION_CODES.R
 
         // Cosmetic memfd label for the import PFD (visible in /proc/<pid>/fd).
         const val MEMFD_DEBUG_NAME: String = "walt-document-import"

@@ -27,7 +27,8 @@ import android.system.OsConstants
 public interface PfdFactory {
     /**
      * Allocate an in-memory PFD, write [bytes] into it, then rewind so the worker reads
-     * from offset 0.
+     * from offset 0. [MemfdPfdFactory] also seals the buffer read-only and fixed-size before
+     * returning it (ADR 0005 F.1).
      */
     public fun fromBytes(bytes: ByteArray): ParcelFileDescriptor
 }
@@ -37,10 +38,15 @@ public interface PfdFactory {
  * the kernel's purely-cosmetic label for the fd (visible in `/proc/<pid>/fd`); consumers
  * pass a per-worker name so a leaked fd is attributable.
  *
- * memfd_create lands in `android.system.Os` at API 30. Both consumers gate their import
- * paths on a higher floor before this factory is asked for a PFD; the [TargetApi] narrows
- * lint's view to API 30 and the inline `check` is defence in depth — a future caller that
- * wires the factory below that gate fails loudly here rather than crashing inside libcore.
+ * The buffer is populated with `write(2)` (no writable mapping ever exists), then sealed with
+ * `F_SEAL_SEAL | F_SEAL_WRITE | F_SEAL_GROW | F_SEAL_SHRINK` before it is adopted into the
+ * returned PFD. A renderer or decoder that receives the fd can read it but cannot write it,
+ * map it writable, resize it, or lift the seals (ADR 0005 F.1).
+ *
+ * memfd_create lands in `android.system.Os` at API 30. Importers reject below their own
+ * floor before this factory is asked for a PFD; the [TargetApi] narrows lint's view to API 30
+ * and the inline `check` is defence in depth, so a caller that skips the gate fails loudly here
+ * rather than crashing inside libcore.
  */
 @TargetApi(Build.VERSION_CODES.R)
 public class MemfdPfdFactory(
@@ -50,7 +56,7 @@ public class MemfdPfdFactory(
         check(Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             "memfd_create requires Android 11 (API 30) or newer"
         }
-        val fd = Os.memfd_create(debugName, 0)
+        val fd = Os.memfd_create(debugName, OsConstants.MFD_CLOEXEC or MemfdSeals.MFD_ALLOW_SEALING)
         try {
             // Os.write returns the count actually written; loop to drain the buffer in
             // case the kernel short-writes. memfd-backed fds accept the whole buffer in
@@ -64,6 +70,10 @@ public class MemfdPfdFactory(
                 offset += written
             }
             Os.lseek(fd, 0, OsConstants.SEEK_SET)
+            Os.fcntlInt(fd, MemfdSeals.F_ADD_SEALS, MemfdSeals.ALL)
+            check(Os.fcntlInt(fd, MemfdSeals.F_GET_SEALS, 0) == MemfdSeals.ALL) {
+                "memfd seals not applied"
+            }
             return ParcelFileDescriptor.dup(fd)
         } finally {
             // ParcelFileDescriptor.dup duplicates the underlying fd; close ours so the
@@ -72,4 +82,20 @@ public class MemfdPfdFactory(
             runCatching { Os.close(fd) }
         }
     }
+}
+
+/**
+ * Linux `memfd` sealing values. `OsConstants` exposes only `MFD_CLOEXEC`, so the rest are the
+ * stable kernel ABI values from `<linux/memfd.h>` and `<linux/fcntl.h>`, used through the public
+ * `Os.fcntlInt` call only.
+ */
+internal object MemfdSeals {
+    const val MFD_ALLOW_SEALING: Int = 0x0002
+    const val F_ADD_SEALS: Int = 1033
+    const val F_GET_SEALS: Int = 1034
+    const val F_SEAL_SEAL: Int = 0x0001
+    const val F_SEAL_SHRINK: Int = 0x0002
+    const val F_SEAL_GROW: Int = 0x0004
+    const val F_SEAL_WRITE: Int = 0x0008
+    const val ALL: Int = F_SEAL_SEAL or F_SEAL_WRITE or F_SEAL_GROW or F_SEAL_SHRINK
 }
