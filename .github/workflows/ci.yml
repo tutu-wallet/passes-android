@@ -188,6 +188,8 @@ jobs:
             passes-image/build/outputs/androidTest-results/
             passes-image-decode/build/reports/androidTests/
             passes-image-decode/build/outputs/androidTest-results/
+            passes-isolation/build/reports/androidTests/
+            passes-isolation/build/outputs/androidTest-results/
           if-no-files-found: ignore
 
   dependency-review:

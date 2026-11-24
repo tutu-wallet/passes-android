@@ -15,10 +15,8 @@ import org.junit.runner.RunWith
  * shared facade's contract directly so a regression in the bind dance surfaces here rather
  * than only downstream.
  *
- * @Ignore'd at check-in (no emulator on a workstation). CI's connected-tests matrix currently
- * covers only `:passes-storage` (see `.github/workflows/ci.yml`), so a `:passes-isolation`
- * device matrix has to be added before these run. The rebind guard is unit-tested against a
- * simulated callback; `connectSurvivesServiceRestart` would prove it against a real restart.
+ * @Ignore'd at check-in. CI's connected matrix now runs this module, so dropping the @Ignore
+ * runs them; `connectSurvivesServiceRestart` would prove the rebind guard against a real restart.
  */
 @RunWith(AndroidJUnit4::class)
 class IsolatedWorkerSessionInstrumentedTest {

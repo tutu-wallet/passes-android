@@ -14,11 +14,8 @@ import android.system.OsConstants
  * `pread`/`read` or private mappings: before Linux 6.7 a write-sealed memfd refuses even a
  * read-only shared mapping.
  *
- * Not every consumer needs this: a worker whose hostile input must never enter the main
- * process at all (e.g. image decode) hands the *source* fd across directly instead of
- * reading the bytes here. Those consumers use only the bind-session facade and skip this
- * factory. The factory exists for the PDF path, which header-sniffs and size-bounds the
- * bytes in the main process before binding and therefore already holds them in RAM.
+ * Callers that already hold the bytes in RAM (the PDF importer, the document importer) use it;
+ * a standalone decoder whose input must never enter the main process passes the source fd instead.
  *
  * Kept behind an interface so unit tests can inject a pipe-backed fake (the real
  * [MemfdPfdFactory] calls `Os.memfd_create`, which is not reachable from the JVM-side test

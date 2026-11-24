@@ -17,7 +17,7 @@ import java.io.IOException
 import java.io.RandomAccessFile
 import java.nio.channels.FileChannel
 
-// Needs memfd_create (API 30). The F_GET_SEALS check masks, as newer kernels add F_SEAL_EXEC.
+// Needs memfd_create (API 30). The F_GET_SEALS check masks, as newer kernels may add F_SEAL_EXEC.
 @RunWith(AndroidJUnit4::class)
 class MemfdPfdFactoryInstrumentedTest {
     private val payload = ByteArray(PAYLOAD_SIZE) { it.toByte() }
@@ -63,10 +63,10 @@ class MemfdPfdFactoryInstrumentedTest {
     @Test
     fun writableSharedMappingOfTheSealedFdFails() {
         MemfdPfdFactory("seal-test").fromBytes(payload).use { pfd ->
-            val path = "/proc/self/fd/${pfd.fd}"
-            assertThrows(IOException::class.java) {
-                RandomAccessFile(path, "rw").use {
-                    it.channel.map(FileChannel.MapMode.READ_WRITE, 0, PAYLOAD_SIZE.toLong())
+            // Open outside assertThrows so a refused open fails the test instead of passing it.
+            RandomAccessFile("/proc/self/fd/${pfd.fd}", "rw").use { file ->
+                assertThrows(IOException::class.java) {
+                    file.channel.map(FileChannel.MapMode.READ_WRITE, 0, PAYLOAD_SIZE.toLong())
                 }
             }
         }
