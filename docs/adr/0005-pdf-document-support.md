@@ -72,19 +72,19 @@ This is the load-bearing control. A PDFium memory-safety bug in the main process
 
 #### F.1 FD transport is a `memfd_create`-backed `ParcelFileDescriptor`
 
-Decision: the main process allocates a memfd, populates it with `write(2)` of the decrypted PDF bytes (no writable `mmap` is ever taken in the main process) and seals it before adopting the fd into a `ParcelFileDescriptor` for the renderer. The intended seal set is `F_SEAL_SEAL | F_SEAL_WRITE | F_SEAL_GROW | F_SEAL_SHRINK`:
+Decision: the main process allocates a memfd, populates it with `write(2)` of the decrypted PDF bytes (no writable `mmap` is ever taken in the main process) and seals it before adopting the fd into a `ParcelFileDescriptor` for the renderer. The seal set is `F_SEAL_SEAL | F_SEAL_WRITE | F_SEAL_GROW | F_SEAL_SHRINK`:
 
 - `F_SEAL_WRITE` makes the buffer read-only across future mappings, so a PDFium write-via-mmap primitive in the renderer cannot mutate bytes the main process still holds.
 - `F_SEAL_GROW` / `F_SEAL_SHRINK` pin the size.
 - `F_SEAL_SEAL` stops later code weakening the others.
 
-`write(2)` rather than mmap-write-munmap because `F_ADD_SEALS` does not invalidate writable mappings that already exist, only new ones; with `write(2)` no writable mapping exists in either process. No plaintext PDF reaches the filesystem at any point.
+`write(2)` rather than mmap-write-munmap because `F_ADD_SEALS` does not invalidate writable mappings that already exist, only new ones; with `write(2)` no writable mapping exists in either process. No plaintext PDF reaches the filesystem at any point. Consumers read the fd with `pread`/`read`: before Linux 6.7 a write-sealed memfd refuses even a read-only shared mapping.
 
 Rejected transports: `MemoryFile` (fd only via hidden API, closed on API 28+); `SharedMemory.fileDescriptor` (ashmem fd does not satisfy PDFium's `lseek` + `pread64`); `File.createTempFile` (plaintext on disk, defeating SQLCipher's at-rest guarantee); `ParcelFileDescriptor.fromSocket` (not seekable). The transport choice does not widen the binder surface D4 locks down.
 
-Implementation: `MemfdPfdFactory` in `passes-isolation` (`PfdFactory.fromBytes`), used by `DefaultPdfImporter` and by all three `DocumentImporter` branches (PDF, image, barcode). `Os.memfd_create` needs API 30; `DefaultPdfImporter` is gated at 34 (G.1), but `DocumentImporter` calls the factory before any gate.
+Implementation: `MemfdPfdFactory` in `passes-isolation` (`PfdFactory.fromBytes`), used by `DefaultPdfImporter` and by all three `DocumentImporter` branches (PDF, image, barcode). It creates the memfd with `MFD_CLOEXEC | MFD_ALLOW_SEALING`, writes, adds the seal set, and checks it with `F_GET_SEALS` (masked, since newer kernels may add `F_SEAL_EXEC`) before the dup. The seal values come from the Linux ABI through the public `Os.fcntlInt`, as `OsConstants` lacks them. A sealing failure folds into each arm's existing rejection; there is no unsealed or file-backed fallback.
 
-Known gap: `MemfdPfdFactory` calls `Os.memfd_create(name, 0)` and applies no seals, and no JNI shim or native method exists, so the seal set above is the decision, not current behavior (`PfdFactory.kt:53`). Flags 0 also omit `MFD_ALLOW_SEALING`. Residual: each memfd is handed over writable, but the host never reads it back and persists from its own `ByteArray` (`DefaultPdfImporter.renderAndPersist`), and each fd is closed after one import, so a compromised worker can only alter its own input.
+API floor: `Os.memfd_create` and `Os.fcntlInt` need API 30, so `DocumentImporter` rejects below 30 before any memfd work (PDFs as `UnsupportedAndroidVersion`, images as `DecoderUnavailable`). `DefaultPdfImporter` keeps its own API 34 gate (G.1). The kernel's minSdk is 28, so on Android 9 and 10 no document imports.
 
 ### D4. No extraction
 
@@ -158,7 +158,7 @@ A Mainline-backed PDFium is reachable only on API 34+ via `android.graphics.pdf.
 
 - PDFs are strongly contained but minimally featured: no search, no auto-expiration, no labels beyond filename, no sharing. A feature that wants any of those re-opens the threat model and amends this ADR.
 - The isolated process adds roughly 200-400 ms on first render (cold start of the isolated service; Pixel 6 historical figure, not measured here); later pages in a session are cached in main memory.
-- Devices below API 34 cannot import PDFs at all (G.1).
+- Devices below API 34 cannot import PDFs at all (G.1), and devices below API 30 cannot import images either (F.1 API floor).
 
 ## Zoom: full-screen surface only (Z)
 
@@ -211,7 +211,7 @@ PDFs fail as `Encrypted` or `TooManyPages`; images as `NotAnImage` or `Dimension
 
 `DocumentImporter` magic-byte-sniffs PDF vs image and branches to `passes-pdf`'s renderer service or `passes-image`'s decode sandbox. It sits above both backends, and a `passes-pdf` to `passes-image` edge is deliberately avoided; the only other module above both is `passes-document-ui` (display). It declares no service; all decode and render work stays in the isolated backends. The orchestration lives here so it is not reassembled in the host.
 
-The importer reads the source once into a bounded buffer, sniffs, then materializes the bytes into a memfd PFD (unsealed today; F.1 Known gap) via `passes-isolation` for the winning backend, so a one-shot fd source is never read twice and the original bytes are what get persisted.
+The importer reads the source once into a bounded buffer, sniffs, then materializes the bytes into a sealed memfd PFD (F.1) via `passes-isolation` for the winning backend, so a one-shot fd source is never read twice and the original bytes are what get persisted.
 
 ### I4. Storage: forward-only `documents` columns
 
@@ -277,6 +277,7 @@ Document list cards (a consumer concern) take a class tint (D1.C), name the arti
 | D6 | `encryptedPdfRejectsAtProbe` is an `@Ignore`d stub, not run; `PdfImporterTest` checks the rejection mapping against a fake binder only |
 | D7 | unit tests at each cap boundary; watchdog test covers timeout-then-kill |
 | D8, Z.5 | bytecode scan for `Intent.ACTION_SEND` and `application/pdf` |
+| F.1 | `MemfdPfdFactoryInstrumentedTest` (CI, API 31/34/36): seal set present; write, writable shared mmap, resize and re-seal fail with `EPERM`; a sealed fd renders through the platform `PdfRenderer` (API 34+). `DocumentImporterTest`: the API 30 floor and sealing failures fold into rejections |
 | G.1 | unit: import below API 34 returns the rejection without invoking the renderer |
 | Z.3 | reflection: binder still exactly two methods |
 | Z.7, Z.8 | `DocumentSurfaceLockTest` (full-screen shape lock); Compose tests: banner navigates, caption visible at fit, after zoom and after pan; the inline-view-ignores-pinch test is `@Ignore`d, not run |
