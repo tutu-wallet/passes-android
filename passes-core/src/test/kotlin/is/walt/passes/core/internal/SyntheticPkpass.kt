@@ -53,13 +53,20 @@ internal object SyntheticPkpass {
     fun signedSelfSigned(
         passJson: String,
         extraEntries: Map<String, ByteArray> = emptyMap(),
+    ): ByteArray = signedBy(passJson, extraEntries, ::buildSelfSignedSignature)
+
+    /** Build a pkpass whose `signature` entry is whatever [sign] returns for the manifest bytes. */
+    fun signedBy(
+        passJson: String,
+        extraEntries: Map<String, ByteArray> = emptyMap(),
+        sign: (manifest: ByteArray) -> ByteArray,
     ): ByteArray {
         val members = LinkedHashMap<String, ByteArray>()
         members[PASS_JSON] = passJson.toByteArray(Charsets.UTF_8)
         members.putAll(extraEntries)
         val manifest = buildManifest(members)
         members[MANIFEST_FILE_NAME] = manifest
-        members[SIGNATURE_FILE_NAME] = buildSelfSignedSignature(manifest)
+        members[SIGNATURE_FILE_NAME] = sign(manifest)
         return zip(members)
     }
 

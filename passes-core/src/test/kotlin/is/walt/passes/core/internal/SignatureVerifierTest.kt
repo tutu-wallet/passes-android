@@ -378,28 +378,6 @@ class SignatureVerifierTest {
         return CMSSignedData.replaceCertificatesAndCRLs(signed, CollectionStore(leafOnly), null, null).encoded
     }
 
-    /**
-     * Manifest + detached signature bytes pulled from a real Apple-signed pkpass.
-     * Named fields so callers can't transpose the two `ByteArray`s — both arguments
-     * to [verifySignature] are also `ByteArray`, and a positional pair would invite
-     * exactly that bug at every call site.
-     */
-    private data class AppleSignedFixture(
-        val manifest: ByteArray,
-        val signature: ByteArray,
-    )
-
-    private fun loadAppleSignedFixture(): AppleSignedFixture {
-        val cls = SignatureVerifierTest::class.java
-        val manifest =
-            cls.getResourceAsStream("fixtures/apple-signed/manifest.json")?.use { it.readBytes() }
-                ?: error("Fixture missing: fixtures/apple-signed/manifest.json")
-        val signature =
-            cls.getResourceAsStream("fixtures/apple-signed/signature")?.use { it.readBytes() }
-                ?: error("Fixture missing: fixtures/apple-signed/signature")
-        return AppleSignedFixture(manifest, signature)
-    }
-
     @Test
     fun appleVerifiedWhenSignerIdIsSubjectKeyIdentifier() {
         // Forward coverage for the SubjectKeyIdentifier signer-ID flavor that every

@@ -226,7 +226,8 @@ private fun finalizeVerification(
  * as unreferenced unless kept. `passes-core` ships the required keep rules in
  * `META-INF/proguard/passes-core.pro`; without them this provider constructs but
  * registers almost nothing, and every Apple-signed pkpass collapses onto
- * [TamperReason.SignatureCryptoFailure].
+ * [TamperReason.SignatureCryptoFailure]. `ShrunkBuildSignatureTest` runs this file's
+ * paths on an R8 output built with those rules.
  */
 private val BC_PROVIDER: BouncyCastleProvider by lazy { BouncyCastleProvider() }
 
