@@ -99,9 +99,10 @@ permitted strictly when all five hold:
    - The host renders no barcode from the pass in the list, at any size, on the pass
      tile or off it.
    - The image decodes in the app process through the kernel's `BoundedImage`, at
-     `ImageRenderBounds.Default` or tighter, which caps the dimensions of each decoded
-     bitmap. That is the path the kernel provides for pass images, not the isolated
-     process that images a user imports decode in (C5; ADR 0005 D3 and section I).
+     `ImageRenderBounds.Default` or tighter, which caps the dimensions of the bitmap it
+     returns and refuses an image over the kernel's source ceiling. That is the path
+     the kernel provides for pass images, not the isolated process that images a user
+     imports decode in (C5; ADR 0005 D3 and section I).
 
    Every other pixel source stays out of the list: a document page or image, a
    user-chosen image on any item, and a code outside the list-face code render

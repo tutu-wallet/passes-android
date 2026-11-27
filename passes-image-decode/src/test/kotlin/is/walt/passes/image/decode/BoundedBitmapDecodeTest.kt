@@ -8,18 +8,8 @@ import org.junit.runner.RunWith
 import org.robolectric.annotation.Config
 
 /**
- * JVM coverage for the shared bounded-decode dispatch and the OOM-containment decision.
- *
- * Two halves, split by what is deterministically observable off-device:
- * - [containOutOfMemory] is pure, so the propagate-vs-contain split — the security-relevant
- *   branch that differs between the in-process display caller (null fold, propagate) and the
- *   sandbox callers (fold, contain) — is asserted directly, without forcing a real OOM.
- * - [decodeBounded] is exercised through Robolectric's `ImageDecoder` shadow, which returns a
- *   ~100x100 stub for arbitrary bytes rather than decoding or rejecting. That is enough to
- *   pin the gate dispatch (tight caps reject, generous caps decode) across two different
- *   rejection taxonomies [R], proving the generic carries the caller's type. The real native
- *   decode of malformed/oversized bytes is the instrumented half
- *   ([BoundedBitmapDecodeInstrumentedTest]).
+ * The pure halves, plus the gate dispatch through Robolectric's `ImageDecoder` stub (about 100 x 100
+ * for any bytes). The platform decode itself is [BoundedBitmapDecodeInstrumentedTest]'s.
  */
 @RunWith(AndroidJUnit4::class)
 @Config(sdk = [34])
@@ -35,6 +25,7 @@ class BoundedBitmapDecodeTest {
     ) = BoundedDecodePolicy(
         allocator = ImageDecoder.ALLOCATOR_SOFTWARE,
         gate = { _, w, h -> if (w > maxSide || h > maxSide) Reason.TooLarge else null },
+        maxSize = null,
         onMalformed = { Reason.Malformed },
         onRuntimeFailure = { Reason.RuntimeFailure },
         onOutOfMemory = onOutOfMemory,
@@ -61,6 +52,59 @@ class BoundedBitmapDecodeTest {
         assertThat(contained).isEqualTo(BoundedBitmap.Rejected(Reason.TooLarge))
     }
 
+    private val box = DecodeSize(1920, 1920)
+
+    private fun decodeSize(width: Int, height: Int, maxSize: DecodeSize? = box) =
+        decodeSize(DecodeSize(width, height), rejected = false, maxSize = maxSize)
+
+    @Test
+    fun noBoxDecodesAtTheHeaderSize() {
+        assertThat(decodeSize(4096, 4096, maxSize = null)).isEqualTo(DecodeSize(4096, 4096))
+    }
+
+    @Test
+    fun headerInsideTheBoxKeepsItsSize() {
+        assertThat(decodeSize(360, 220)).isEqualTo(DecodeSize(360, 220))
+        assertThat(decodeSize(1920, 1920)).isEqualTo(DecodeSize(1920, 1920))
+    }
+
+    @Test
+    fun headerOverTheBoxIsDividedByTheSmallestWholeNumberThatFits() {
+        assertThat(decodeSize(1921, 1921)).isEqualTo(DecodeSize(960, 960))
+        assertThat(decodeSize(3839, 3839)).isEqualTo(DecodeSize(1919, 1919))
+        assertThat(decodeSize(3840, 3840)).isEqualTo(DecodeSize(1920, 1920))
+        assertThat(decodeSize(4096, 4096)).isEqualTo(DecodeSize(1365, 1365))
+    }
+
+    @Test
+    fun theTighterAxisPicksTheDivisor() {
+        assertThat(decodeSize(2000, 100)).isEqualTo(DecodeSize(1000, 50))
+        assertThat(decodeSize(100, 3840)).isEqualTo(DecodeSize(50, 1920))
+        val tile = DecodeSize(200, 300)
+        assertThat(decodeSize(1000, 500, maxSize = tile)).isEqualTo(DecodeSize(200, 100))
+        assertThat(decodeSize(500, 1500, maxSize = tile)).isEqualTo(DecodeSize(100, 300))
+    }
+
+    @Test
+    fun extremeAspectKeepsAtLeastOnePixel() {
+        assertThat(decodeSize(16_777_216, 1)).isEqualTo(DecodeSize(1919, 1))
+        assertThat(decodeSize(1, 16_777_216)).isEqualTo(DecodeSize(1, 1919))
+        assertThat(decodeSize(Int.MAX_VALUE, Int.MAX_VALUE, maxSize = DecodeSize(1, 1))).isEqualTo(DecodeSize(1, 1))
+    }
+
+    @Test
+    fun rejectedImageDecodesAtOnePixelWhateverTheBox() {
+        val header = DecodeSize(64, 32)
+        assertThat(decodeSize(header, rejected = true, maxSize = null)).isEqualTo(DecodeSize(1, 1))
+        assertThat(decodeSize(header, rejected = true, maxSize = box)).isEqualTo(DecodeSize(1, 1))
+    }
+
+    @Test
+    fun decodeSizeRefusesANonPositiveSide() {
+        val thrown = runCatching { DecodeSize(0, 16) }.exceptionOrNull()
+        assertThat(thrown).isInstanceOf(IllegalArgumentException::class.java)
+    }
+
     @Test
     fun decodeRejectsWhenGateTripsOnStubDimensions() {
         // Robolectric's stub bitmap exceeds a 1px cap, so the gate rejects with the caller's reason.
@@ -82,6 +126,7 @@ class BoundedBitmapDecodeTest {
             BoundedDecodePolicy<String>(
                 allocator = ImageDecoder.ALLOCATOR_DEFAULT,
                 gate = { _, _, _ -> "too-big" },
+                maxSize = null,
                 onMalformed = { "malformed" },
                 onRuntimeFailure = { "runtime" },
                 onOutOfMemory = null,

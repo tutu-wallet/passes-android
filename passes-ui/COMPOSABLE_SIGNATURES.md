@@ -275,10 +275,11 @@ public fun ExpiredOverlay(
 
 ```kotlin
 /**
- * Decodes [bytes] using Android `ImageDecoder` with explicit dimension caps applied
- * via `setOnHeaderDecodedListener`. Decode failures (including bounds violations)
- * yield a placeholder and fire `telemetry.onImageDecodeRejected` with the
- * categorized reason; the composable never throws.
+ * Decodes [bytes] using Android `ImageDecoder`, with the source ceiling and the
+ * [bounds] applied via `setOnHeaderDecodedListener`. An image larger than [bounds] is
+ * downsampled to fit. A refused image (over the source ceiling, or undecodable) draws
+ * nothing and fires `telemetry.onImageDecodeRejected`. An `OutOfMemoryError` from the
+ * decode propagates.
  *
  * Coil's default decoder must NOT be used for these images:
  * the bounds enforcement is the trust claim, and a third-party loader would have
@@ -310,10 +311,9 @@ security-policy edit, not a refactor:
    `PassFront.showSignatureBadge`, the single bounded host opt-out;
    `onPassRendered(type, band)` fires either way and the color comes from
    `PassesSemantics.signatureBadge`.
-4. `BoundedImage` has no `bounds: ImageRenderBounds? = null` form that would let a
-   caller opt out of decoding limits. The default is the only way to take the
-   default; opting out requires a deliberate `ImageRenderBounds(...)` with explicit
-   higher caps.
+4. `BoundedImage` has no nullable `bounds` and no parameter that reaches the source
+   ceiling. `bounds` sets only the size of the bitmap produced: a larger
+   `ImageRenderBounds(...)` yields a larger bitmap, never one larger than its source.
 5. The security confirmation sheets do not accept a "skip confirmation" parameter.
    The host's outbound `Intent` fires only on user confirm.
 6. `BarcodeCreateConfirmSheet` does not accept a `skipConfirmation`, per-arm

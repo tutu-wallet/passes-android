@@ -84,6 +84,8 @@ internal fun decodeBoundedBitmap(
                     BoundedDecodePolicy(
                         allocator = ImageDecoder.ALLOCATOR_SOFTWARE,
                         gate = { mimeType, width, height -> headerRejection(mimeType, width, height, config) },
+                        // The symbol decode reads the source pixels.
+                        maxSize = null,
                         onMalformed = { DecodeFailureReason.ImageDecodeFailed },
                         onRuntimeFailure = { DecodeFailureReason.ImageDecodeFailed },
                         onOutOfMemory = { DecodeFailureReason.ImageTooLarge },

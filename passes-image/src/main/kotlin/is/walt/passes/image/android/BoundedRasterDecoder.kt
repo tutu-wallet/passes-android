@@ -117,6 +117,8 @@ internal fun decodeBoundedRaster(
                     BoundedDecodePolicy(
                         allocator = ImageDecoder.ALLOCATOR_SOFTWARE,
                         gate = { mimeType, width, height -> headerRejection(mimeType, width, height, config) },
+                        // Scaled to the requested output after the decode.
+                        maxSize = null,
                         onMalformed = { ImageDecodeRejectedKind.NotAnImage },
                         onRuntimeFailure = { ImageDecodeRejectedKind.DecodeFailed },
                         onOutOfMemory = { ImageDecodeRejectedKind.DimensionsTooLarge },

@@ -251,7 +251,7 @@ section 2). The JVM test `DocumentTrustSurfaceTest.documentTileWrapsDisplayLabel
 |-------------------------------------------------|-------------------------------------------------------------------------------|
 | `ParserConfig.maxArchiveBytes` (10 MB)          | `PdfImportConfig.maxBytes` (25 MB); enforced at import and at storage         |
 | Manifest hash + PKCS#7 signature                | Not applicable; provenance is `UserProvided` (D5)                             |
-| `ImageRenderBounds` (1920 x 1920, 4 MP)         | Per-page rendered-bitmap cap of 4 MP                                          |
+| `ImageRenderBounds` (1920 x 1920 per bitmap)    | Per-page rendered-bitmap cap of 4 MP                                          |
 | `SignatureStatus` four-band badge               | Single-band "User-provided document" caption, non-suppressible                |
 | `FieldLinkScanner` Cf/Cc rejection              | Not applicable (no link extraction)                                           |
 | `B3UrlConfirmSheet`                             | Not applicable (no URL surfaced)                                              |

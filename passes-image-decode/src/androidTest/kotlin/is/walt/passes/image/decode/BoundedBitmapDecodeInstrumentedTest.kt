@@ -2,34 +2,29 @@ package `is`.walt.passes.image.decode
 
 import android.graphics.Bitmap
 import android.graphics.ImageDecoder
+import android.os.Debug
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.google.common.truth.Truth.assertThat
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.io.ByteArrayOutputStream
+import java.io.DataOutputStream
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.zip.CRC32
+import java.util.zip.DeflaterOutputStream
 
-/**
- * Instrumented coverage for [decodeBounded] against the REAL platform `ImageDecoder` — the
- * part the JVM suite cannot exercise, since Robolectric's shadow returns a stub bitmap and
- * never decodes, rejects, or throws on malformed input ([BoundedBitmapDecodeTest] explains the
- * split). These pin the native decode-failure containment and the 1x1-on-reject downsize that
- * the module exists to audit: a malformed container folds to the caller's `onMalformed`, an
- * over-cap image is rejected by the gate without a full-size allocation, and the software
- * allocator yields a readable (non-hardware) bitmap.
- *
- * Runs in CI's connected-tests job. The OOM propagate-vs-contain split is covered off-device by
- * [BoundedBitmapDecodeTest.containOutOfMemoryPropagatesWhenNoFold], since a real
- * [OutOfMemoryError] cannot be forced reliably.
- */
+/** [decodeBounded] against the platform `ImageDecoder`, which the JVM suite only stubs. */
 @RunWith(AndroidJUnit4::class)
 class BoundedBitmapDecodeInstrumentedTest {
 
     private enum class Reason { TooLarge, Malformed, RuntimeFailure, Oom }
 
-    private fun policy(maxSide: Int) =
+    private fun policy(maxSide: Int, maxSize: DecodeSize? = null) =
         BoundedDecodePolicy(
             allocator = ImageDecoder.ALLOCATOR_SOFTWARE,
             gate = { _, w, h -> if (w > maxSide || h > maxSide) Reason.TooLarge else null },
+            maxSize = maxSize,
             onMalformed = { Reason.Malformed },
             onRuntimeFailure = { Reason.RuntimeFailure },
             onOutOfMemory = { Reason.Oom },
@@ -47,11 +42,78 @@ class BoundedBitmapDecodeInstrumentedTest {
     }
 
     @Test
-    fun rejectsOverCapImageByGateWithoutFullAllocation() {
-        // A 16x16 image under a 1px cap trips the gate; the listener forces a 1x1 decode so the
-        // rejected path allocates nothing of size.
+    fun rejectsOverCapImageByGate() {
         val result = decodeBounded(rawBytes = pngOf(width = 16, height = 16), policy = policy(maxSide = 1))
         assertThat(result).isEqualTo(BoundedBitmap.Rejected(Reason.TooLarge))
+    }
+
+    @Test
+    fun decodesAnImageOverTheBoxAtAWholeNumberDivision() {
+        val result =
+            decodeBounded(
+                rawBytes = pngOf(width = 100, height = 60),
+                policy = policy(maxSide = 100, maxSize = DecodeSize(40, 40)),
+            )
+        val bitmap = (result as BoundedBitmap.Decoded).bitmap
+        assertThat(bitmap.width).isEqualTo(33)
+        assertThat(bitmap.height).isEqualTo(20)
+    }
+
+    @Test
+    fun neverUpscalesToABoxLargerThanTheSource() {
+        val result =
+            decodeBounded(
+                rawBytes = pngOf(width = 16, height = 16),
+                policy = policy(maxSide = 64, maxSize = DecodeSize(4096, 4096)),
+            )
+        val bitmap = (result as BoundedBitmap.Decoded).bitmap
+        assertThat(bitmap.width).isEqualTo(16)
+        assertThat(bitmap.height).isEqualTo(16)
+    }
+
+    @Test
+    fun rejectsOverCapImageWhateverTheBox() {
+        val result =
+            decodeBounded(
+                rawBytes = pngOf(width = 16, height = 16),
+                policy = policy(maxSide = 1, maxSize = DecodeSize(16, 16)),
+            )
+        assertThat(result).isEqualTo(BoundedBitmap.Rejected(Reason.TooLarge))
+    }
+
+    @Test
+    fun downsampledDecodeHoldsNoFullSizeIntermediate() {
+        // Just under twice the box, where a scale that is not a whole number decodes at full size first.
+        val side = 3839
+        val png = blackPngOf(side)
+        val baseline = Debug.getNativeHeapAllocatedSize()
+        val sampling = CountDownLatch(1)
+        val done = AtomicBoolean(false)
+        var peak = baseline
+        val sampler =
+            Thread {
+                sampling.countDown()
+                while (!done.get()) peak = maxOf(peak, Debug.getNativeHeapAllocatedSize())
+            }
+        sampler.start()
+        sampling.await()
+
+        val result =
+            try {
+                decodeBounded(rawBytes = png, policy = policy(maxSide = side, maxSize = DecodeSize(1920, 1920)))
+            } finally {
+                done.set(true)
+                sampler.join()
+            }
+
+        val bitmap = (result as BoundedBitmap.Decoded).bitmap
+        peak = maxOf(peak, Debug.getNativeHeapAllocatedSize())
+        assertThat(bitmap.width).isEqualTo(1919)
+        assertThat(bitmap.height).isEqualTo(1919)
+        // The lower bound shows the probe sees bitmap memory at all on this API level.
+        assertThat(peak - baseline).isAtLeast(bitmap.allocationByteCount * 9L / 10)
+        assertThat(peak - baseline).isLessThan(side.toLong() * side * 4 / 2)
+        bitmap.recycle()
     }
 
     @Test
@@ -69,6 +131,40 @@ class BoundedBitmapDecodeInstrumentedTest {
             bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
             bitmap.recycle()
             out.toByteArray()
+        }
+    }
+
+    // A valid all-black greyscale square, streamed so the fixture itself allocates almost nothing.
+    private fun blackPngOf(side: Int): ByteArray {
+        val header =
+            ByteArrayOutputStream().also {
+                DataOutputStream(it).apply {
+                    writeInt(side)
+                    writeInt(side)
+                    write(byteArrayOf(8, 0, 0, 0, 0))
+                }
+            }.toByteArray()
+        val pixels =
+            ByteArrayOutputStream().also { out ->
+                DeflaterOutputStream(out).use { deflater ->
+                    val row = ByteArray(side + 1)
+                    repeat(side) { deflater.write(row) }
+                }
+            }.toByteArray()
+        return ByteArrayOutputStream().also { out ->
+            out.write(byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A))
+            out.writeChunk("IHDR", header)
+            out.writeChunk("IDAT", pixels)
+            out.writeChunk("IEND", ByteArray(0))
+        }.toByteArray()
+    }
+
+    private fun ByteArrayOutputStream.writeChunk(type: String, data: ByteArray) {
+        val typed = type.toByteArray(Charsets.US_ASCII) + data
+        DataOutputStream(this).apply {
+            writeInt(data.size)
+            write(typed)
+            writeInt(CRC32().apply { update(typed) }.value.toInt())
         }
     }
 }

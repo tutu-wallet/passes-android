@@ -82,8 +82,8 @@ class ComposableSurfaceLockTest {
 
     @Test
     fun boundedImageHasExactlySixUserVisibleParameters() {
-        // (bytes, role, contentDescription, bounds, telemetry, modifier). D5: no
-        // form of `bounds: ImageRenderBounds? = null` that would let a caller opt out.
+        // (bytes, role, contentDescription, bounds, telemetry, modifier). D5: no nullable
+        // `bounds` and no parameter that reaches the source ceiling.
         assertUserVisibleParamCount("BoundedImageKt", "BoundedImage", expected = 6)
     }
 

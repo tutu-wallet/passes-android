@@ -17,33 +17,14 @@ import `is`.walt.passes.core.ImageBytes
 import `is`.walt.passes.core.ImageRole
 import `is`.walt.passes.image.decode.BoundedBitmap
 import `is`.walt.passes.image.decode.BoundedDecodePolicy
+import `is`.walt.passes.image.decode.DecodeSize
 import `is`.walt.passes.image.decode.decodeBounded
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /**
- * Decodes [bytes] using Android `ImageDecoder` with explicit dimension caps applied via
- * [ImageDecoder.OnHeaderDecodedListener]. The header listener fires before the decoder
- * allocates a backing bitmap, so a hostile pass archive cannot OOM the host process via
- * a multi-gigabyte PNG.
- *
- * Residual risk: `OnHeaderDecodedListener` does not bound the transient memory the
- * platform decoder uses while parsing the file header itself. For pathological inputs
- * (e.g. PNGs with very large ancillary chunks), header parsing can allocate proportional
- * memory before the listener fires. `ImageDecoder` is the safest decode primitive
- * Android offers, but it is not a hard guarantee against all decompression-bomb shapes.
- * `BoundedImage` rejects the bitmap once dimensions are known; the implementation bead's
- * follow-on work is an instrumentation test that exercises the residual-risk surface.
- *
- * The implementation deliberately does NOT use Coil's default loader: bounds enforcement
- * is the trust claim, and a third-party loader would have to be re-audited for that
- * property on every dependency upgrade. The decoder pipeline here is the only path
- * `passes-ui` ever uses to produce a bitmap from an `ImageBytes`.
- *
- * Decode runs on `Dispatchers.IO`, so a multi-megapixel image does not stutter the
- * host's UI thread. Decode failures (including bounds violations) render as an empty
- * placeholder and fire [UiTelemetryGuard.onImageDecodeRejected] with the categorized
- * reason. The composable never throws.
+ * The only path from pass image bytes to pixels: a bounded `ImageDecoder` decode to at most [bounds].
+ * A refused image draws nothing and reports to [telemetry]; an [OutOfMemoryError] propagates.
  */
 @Composable
 public fun BoundedImage(
@@ -55,14 +36,12 @@ public fun BoundedImage(
     bounds: ImageRenderBounds = ImageRenderBounds.Default,
 ) {
     var bitmap by remember(bytes, bounds) { mutableStateOf<Bitmap?>(null) }
-    var rejection by remember(bytes, bounds) { mutableStateOf<ImageDecodeRejection?>(null) }
 
     LaunchedEffect(bytes, bounds) {
         val (decoded, reason) = withContext(Dispatchers.IO) {
             decodeBoundedBitmap(bytes.bytes, bounds)
         }
         bitmap = decoded
-        rejection = reason
         reason?.let { telemetry.onImageDecodeRejected(it) }
     }
 
@@ -79,11 +58,15 @@ public fun BoundedImage(
 }
 
 /**
- * Visible-for-tests JVM-pure decoder driver. Returns the produced bitmap (or `null` on
- * failure) plus the rejection reason (or `null` on success). Splitting this from the
- * composable lets the implementation bead's instrumentation tests assert decode behavior
- * without having to render anything.
+ * Source pixel count above which an image is refused from its header, before the bitmap is
+ * allocated. Equal to the parser's default cap, so a PNG a default import admits can render.
  */
+internal const val MAX_SOURCE_PIXELS: Long = 4096L * 4096L
+
+internal fun sourceRejection(width: Int, height: Int): ImageDecodeRejection? =
+    if (width.toLong() * height.toLong() > MAX_SOURCE_PIXELS) ImageDecodeRejection.ExceedsArea else null
+
+/** The decode behind [BoundedImage], split out so tests can drive it without a composition. */
 internal fun decodeBoundedBitmap(
     rawBytes: ByteArray,
     bounds: ImageRenderBounds,
@@ -94,21 +77,13 @@ internal fun decodeBoundedBitmap(
                 rawBytes = rawBytes,
                 policy =
                     BoundedDecodePolicy(
-                        // Platform default: a hardware bitmap is fine here — this path is
-                        // display-only and never reads pixels back, unlike the symbol decoder.
+                        // Display only, so a hardware bitmap is fine.
                         allocator = ImageDecoder.ALLOCATOR_DEFAULT,
-                        gate = { _, w, h ->
-                            when {
-                                w > bounds.maxWidthPx -> ImageDecodeRejection.ExceedsWidth
-                                h > bounds.maxHeightPx -> ImageDecodeRejection.ExceedsHeight
-                                w.toLong() * h.toLong() > bounds.maxAreaPx -> ImageDecodeRejection.ExceedsArea
-                                else -> null
-                            }
-                        },
+                        gate = { _, width, height -> sourceRejection(width, height) },
+                        maxSize = DecodeSize(bounds.maxWidthPx, bounds.maxHeightPx),
                         onMalformed = { ImageDecodeRejection.Malformed },
                         onRuntimeFailure = { ImageDecodeRejection.Other },
-                        // In-process display: no rejection bucket for an OOM, so let it
-                        // propagate rather than silently swallow it (preserves prior posture).
+                        // The host has no rejection bucket for an OOM, so it propagates.
                         onOutOfMemory = null,
                     ),
             )

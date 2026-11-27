@@ -61,10 +61,8 @@ public interface UiTelemetryGuard {
     public fun onSecuritySheetDismissed(intentKind: SecurityIntentKind, type: PassType)
 
     /**
-     * An image-decode attempt was rejected by [ImageRenderBounds]. The host shows
-     * a placeholder instead of the requested asset; the event lets the host
-     * detect either a malformed pass archive or a bounds threshold that needs
-     * tuning.
+     * A pass image was refused and drew nothing. Fires once per decode attempt, so again when the
+     * image re-enters composition; an image that is only larger than its bounds never fires.
      */
     public fun onImageDecodeRejected(reason: ImageDecodeRejection)
 
@@ -173,14 +171,8 @@ public enum class BarcodeCreateKind {
     UnknownScheme,
 }
 
-/**
- * Why an image-decode attempt was refused. The five buckets cover the cases the
- * decode pipeline can encounter; "Other" is the catch-all for unexpected failures
- * surfaced from the underlying Android `ImageDecoder`.
- */
+/** Why a pass image was refused: over the source pixel ceiling, undecodable, or anything else. */
 public enum class ImageDecodeRejection {
-    ExceedsWidth,
-    ExceedsHeight,
     ExceedsArea,
     Malformed,
     Other,
