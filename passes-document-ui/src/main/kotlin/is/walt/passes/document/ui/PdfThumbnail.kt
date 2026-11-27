@@ -79,34 +79,8 @@ public class PdfThumbnailCache(maxSize: Int = DEFAULT_PAGE_WINDOW) {
 internal data class CachedPage(val bitmap: Bitmap, val pageAspect: Float)
 
 /**
- * Compose-friendly facade over the isolated-process PDF renderer for **single-page
- * renders**. Use this to drive an asynchronously
- * rendered page-N bitmap with correct lifetime, cancellation, and cache discipline.
- *
- * This is also the blessed paged-access path for pager surfaces (wpass-tjc.3;
- * consumer epic wlt-mx2d): [page] selects any index, so a pager composes one call
- * per visible page — plus the adjacent page for a peek/prefetch — against a shared
- * [cache], and only that window is ever rasterised ([DEFAULT_PAGE_WINDOW] pages;
- * never the whole document). `DocumentView`'s inline pager is the reference
- * consumer of exactly this pattern.
- *
- * Lifecycle guarantees this facade owns so consumers do not have to reimplement:
- *
- *  - `renderer.render(...)` runs inside `NonCancellable` (via `renderOrDiscard`),
- *    so a row disposed mid-render still receives the `RenderResult` and releases
- *    its `SharedMemory` region.
- *  - When [cache] is supplied, the bitmap is handed to the cache; the LRU evicts
- *    older entries with `Bitmap.recycle`. When [cache] is omitted, the bitmap is
- *    recycled on dispose of the composable.
- *
- * Trust posture: see ADR 0005 D4 — this facade preserves D3 (consumes the
- * caller's binder, does not open a new service connection), D4 (no extraction
- * surface in body or return type), D5 (no signature affordance), and D7 (passes
- * [targetSizePx] through to the renderer's 4 MP cap; oversized requests surface
- * as `Failed(RendererFailed)`).
- *
- * [pdfFile] is owned by the caller and must remain open while the composable is
- * composed; close after composition ends.
+ * Renders page [page] through the caller's isolated renderer binder (ADR 0005 D4), owning
+ * cancellation and bitmap lifetime. [pdfFile] is the caller's and must outlive the composition.
  */
 @Composable
 @Suppress("LongParameterList")

@@ -30,7 +30,6 @@ a single `LocalPassesSemantics` provided at `PassesTheme(...)` scope:
 - `securitySheet`: emphasis, body, confirm, cancel slots for the URL / phone /
   email confirmation sheets, explicitly distinct from chrome dialogs so the
   user does not muscle-memory through.
-- `categoryAccent`: per-`PassType` accent strip color for the wallet-list view.
 
 Color values are packed ARGB integers (`ArgbColor(0xAARRGGBB)`, in `passes-ui-core`), matching `passes-core`'s `ColorValue.rgb` shape with an alpha channel. Compose-side conversion is a one-line `Color(argb.argb.toLong())` at the API boundary. The contract type stays primitive so the JVM `PublicApiSurfaceTest` exercises the whole shape without a device.
 
@@ -147,7 +146,7 @@ An item's color has two sources and neither depends on signature status. A consu
 - **The security-sheet family is untouched.** `B3UrlConfirmSheet`, `PhoneConfirmSheet` and `EmailConfirmSheet` read `MaterialTheme.colorScheme` and `LocalPassesSemantics` only. They take no tint parameter and must not: the attack D4 names applies verbatim to a user- or consumer-chosen color.
 - **Color carries no trust meaning.** See `SCANNABLE_CARD_THREAT_MODEL.md` ("colour carries no trust meaning") and ADR 0005 D1.C.
 
-Tests: `ScannableCardTrustSurfaceTest` (`inkOnClearsWcagAaAgainstEveryTintIncludingTheWorstCase`; a tint cannot suppress barcode, label, payload or trust caption; the code panel is literally white) and `ComposableSurfaceLockTest` (parameter-count locks on the three security sheets: adding a tint breaks the count, but swapping one of the six parameters for a color would not, so a reviewer reads the enumeration in each test's comment).
+Tests: `ScannableCardTrustSurfaceTest` (`inkOnClearsWcagAaAgainstEveryTintIncludingTheWorstCase`; a tint cannot suppress the label or payload; the code panel is literally white) and `ComposableSurfaceLockTest` (parameter-count locks on the three security sheets: adding a tint breaks the count, but swapping one of the six parameters for a color would not, so a reviewer reads the enumeration in each test's comment).
 
 ## Amendment to D5: `BoundedImage` downsamples to its bounds
 

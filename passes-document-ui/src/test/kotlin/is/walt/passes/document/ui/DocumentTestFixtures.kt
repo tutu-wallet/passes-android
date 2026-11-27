@@ -20,12 +20,9 @@ import java.util.Collections
 internal val testDocumentSemantics = DocumentSemantics(
     captionBackground = ArgbColor(0xFF202020.toInt()),
     captionForeground = ArgbColor(0xFFFFFFFF.toInt()),
-    tileBackground = ArgbColor(0xFFF5F5F5.toInt()),
-    tileForeground = ArgbColor(0xFF202020.toInt()),
-    tileLabelForeground = ArgbColor(0xFF606060.toInt()),
-    laneBackground = ArgbColor(0xFFEEEEEE.toInt()),
-    documentBadgeBackground = ArgbColor(0xFFD0D0D0.toInt()),
-    documentBadgeForeground = ArgbColor(0xFF202020.toInt()),
+    frameBackground = ArgbColor(0xFFEEEEEE.toInt()),
+    fullScreenBannerBackground = ArgbColor(0xFFD0D0D0.toInt()),
+    fullScreenBannerForeground = ArgbColor(0xFF202020.toInt()),
 )
 
 @Composable

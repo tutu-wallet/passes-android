@@ -5,17 +5,8 @@ import org.junit.Test
 import java.lang.reflect.Method
 
 /**
- * Pins the parameter-shape discipline of the trust-claim-bearing document composables
- * (ADR 0005 D5 / D8). These shape constraints ARE the trust contract: a future
- * refactor that adds `showCaption: Boolean = false` to `DocumentView`, or `showShare:
- * Boolean = false` overflow-menu hooks to `DocumentTile`, would silently weaken the
- * claim documented in TRUST_CLAIMS.md.
- *
- * Carved out of `passes-ui::ComposableSurfaceLockTest` (wpass-r4z) when the document
- * composables moved into their own module. The PKPASS surfaces' shape locks stay over
- * in `passes-ui`; here we lock just the document surfaces, and reach them via Java
- * reflection to dodge the Compose-compiler-plugin's interaction with Kotlin
- * reflection on top-level `@Composable` functions.
+ * Pins the parameter shape of the trust-claim-bearing document composables (ADR 0005 D5 / D8).
+ * Uses Java reflection: Kotlin reflection does not see top-level `@Composable` functions cleanly.
  */
 class DocumentSurfaceLockTest {
 
@@ -27,38 +18,10 @@ class DocumentSurfaceLockTest {
     }
 
     @Test
-    fun documentTileHasExactlyFourUserVisibleParameters() {
-        // (doc, thumbnail, onClick, modifier). No share/export action, no overflow menu.
-        assertUserVisibleParamCount("DocumentTileKt", "DocumentTile", expected = 4)
-    }
-
-    @Test
-    fun documentViewHasExactlyElevenUserVisibleParameters() {
-        // (doc, pdfFile, renderer, imageFile, imageDecoder, modifier, telemetry,
-        // trustCaption, onOpenFullScreen, fullScreenAffordance, faceTint). `trustCaption`
-        // (wpass-gv6) is a TrustCaptionPlacement selecting how provenance is carried —
-        // Docked renders the verbatim caption; HostedTypeRow drops it so the host carries
-        // provenance via its own "Pass type" details row, under the bounded D5 concession
-        // (ADR 0005 "Pass type" row addendum). The strong type (not a Boolean) is pinned by
-        // documentViewTrustCaptionParamIsThePlacementType. Bumping from 10 to 11 is the
-        // deliberate wpass-80y.2 change: `faceTint` colors the frame the page render sits
-        // on and cannot reach the content, pinned by faceTintLeavesThePageRenderRequest
-        // Unchanged. Adding a TWELFTH parameter that suppressed the page, the image, or
-        // some other surface element would breach D5/D8; review the ADR first.
-        assertUserVisibleParamCount("DocumentViewKt", "DocumentView", expected = 11)
-    }
-
-    @Test
-    fun documentViewTrustCaptionParamIsThePlacementType() {
-        // Belt-and-suspenders on the count lock: pin that the slot is the strong
-        // TrustCaptionPlacement type, not a raw Boolean. The placement is the audited
-        // carrier-of-provenance choice (Docked | HostedTypeRow), each arm documented in
-        // the D5 concession; a bare `showCaption: Boolean` would erase that audit point.
-        val method = findComposable("DocumentViewKt", "DocumentView")
-        val typeNames = method.parameterTypes.map { it.simpleName }
-        assertWithMessage("DocumentView must accept the TrustCaptionPlacement type")
-            .that(typeNames)
-            .contains("TrustCaptionPlacement")
+    fun documentViewHasExactlyTenUserVisibleParameters() {
+        // (doc, pdfFile, renderer, imageFile, imageDecoder, modifier, telemetry, onOpenFullScreen,
+        // fullScreenAffordance, faceTint). One that hid the page or image, or added share-out, breaches D5/D8.
+        assertUserVisibleParamCount("DocumentViewKt", "DocumentView", expected = 10)
     }
 
     @Test
@@ -74,13 +37,6 @@ class DocumentSurfaceLockTest {
         assertWithMessage("DocumentView must NOT bind to the concrete ImageDecodeClient")
             .that(typeNames)
             .doesNotContain("ImageDecodeClient")
-    }
-
-    @Test
-    fun documentsLaneHasExactlyFourUserVisibleParameters() {
-        // (documents, thumbnails, onDocumentClick, modifier). The lane composes the
-        // trust caption inside itself; no parameter omits it.
-        assertUserVisibleParamCount("DocumentsLaneKt", "DocumentsLane", expected = 4)
     }
 
     @Test
@@ -140,15 +96,10 @@ class DocumentSurfaceLockTest {
 
     @Test
     fun documentSurfacesHaveNoOverloads() {
-        // The trust-caption non-suppressibility rule extends to overloads: a future
-        // contributor cannot quietly add `DocumentView(..., showCaption: Boolean)` as
-        // a sibling with the same name. Lock that there is exactly one method per
-        // composable name.
+        // An overload could add a parameter that the count locks miss.
         listOf(
             "DocumentTrustCaptionKt" to "DocumentTrustCaption",
-            "DocumentTileKt" to "DocumentTile",
             "DocumentViewKt" to "DocumentView",
-            "DocumentsLaneKt" to "DocumentsLane",
             "FullScreenDocumentViewKt" to "FullScreenDocumentView",
         ).forEach { (file, name) ->
             val klass = Class.forName("is.walt.passes.document.ui.$file")

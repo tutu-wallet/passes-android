@@ -7,10 +7,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
-import androidx.compose.ui.test.onAllNodesWithText
-import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
@@ -18,8 +15,6 @@ import androidx.compose.ui.unit.dp
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.google.common.truth.Truth.assertThat
 import com.google.common.truth.Truth.assertWithMessage
-import `is`.walt.passes.document.ImageDocument
-import `is`.walt.passes.document.ImageDocumentId
 import `is`.walt.passes.document.PdfDocument
 import `is`.walt.passes.document.PdfDocumentId
 import `is`.walt.passes.ui.core.faceIsTinted
@@ -51,8 +46,7 @@ import org.robolectric.annotation.Config
  * assertion is what fails if a future change makes the request slot-derived — at which point
  * the tint could start moving it and the invariance assertion starts meaning something.
  *
- * The rest assert the tint is not a surface suppressor: everything the untinted surface
- * renders still renders under a tint, including the non-suppressible trust caption.
+ * The rest assert the surface still composes under a tint.
  */
 @RunWith(AndroidJUnit4::class)
 @Config(sdk = [34])
@@ -61,10 +55,8 @@ class DocumentFaceTintTest {
     @get:Rule
     val composeRule = createComposeRule()
 
-    // Denim / Violet are the palette's PDF and image defaults; any of the 7 tints is
-    // reachable once the user reassigns, so nothing here may depend on either value.
+    // One tint of a host palette; nothing here may depend on its value.
     private val denim = Color(0xFFCEE6FF)
-    private val violet = Color(0xFFE8DCFE)
 
     // Closed in @After, not inside the test: the documented pdfFile / imageFile contract
     // is that the fd outlives the composition.
@@ -134,52 +126,19 @@ class DocumentFaceTintTest {
     }
 
     @Test
-    fun faceTintDoesNotSuppressTheTrustCaptionOnEitherArm() {
-        // The tint is presentation only, not a surface suppressor: the non-suppressible
-        // D5 caption survives it in both arms. The ONE way the caption is omitted stays
-        // the audited HostedTypeRow concession.
-        composeRule.setContent {
-            ThemedHost {
-                Column {
-                    Slot {
-                        DocumentView(
-                            doc = pdfFixture("pdf", PAGE_COUNT),
-                            pdfFile = openPdfFd(),
-                            renderer = RecordingRenderer(PAGE_COUNT),
-                            faceTint = denim,
-                        )
-                    }
-                    Slot {
-                        DocumentView(
-                            doc = imageFixture(),
-                            imageFile = openImageFd(),
-                            imageDecoder = RejectingImageDecoder,
-                            faceTint = violet,
-                        )
-                    }
-                }
-            }
-        }
-        composeRule.waitForIdle()
-
-        composeRule.onAllNodesWithText(TRUST_CAPTION_TEXT).fetchSemanticsNodes().let { nodes ->
-            assertWithMessage("both tinted arms must carry the caption").that(nodes).hasSize(2)
-        }
-    }
-
-    @Test
     fun faceTintStillComposesUnderAnOpaqueDarkTint() {
         // The palette ships light tints, but the parameter accepts any colour and — unlike
         // the scannable card face — this frame derives no ink from it, because no kernel
         // text sits on it. Pinning a dark tint keeps it that way: if a future change starts
         // reading the tint's luminance, it acquires a branch this test already covers.
+        val renderer = RecordingRenderer(PAGE_COUNT)
         composeRule.setContent {
             ThemedHost {
                 Slot {
                     DocumentView(
                         doc = pdfFixture("dark", PAGE_COUNT),
                         pdfFile = openPdfFd(),
-                        renderer = RecordingRenderer(PAGE_COUNT),
+                        renderer = renderer,
                         faceTint = Color(0xFF2A75BA),
                     )
                 }
@@ -187,7 +146,7 @@ class DocumentFaceTintTest {
         }
         composeRule.waitForIdle()
 
-        composeRule.onNodeWithText(TRUST_CAPTION_TEXT).assertIsDisplayed()
+        assertThat(renderer.pages()).contains(0)
     }
 
     @Test
@@ -199,13 +158,14 @@ class DocumentFaceTintTest {
         // (wpass-3qf).
         assertThat(faceIsTinted(Color.Transparent)).isFalse()
 
+        val renderer = RecordingRenderer(PAGE_COUNT)
         composeRule.setContent {
             ThemedHost {
                 Slot {
                     DocumentView(
                         doc = pdfFixture("transparent", PAGE_COUNT),
                         pdfFile = openPdfFd(),
-                        renderer = RecordingRenderer(PAGE_COUNT),
+                        renderer = renderer,
                         faceTint = Color.Transparent,
                     )
                 }
@@ -213,7 +173,7 @@ class DocumentFaceTintTest {
         }
         composeRule.waitForIdle()
 
-        composeRule.onNodeWithText(TRUST_CAPTION_TEXT).assertIsDisplayed()
+        assertThat(renderer.pages()).contains(0)
     }
 
     // -- helpers -------------------------------------------------------------------
@@ -240,18 +200,7 @@ class DocumentFaceTintTest {
         importedAtEpochMs = 0L,
     )
 
-    private fun imageFixture() = ImageDocument(
-        id = ImageDocumentId("img-tint"),
-        displayLabel = "receipt.png",
-        byteCount = 2048L,
-        widthPx = 1080,
-        heightPx = 1830,
-        importedAtEpochMs = 0L,
-    )
-
     private fun openPdfFd(): ParcelFileDescriptor = openFd("doc", ".pdf", byteArrayOf(0x25))
-
-    private fun openImageFd(): ParcelFileDescriptor = openFd("img", ".png", byteArrayOf(1, 2, 3))
 
     private fun openFd(prefix: String, suffix: String, bytes: ByteArray): ParcelFileDescriptor {
         val backing = File.createTempFile(prefix, suffix).apply { writeBytes(bytes) }

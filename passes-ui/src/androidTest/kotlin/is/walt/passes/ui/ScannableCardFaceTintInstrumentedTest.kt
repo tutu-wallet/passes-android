@@ -19,7 +19,6 @@ import `is`.walt.passes.core.ScannableCardId
 import `is`.walt.passes.core.ScannableCardInputValidator
 import `is`.walt.passes.core.ScannableFormat
 import `is`.walt.passes.ui.theme.ArgbColor
-import `is`.walt.passes.ui.theme.CategoryAccentColors
 import `is`.walt.passes.ui.theme.ExpiredBadgeStyle
 import `is`.walt.passes.ui.theme.PassesSemantics
 import `is`.walt.passes.ui.theme.PassesTheme
@@ -134,8 +133,7 @@ class ScannableCardFaceTintInstrumentedTest {
         }
     }
 
-    // unverifiedArtifact is left at its Placeholder default — nothing here asserts on the
-    // caption. The rest are required constructor slots this test never reads.
+    // Required constructor slots this test never reads.
     private val semantics = PassesSemantics(
         signatureBadge = SignatureBadgeColors(
             unsignedBackground = UNUSED,
@@ -160,13 +158,6 @@ class ScannableCardFaceTintInstrumentedTest {
             confirmContainer = UNUSED,
             confirmForeground = UNUSED,
             cancelForeground = UNUSED,
-        ),
-        categoryAccent = CategoryAccentColors(
-            boardingPass = UNUSED,
-            eventTicket = UNUSED,
-            coupon = UNUSED,
-            storeCard = UNUSED,
-            generic = UNUSED,
         ),
     )
 

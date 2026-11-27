@@ -16,7 +16,6 @@ import `is`.walt.passes.core.PassInstant
 import `is`.walt.passes.core.PassType
 import `is`.walt.passes.core.SignatureStatus
 import `is`.walt.passes.ui.theme.ArgbColor
-import `is`.walt.passes.ui.theme.CategoryAccentColors
 import `is`.walt.passes.ui.theme.ExpiredBadgeStyle
 import `is`.walt.passes.ui.theme.PassesSemantics
 import `is`.walt.passes.ui.theme.PassesTheme
@@ -100,13 +99,6 @@ class PassImportConfirmBackPressTest {
             confirmContainer = ArgbColor(0xFF202020.toInt()),
             confirmForeground = ArgbColor(0xFFFFFFFF.toInt()),
             cancelForeground = ArgbColor(0xFF202020.toInt()),
-        ),
-        categoryAccent = CategoryAccentColors(
-            boardingPass = ArgbColor(0xFF1D4ED8.toInt()),
-            eventTicket = ArgbColor(0xFF7C2D92.toInt()),
-            coupon = ArgbColor(0xFF555555.toInt()),
-            storeCard = ArgbColor(0xFF555555.toInt()),
-            generic = ArgbColor(0xFF555555.toInt()),
         ),
     )
 

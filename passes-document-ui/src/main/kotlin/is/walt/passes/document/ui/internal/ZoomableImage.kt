@@ -47,7 +47,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
  * response to the previous settle. The replacement carries the visible region's own
  * aspect ratio (the renderer rasterises it uniformly, `wpass-fdh`), so it is placed at
  * the on-screen box that region currently occupies via [visiblePageBoxOnScreen] rather
- * than stretched to fill the slot — laneBackground shows around it where the viewport
+ * than stretched to fill the slot: frameBackground shows around it where the viewport
  * extends past the page edge. Starting a new gesture (or any double-tap) clears the
  * override through the caller's [onTransformStarted] callback so a stale region is
  * never shown against a changed transform.

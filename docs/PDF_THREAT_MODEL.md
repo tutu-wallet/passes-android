@@ -102,8 +102,9 @@ permission levels.
 carries `Provenance.UserProvided`, structurally distinct from PKPASS's
 `SignatureStatus.AppleVerified` / `SelfSigned` ladder. The
 `DocumentTrustCaption` ("User-provided document. This app has not verified
-the source.") is non-suppressible, in the same visual register as the existing
-`SignatureStatus.SelfSigned` pill.
+the source.") is non-suppressible on the full-screen view, in the same visual
+register as the existing `SignatureStatus.SelfSigned` pill; inline, the host's
+"Pass type" row carries provenance (ADR 0005 D5.T).
 
 **Rationale for not verifying.** A "Verified" UI signal that Walt cannot
 honestly back would dilute the PKPASS signature trust signal. There is no
@@ -111,8 +112,8 @@ analogue to Apple's WWDR root for ticket issuance. Implementing PAdES
 correctly (across MDP transforms, certification chains, revocation) is its
 own project, and a half-correct implementation is worse than none.
 
-**Status.** Accepted, with structural UI mitigation (D5, D8 non-suppressible
-caption).
+**Status.** Accepted, with structural UI mitigation (D5 and D5.T provenance,
+D8 no share-out).
 
 ### 6. Network fetches at render time
 
@@ -224,26 +225,29 @@ elsewhere, trusts the scanner's intent, and lands on an attacker page.
 
 **Mitigation.** None applicable from Walt. The barcode is rasterized
 content the user is responsible for sourcing, and Walt makes no claim
-about the contents of an unverified document. The non-suppressible
-`DocumentTrustCaption` is the user-facing signal; the structural absence
-of a "Verified" pill prevents false-confidence escalation.
+about the contents of an unverified document. The provenance signal (the
+host's "Pass type" row inline, `DocumentTrustCaption` on the full-screen view)
+is the user-facing one; the structural absence of a "Verified" pill prevents
+false-confidence escalation.
 
-**Status.** Accepted-risk for v1; the trust-caption discipline is the
-user-facing mitigation.
+**Status.** Accepted-risk for v1; the provenance signal is the user-facing
+mitigation.
 
 ### 13. Bidi/control-character spoofing in display label
 
 **What.** The PDF's filename (or fallback "PDF, added <date>" string) is
-user-controlled and rendered alongside the trust caption. A filename
+user-controlled and drawn by the consumer. A filename
 containing U+202E or other Cf/Cc characters could rearrange visible glyphs
 to spoof Walt UI text.
 
-**Mitigation.** `DocumentTrustCaption` renders constant text and carries no label; only the
-Documents-lane tile wraps the display label in U+2068 / U+2069 (FSI / PDI) bidi isolates, mirroring
-the existing `B3UrlConfirmSheet` discipline (`passes-ui/TRUST_CLAIMS.md`
-section 2). The JVM test `DocumentTrustSurfaceTest.documentTileWrapsDisplayLabelInBidiIsolates` verifies the wrap.
+**Mitigation.** `DocumentTrustCaption` renders constant text and carries no label, and
+no kernel surface draws the display label. A consumer that draws it wraps it with
+`isolated()` from `passes-ui-core` (U+2068 / U+2069 bidi isolates, the
+`B3UrlConfirmSheet` discipline of `passes-ui/TRUST_CLAIMS.md` section 2);
+`BidiIsolationTest` pins the shape of the wrap.
 
-**Status.** Mitigated.
+**Status.** Mitigated where the consumer applies the wrap. The kernel cannot verify
+that, so the consumer pins it with its own test.
 
 ## Inventory: PKPASS controls and PDF equivalents
 
@@ -252,7 +256,7 @@ section 2). The JVM test `DocumentTrustSurfaceTest.documentTileWrapsDisplayLabel
 | `ParserConfig.maxArchiveBytes` (10 MB)          | `PdfImportConfig.maxBytes` (25 MB); enforced at import and at storage         |
 | Manifest hash + PKCS#7 signature                | Not applicable; provenance is `UserProvided` (D5)                             |
 | `ImageRenderBounds` (1920 x 1920 per bitmap)    | Per-page rendered-bitmap cap of 4 MP                                          |
-| `SignatureStatus` four-band badge               | Single-band "User-provided document" caption, non-suppressible                |
+| `SignatureStatus` four-band badge               | Host "Pass type" row inline; "User-provided document" caption on the full-screen view |
 | `FieldLinkScanner` Cf/Cc rejection              | Not applicable (no link extraction)                                           |
 | `B3UrlConfirmSheet`                             | Not applicable (no URL surfaced)                                              |
 | `ExpiredOverlayState`                           | Not applicable (no expiration metadata; sort by import date)                  |

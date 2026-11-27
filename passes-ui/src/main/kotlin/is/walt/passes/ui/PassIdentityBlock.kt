@@ -42,9 +42,7 @@ import `is`.walt.passes.core.PassLocale
  * Both lines are fenced with FSI/PDI via [resolvePassDisplayIdentity] — both the
  * user-supplied `userLabel` and the parsed-from-PKPASS `organizationName` are
  * untrusted strings that could carry bidi-override characters. The fence prevents
- * either line from reordering the other or surrounding chrome. Mirrors
- * `ScannableCardTile` and `passes-document-ui::DocumentTile` for the analogous
- * display-label fields.
+ * either line from reordering the other or surrounding chrome.
  */
 @Suppress("LongParameterList") // detekt functionThreshold=6; trips on six declared params.
 @Composable
@@ -86,8 +84,7 @@ public fun PassIdentityBlock(
         modifier = modifier,
         verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
-        // Primary line (user-supplied): cap at 2 lines, ellipsize. Mirrors
-        // ScannableCardTile / DocumentTile for analogous user-controlled labels.
+        // Primary line (user-supplied): cap at 2 lines, ellipsize.
         Text(
             text = identity.primary,
             style = MaterialTheme.typography.labelLarge,
@@ -95,9 +92,7 @@ public fun PassIdentityBlock(
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
         )
-        // Eyebrow (signed identity): never truncate; mirrors ScannableCardTrustCaption's
-        // "trust caption never truncates" posture so the issuer identity stays visible
-        // even under bounded tile chrome.
+        // Eyebrow (signed identity): never truncated, so the issuer identity stays visible.
         Text(
             text = identity.eyebrow,
             style = MaterialTheme.typography.labelSmall,

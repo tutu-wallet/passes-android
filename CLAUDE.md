@@ -26,7 +26,7 @@ Thirteen Gradle modules. `docs/module-map.md` holds the full contract of each (w
 | `passes-storage` | Android | SQLCipher store, Keystore key, backup exclusion, irreversible deletion, `pass_archives` sidecar |
 | `passes-ui-core` | Compose | Shared substrate: `ArgbColor`, `isolated()` BiDi helper, `faceIsTinted` |
 | `passes-ui` | Compose | PKPASS surfaces, B3 URL confirmation sheet, `PassesTheme` / `PassesSemantics` |
-| `passes-document-ui` | Compose | Document surfaces (`DocumentView`, tile, lane, trust caption), `DocumentTheme` / `DocumentSemantics` |
+| `passes-document-ui` | Compose | Document surfaces (`DocumentView`, `FullScreenDocumentView`, trust caption), `DocumentTheme` / `DocumentSemantics` |
 
 Dependency rules:
 

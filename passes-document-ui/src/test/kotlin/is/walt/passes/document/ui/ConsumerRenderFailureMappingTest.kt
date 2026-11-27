@@ -8,10 +8,8 @@ import java.nio.BufferUnderflowException
 
 /**
  * JVM-pure cover for the `Throwable -> ConsumerRenderFailure` mapping inside
- * `DocumentView.bitmapFromSharedMemory` (wpass-8v4). The instrumented test
- * `DocumentViewInstrumentedTest.captionStillRendersWhenEveryRenderCallIsRejected`
- * exercises the renderer-rejection path that does not reach `bitmapFromSharedMemory`
- * at all; the SharedMemory-side failures (OOM, dimension mismatch, closed handle) only
+ * `DocumentView.bitmapFromSharedMemory`. A renderer rejection never reaches
+ * `bitmapFromSharedMemory`; the SharedMemory-side failures (OOM, dimension mismatch, closed handle) only
  * surface on a real device. Pinning the dispatch table here is what keeps a future
  * refactor from silently re-routing one of the four legitimate failure shapes through
  * the `Other` arm — that bucket exists for genuine triage signal, not for absorbing

@@ -115,7 +115,7 @@ public fun FullScreenDocumentView(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(semantics.laneBackground.toComposeColor()),
+            .background(semantics.frameBackground.toComposeColor()),
     ) {
         // Trust caption docked to bottom edge; outside the zoom transform (Z.8) for EVERY
         // arm — the dock is a sibling of the arm dispatch, so a new Document arm cannot
@@ -243,7 +243,7 @@ private fun FullScreenImagePage(
             targetSizePx = IntSize(requestW, requestH),
             telemetry = telemetry,
         )
-        // Loading / Failed render nothing; the lane tone is the placeholder, matching the
+        // Loading / Failed render nothing; the frame tone is the placeholder, matching the
         // PDF arm's base-bitmap gate.
         when (state) {
             is DocumentImageState.Loading, is DocumentImageState.Failed -> Unit
