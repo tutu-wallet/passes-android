@@ -193,4 +193,4 @@ The kernel defines no wallet backup container, sidecar schema or file encryption
 
 ## Addendum: what the wipe at delete covers
 
-The wipe covers what `passes-storage` holds: the rows and the data the database caches beside them. A pass image a host keeps decoded in memory through `passes-ui`'s `PassImageCache` is outside it; such a host clears that cache once a deleted pass has left its list (`passes-ui/TRUST_CLAIMS.md` section 6).
+The wipe covers what `passes-storage` holds: the rows and the data the database caches beside them. A pass image a host keeps decoded in memory through `passes-ui`'s `PassImageCache` is outside it; such a host clears that cache after the composition that drops a deleted pass's row (`passes-ui/TRUST_CLAIMS.md` section 6).

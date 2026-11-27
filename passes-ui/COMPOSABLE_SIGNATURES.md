@@ -301,8 +301,8 @@ public fun BoundedImage(
 )
 
 /**
- * What [BoundedImage] decoded or refused, kept up to [maxBytes] of pixels and image bytes. Hoist one per list
- * with `remember { PassImageCache() }`; clear it once a deleted pass has left the list. Only clearing is public.
+ * What [BoundedImage] decoded or refused, up to [maxBytes] of pixels and image bytes; only clearing is public.
+ * Hoist one per list with `remember { PassImageCache() }`; clear it after the composition that drops a deleted pass.
  */
 public class PassImageCache(maxBytes: Int = DEFAULT_MAX_BYTES) {
     public fun clear()

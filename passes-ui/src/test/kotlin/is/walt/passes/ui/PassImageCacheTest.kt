@@ -76,6 +76,16 @@ class PassImageCacheTest {
     }
 
     @Test
+    fun equalBytesAndBoundsFromOtherInstancesFindTheEntry() {
+        val cache = PassImageCache()
+        cache.lookup(image(1), bounds).keep(refused())
+
+        val found = cache.lookup(image(1), ImageRenderBounds(maxWidthPx = 100, maxHeightPx = 100)).cached()
+
+        assertThat(found).isNotNull()
+    }
+
+    @Test
     fun withoutACacheEveryLoadDecodes() = runBlocking {
         val decodes = AtomicInteger()
 
@@ -227,15 +237,14 @@ class PassImageCacheTest {
 
     @Test
     fun aCachedRefusalIsReportedOnEachEntry() {
-        val reports = showTwice(PassImageCache())
+        val reports = showTwice(cacheHoldingAReasonTheBytesCannotGive())
 
-        assertThat(reports).containsExactly(ImageDecodeRejection.NotPng, ImageDecodeRejection.NotPng)
+        assertThat(reports).containsExactly(ImageDecodeRejection.ExceedsArea, ImageDecodeRejection.ExceedsArea)
     }
 
     @Test
     fun twoRowsShowingOneCachedRefusalEachReportIt() {
-        val cache = PassImageCache()
-        cache.lookup(image(1), bounds).keep(refused())
+        val cache = cacheHoldingAReasonTheBytesCannotGive()
         val reports = CopyOnWriteArrayList<ImageDecodeRejection>()
 
         composeRule.setContent {
@@ -245,8 +254,12 @@ class PassImageCacheTest {
         }
         composeRule.waitUntil(WAIT_MS) { reports.size == 2 }
 
-        assertThat(reports).containsExactly(ImageDecodeRejection.NotPng, ImageDecodeRejection.NotPng)
+        assertThat(reports).containsExactly(ImageDecodeRejection.ExceedsArea, ImageDecodeRejection.ExceedsArea)
     }
+
+    // The bytes decode to NotPng, so a report of ExceedsArea can only come from the cache.
+    private fun cacheHoldingAReasonTheBytesCannotGive() =
+        PassImageCache().apply { lookup(image(1), bounds).keep(PassImage.Refused(ImageDecodeRejection.ExceedsArea)) }
 
     @Test
     fun withoutACacheARefusalIsReportedOnEachEntry() {

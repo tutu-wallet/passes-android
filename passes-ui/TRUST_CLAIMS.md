@@ -238,9 +238,9 @@ A host may hoist a `PassImageCache` and pass it to every `BoundedImage` in a lis
 keeps what `BoundedImage` decoded or refused, keyed by the image bytes and the bounds,
 and drops the least recently used entry once the decoded pixels and image bytes it
 holds pass a budget the host sets (32 MiB by default). An entry over the budget is not
-kept. The host can construct the cache and clear it, nothing else: it cannot put a
-bitmap in, take one out or change the limits above, which every decode meets before
-its result is kept. A cached image is drawn without a decode. A cached refusal is not
+kept. Through its public API the host can construct the cache and clear it, nothing
+else: it cannot put a bitmap in, take one out or change the limits above, which every
+decode meets before its result is kept. A cached image is drawn without a decode. A cached refusal is not
 decoded again but is reported to telemetry each time a row shows it, as a fresh one
 is, so a host can draw its own fallback from the event and deduplicates if it wants a
 count per image. Two rows that decode the same image at the same moment share the
@@ -248,12 +248,13 @@ first result kept. A decode that has started is kept when its row leaves composi
 unless the cache was cleared since the row asked for it; one still waiting for a
 decode slot then never runs.
 
-**What a host that keeps a cache must do.** Clear it once a deleted pass has left the
-list. A `PassImageCache` keeps a deleted pass's image bytes and decoded pixels in
-memory until then, and the kernel cannot see a deletion. A row that composes after the
-clear but before the list drops the pass decodes and keeps the image again, so the
-clear comes after the list update. The host's test: once a deleted pass is gone from
-the list, the list's cache has been cleared.
+**What a host that keeps a cache must do.** Clear it after the composition that drops a
+deleted pass's row, for example from an effect keyed on the list's items. A
+`PassImageCache` keeps a deleted pass's image bytes and decoded pixels in memory until
+then, and the kernel cannot see a deletion. A row that composes after the clear but
+before that composition decodes and keeps the image again, so clearing as soon as the
+list's data drops the pass is too early. The host's test: once a deleted pass's row has
+left composition, the list's cache has been cleared.
 
 **Residual risk.** The picture chunks of an accepted PNG are fed through the platform's
 PNG codec in the app process, not in an isolated one. What the codec buffers is the
