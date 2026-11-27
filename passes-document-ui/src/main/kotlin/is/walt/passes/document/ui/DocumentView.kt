@@ -259,20 +259,8 @@ private fun InlineDecodedImage(
 }
 
 /**
- * Paints the frame the page render / decoded image sits on, shared by both arms so the PDF
- * and image surfaces cannot drift apart on the one thing [DocumentView] `faceTint` touches.
- *
- * Background only: it never clips or filters the content drawn into the Box, which is what
- * makes the frame-not-content constraint structural rather than a convention.
- *
- * Two things are deliberate. What counts as a tint is [faceIsTinted], shared with the
- * scannable face; the fallback keeps the document-surface tone rather than showing host
- * paint through the letterbox bars. And the rounded card shape arrives with the tint rather
- * than unconditionally: an untinted frame is the host's own
- * [is.walt.passes.document.ui.theme.DocumentSemantics.frameBackground] tone bleeding to the
- * slot edge, and rounding it would change the appearance of every consumer already shipping
- * the surface (paint only — a shape on a background never moves layout). Corner radius comes
- * with the opt-in that asks for a card.
+ * Paints the frame behind the page or image for both arms: background only, never a clip or
+ * filter on content. A tint brings the rounded card shape; untinted keeps the flat frame tone.
  */
 @Composable
 private fun Modifier.documentFace(faceTint: Color): Modifier =

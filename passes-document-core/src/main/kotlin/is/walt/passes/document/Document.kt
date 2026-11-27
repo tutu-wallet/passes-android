@@ -1,21 +1,8 @@
 package `is`.walt.passes.document
 
 /**
- * The sealed supertype for every kind of imported, non-signature-verified document Walt
- * stores alongside signed passes. Two arms: [PdfDocument] (wpass-i9x step 2) and
- * [ImageDocument] (step 4). The fields here are exactly what the document surfaces
- * read in common; kind-specific fields — `pageCount` on the
- * PDF arm, `widthPx` / `heightPx` on the image arm — live on their arm, never on the
- * supertype.
- *
- * Like [Pass] in `passes-core`, documents are a *sibling* concept (ADR 0005 D1) and share
- * no superclass with passes. They are not signature-verified (D5); the trust caption is
- * sourced from [provenance], which has a single arm by design.
- *
- * [displayLabel] is supplied at import time by the consumer; the model layer never derives
- * it from document content or metadata, which is part of the no-extraction-from-content
- * discipline (D4). Callers should pass a filename if they have one and a date-based
- * fallback otherwise.
+ * An imported, never signature-verified document; a sibling of `Pass`, not a subtype (ADR 0005 D1).
+ * Holds the fields every arm shares. [displayLabel] comes from the consumer, never from content (D4).
  */
 public sealed interface Document {
     public val id: DocumentId

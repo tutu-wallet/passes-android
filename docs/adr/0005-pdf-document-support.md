@@ -35,7 +35,7 @@ The kernel draws no document list item. A consumer renders documents in a list o
 
 1. **The sibling data-model contract holds.** The merge is render-time only. A row is built from `DocumentRow` / `PdfDocument` (or the image and composite arms), never by widening it into a `Pass` or a shared supertype with one.
 2. **The row carries no signature or verified affordance**, and none can be themed onto it. The list is where a document sits closest to a pkpass.
-3. **Detail-surface provenance is unchanged**: the host "Pass type" row inline (D5.T) and the docked caption on the full-screen view (Z.8). A consumer that drops the "Pass type" row is amending D5.T, not filing a PR.
+3. **Detail-surface provenance holds**: the host "Pass type" row inline (D5.T) and the docked caption on the full-screen view (Z.8). A consumer that drops the "Pass type" row is amending D5.T, not filing a PR.
 4. **The row names its class and draws no page or image.** The class label is host-written (List-surface presentation), visible without interaction, and never truncated or displaced by the display label; the row's accessible description names the class. Dropping either part amends this ADR and the consumer list concession in `SCANNABLE_CARD_THREAT_MODEL.md`, which holds the full condition list for every class.
 
 ### D2. System renderer only: `android.graphics.pdf.PdfRenderer`
@@ -105,7 +105,7 @@ Where the kernel draws the trust caption, on the full-screen view (Z.8), it is n
 
 #### D5.N The actor in kernel copy is "this app"
 
-The kernel does not know what a host calls itself; a trust claim attributed to a name the user sees nowhere else in the app reads as someone else's claim. The same rule covers every kernel sentence that could name the host: the PKPASS import-confirm trust caption (`PassImportConfirm`), the import rejection sheet (`PassImportRejectionSheet`), the unknown-scheme barcode confirmation (`barcode_create_confirm_unknown`) and the `B3EmphasisStyle.DomainHero` URL eyebrow ("LEAVING THIS APP"). D5, Z.8 and D5.T apply to the sentence as worded now.
+The kernel does not know what a host calls itself; a trust claim attributed to a name the user sees nowhere else in the app reads as someone else's claim. The same rule covers every kernel sentence that could name the host: the PKPASS import-confirm trust caption (`PassImportConfirm`), the import rejection sheet (`PassImportRejectionSheet`), the unknown-scheme barcode confirmation (`barcode_create_confirm_unknown`) and the `B3EmphasisStyle.DomainHero` URL eyebrow ("LEAVING THIS APP"). D5 and Z.8 apply to the sentence as worded now.
 
 "This app" relies on the host's window: a host renders kernel trust surfaces in its own opaque window, so the app in front is the app the sentence means. A translucent or dialog-themed window over another app would let it read as that app's claim.
 

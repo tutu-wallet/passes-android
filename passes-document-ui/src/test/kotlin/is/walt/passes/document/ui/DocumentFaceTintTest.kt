@@ -26,27 +26,8 @@ import org.junit.runner.RunWith
 import org.robolectric.annotation.Config
 
 /**
- * Pins the wpass-80y.2 constraint on `DocumentView.faceTint`: the tint is the **frame**,
- * never the content. The rasterised PDF page and the decoded photo are real content — they
- * render identically tinted or not, and (per the section 04 note in Walt's 26.08.08 design)
- * identically in light and dark, which is exactly the rule real content already follows.
- *
- * The primary pin is on-device: `DocumentViewInstrumentedTest.faceTintDoesNotChangeTheLaidOut
- * PageSize` compares the rendered page's geometry tinted vs untinted, which is where a tint
- * that inset, clipped, or reshaped the content would show. It lives in `androidTest` because
- * neither the SharedMemory round-trip nor pixel layout is reachable under this Robolectric
- * setup — a page never leaves the Loading arm here.
- *
- * What the unit tests add is the layer below that: [faceTintLeavesThePageRenderRequestUnchanged]
- * guards what reaches the isolated renderer, including that the request stays derived from
- * [TARGET_PAGE_WIDTH_DP] / [TARGET_PAGE_HEIGHT_DP] rather than from the slot. Note the
- * asymmetry that makes the second half of that test the load-bearing half: while the request
- * is constant-derived, its size *cannot* vary with a tint by construction, so tint-invariance
- * alone would only catch a tint reaching the page index or source rect. The constant-derived
- * assertion is what fails if a future change makes the request slot-derived — at which point
- * the tint could start moving it and the invariance assertion starts meaning something.
- *
- * The rest assert the surface still composes under a tint.
+ * `DocumentView.faceTint` colours the frame, never the content: the render request stays
+ * constant-derived under any tint. The on-device geometry pin is in `DocumentViewInstrumentedTest`.
  */
 @RunWith(AndroidJUnit4::class)
 @Config(sdk = [34])

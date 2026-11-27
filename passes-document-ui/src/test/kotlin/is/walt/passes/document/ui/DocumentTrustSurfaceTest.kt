@@ -69,7 +69,7 @@ class DocumentTrustSurfaceTest {
             pageCount = 2,
             importedAtEpochMs = 0L,
         )
-        withImagePfd { pfd ->
+        withTempPfd { pfd ->
             composeRule.setContent {
                 ThemedHost(semantics) {
                     FullScreenDocumentView(
@@ -100,7 +100,7 @@ class DocumentTrustSurfaceTest {
             heightPx = 2340,
             importedAtEpochMs = 0L,
         )
-        withImagePfd { pfd ->
+        withTempPfd { pfd ->
             composeRule.setContent {
                 ThemedHost(semantics) {
                     FullScreenDocumentView(
@@ -132,7 +132,7 @@ class DocumentTrustSurfaceTest {
             barcodeFormat = ScannableFormat.Aztec,
             importedAtEpochMs = 0L,
         )
-        withImagePfd { pfd ->
+        withTempPfd { pfd ->
             composeRule.setContent {
                 ThemedHost(semantics) {
                     FullScreenDocumentView(
@@ -180,7 +180,7 @@ class DocumentTrustSurfaceTest {
     }
 
     private fun assertInlineViewOffersFullScreen(doc: Document) {
-        withImagePfd { pfd ->
+        withTempPfd { pfd ->
             composeRule.setContent {
                 ThemedHost(semantics) {
                     DocumentView(
@@ -195,7 +195,7 @@ class DocumentTrustSurfaceTest {
         }
     }
 
-    private fun withImagePfd(block: (ParcelFileDescriptor) -> Unit) {
+    private fun withTempPfd(block: (ParcelFileDescriptor) -> Unit) {
         val file = File.createTempFile("walt-image-doc", ".png").apply { writeBytes(byteArrayOf(1, 2, 3)) }
         val pfd = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
         try {

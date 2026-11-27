@@ -252,15 +252,8 @@ class ScannableCardTrustSurfaceTest {
 
     @Test
     fun fullScreenRendersPayloadCaptionEvenWhenEncoderFails() {
-        // GH #102's whole point is that the user can fall back to reading the
-        // number aloud when the *scanner* fails. The kernel-internal mirror of
-        // that is: when the *encoder* fails (the validator-bypassed defensive
-        // path inside ScannableCardView), the caption must still render — a user
-        // with an unrenderable barcode can still read their payload. An 11-digit
-        // EAN-13 trips ZxingBarcodeEncoder (see BarcodeEncoderTest's
-        // ean13RejectsWrongLengthAtWriter) but is rejected upstream by the
-        // validator; construct the card via the internal constructor so the
-        // encoder-failure UI path is exercised end-to-end.
+        // When the encoder fails the payload must still render, so the user can read it out.
+        // An 11-digit EAN-13 trips the encoder; the validator would reject it, hence the fixture.
         composeRule.setContent {
             ThemedHost { ScannableCardScreen(card = encoderRejectedEan13Fixture()) }
         }

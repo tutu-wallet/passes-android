@@ -2,7 +2,8 @@
 
 For PDF import, the repository's trust claim ("every security-and-privacy-critical
 behavior Walt makes about pass handling lives in code you can read") decomposes into
-a per-threat enumeration plus three load-bearing controls. Each threat lists where it
+a per-threat enumeration plus three load-bearing controls. Where a mitigation is the
+consumer's (inline provenance, display-label isolation), its row says so. Each threat lists where it
 lives in the format, the mitigating control, and for accepted risks the rationale.
 
 This is the security-side companion to ADR 0005 ("PDF document support"): the ADR
@@ -112,8 +113,8 @@ analogue to Apple's WWDR root for ticket issuance. Implementing PAdES
 correctly (across MDP transforms, certification chains, revocation) is its
 own project, and a half-correct implementation is worse than none.
 
-**Status.** Accepted, with structural UI mitigation (D5 and D5.T provenance,
-D8 no share-out).
+**Status.** Accepted. The UI mitigation is the provenance signal: the kernel's caption
+on the full-screen view (D5) and the host's row inline (D5.T).
 
 ### 6. Network fetches at render time
 

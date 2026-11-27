@@ -3,7 +3,8 @@
 For the ScannableCard feature, the repository's trust claim ("every
 security-and-privacy-critical behavior Walt makes about pass handling lives in code
 you can read") decomposes into a per-threat enumeration plus six load-bearing
-controls. Each threat lists what it is, the mitigating control, and for accepted
+controls. One of them, C2, and the list concessions under it are held by the consumer:
+the kernel documents them and cannot enforce them. Each threat lists what it is, the mitigating control, and for accepted
 risks the rationale for accepting the residual exposure. This document records why
 each piece of the feature has to exist.
 
@@ -24,7 +25,8 @@ than parser corruption.
 
 ## Six load-bearing controls
 
-All mitigations reduce to six structural controls, referenced by label.
+All mitigations reduce to six controls, referenced by label. Five are structural in the
+kernel; C2 is the consumer's.
 
 **C1. Distinct artifact class end-to-end.** `ScannableCard` is not a `Pass`, does not
 implement a `Pass` interface, shares no sealed parent with `Pass`, and is not
@@ -108,8 +110,8 @@ consumer's list is permitted strictly when all five hold:
    concession below. Supplied text is covered by the residual risk below.
 5. Detail-surface provenance holds. A user-created or document item opens a detail
    surface carrying the host's "Pass type" row (below; ADR 0005 D5.T for documents). A
-   pkpass item opens the pkpass detail surface,
-   which states its signature status in words, not behind a foldout, tap or other
+   pkpass item opens the pkpass detail surface, which states its signature status in
+   words, not behind a foldout, tap or other
    disclosure.
 
 The *C1 list-level distinction* is conditions 1 to 4, and the rest of this document
@@ -166,8 +168,8 @@ bounded:
   issuer's on the list as on the detail surface, and what a scanner does with it is
   the scanner's call (Threats 2 and 9).
 - Posing as verified through a file name or user label is bounded only by the class
-  label, which names a class that is never verified. The provenance row on the inline
-  detail surface may sit collapsed, so a user who never expands it meets a
+  label, which names a class that is never verified. The provenance row on the detail
+  surface may sit collapsed, so a user who never expands it meets a
   user-created or document item's provenance only as its class label, whatever its
   title or content claims.
 - The spoken path reserves no position, so it is weaker than the visual one. An
@@ -216,7 +218,7 @@ three hold:
    concession, with its class label ("QR CODE" / "CODE 128" / "IMAGE, QR CODE") in view
    whenever the code is. Only user-created codes render at list scale; the host renders
    no pkpass barcode in the list, whatever the pass's signature status.
-3. Detail-surface provenance is unchanged: the host's "Pass type" row below.
+3. Detail-surface provenance holds: the host's "Pass type" row below.
 
 **Accepted residual risk.** A user who scans straight from the list never meets the
 "Pass type" row for that use. Bounded because the artifact is the user's own
@@ -265,7 +267,8 @@ let the consumer tint the card face. Both are presentation-only and bound by fou
   (literally white in both themes) and the rasterised page / decoded image render
   identically tinted or not, so real content stays theme-independent and scannable (C5
   and Threat 14 posture untouched).
-- Neither parameter can suppress the code or the payload readback.
+- Neither parameter can suppress content: the code and the payload readback on a card,
+  the page or image on a document.
 - Ink on a tinted face is derived from the tint's luminance (`inkOn`), pinned at
   >= 4.5:1, so an opaque tint cannot make the label or the payload readback illegible.
   A translucent tint composites over host paint the kernel cannot see, and the ink is
@@ -310,7 +313,7 @@ This is weaker than a caption that states provenance in words, in two ways:
    signal on the detail surface.
 
 **Why this is bounded.** The load-bearing mitigation for Threat 1 is C1 + C2 combined,
-and C1 is untouched in the direction it must hold: every user-created and document
+and C1 holds in the direction it must: every user-created and document
 item names its class in the host's voice and cannot shed it, none can carry the pass
 mark (condition 3 of the consumer list concession), and no list item carries a verified
 affordance (condition 1), so passing for a pkpass gains nothing at list scale. The
@@ -430,10 +433,10 @@ validation.
 ### 1. Visual conflation of unverified ScannableCard with verified PKPASS - Spoofing
 
 **What.** The most consequential failure is the trust-UX failure on the verified pass the
-card sits next to. If the user cannot tell at a glance which tile is a cryptographically
+card sits next to. If the user cannot tell at a glance which list item is a cryptographically
 verified PKPASS and which is "a barcode I typed in last week," Walt's signature-status
 ladder (`AppleVerified` / `SelfSigned` / `CertChainIncomplete` / `NoSignature`) loses
-meaning. A user who reads all tiles as "trusted because they appear in Walt" is one
+meaning. A user who reads all items as "trusted because they appear in Walt" is one
 phishing-PKPASS away from a credential leak, even though that PKPASS would be correctly
 tagged `NoSignature`.
 
@@ -441,8 +444,7 @@ tagged `NoSignature`.
 The kernel draws no list and no provenance caption. At list scale the distinction is
 the consumer list concession, where pass tiles admit issuer artwork and colour; on the
 detail surface it is the host's "Pass type" row, which may sit collapsed. The load
-sits almost entirely on C1's list-level distinction. Each reduction in
-defense-in-depth is accepted deliberately.
+sits almost entirely on C1's list-level distinction, which is accepted deliberately.
 
 **Status.** Mitigated structurally in the data model, and by the consumer on its
 surfaces. The C1 list-level distinction carries the load: a class
@@ -747,8 +749,8 @@ v2"; each is deliberately absent because it re-opens a threat row above.
 - **No payload-bytes telemetry.** `ScannableCardTelemetryGuard` may surface format counts
   and create/delete event counts; payload contents and payload length distributions are PII
   and never leave the device.
-- **No ScannableCard detail surface without the host's "Pass type" row,** and no
-  dropping of the C1 list-level distinction. Either amends the "Pass type" row section.
+- **No kernel-drawn provenance caption on a ScannableCard surface.** Provenance is the
+  host's, on the terms of the "Pass type" row section; a kernel caption amends C2.
 
 ## How each control is tested
 

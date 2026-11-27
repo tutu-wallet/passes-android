@@ -22,7 +22,7 @@ import `is`.walt.passes.ui.core.toComposeColor
 
 /**
  * The locked "user-provided document" caption (ADR 0005 D5): fixed wording beside an info
- * icon. No parameter, token or overload alters or hides it.
+ * icon. No parameter, token or overload alters its wording or removes it.
  */
 @Composable
 public fun DocumentTrustCaption(
