@@ -16,6 +16,7 @@ import androidx.compose.ui.graphics.painter.BitmapPainter
 import `is`.walt.passes.core.ImageBytes
 import `is`.walt.passes.core.ImageRole
 import `is`.walt.passes.core.PngHeader
+import `is`.walt.passes.core.PngPicture
 import `is`.walt.passes.image.decode.BoundedBitmap
 import `is`.walt.passes.image.decode.BoundedDecodePolicy
 import `is`.walt.passes.image.decode.DecodeSize
@@ -93,9 +94,11 @@ internal fun decodeBoundedBitmap(
     bounds: ImageRenderBounds,
 ): Pair<Bitmap?, ImageDecodeRejection?> {
     pngRejection(rawBytes)?.let { return null to it }
+    // The platform reader holds what metadata chunks carry, so it is given the picture's chunks alone.
+    val picture = PngPicture.of(rawBytes) ?: return null to ImageDecodeRejection.Malformed
     val decoded =
         decodeBounded(
-            rawBytes = rawBytes,
+            rawBytes = picture,
             policy =
                 BoundedDecodePolicy(
                     // Display only, so a hardware bitmap is fine.

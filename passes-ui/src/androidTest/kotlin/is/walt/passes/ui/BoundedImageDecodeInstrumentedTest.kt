@@ -1,6 +1,12 @@
 package `is`.walt.passes.ui
 
 import android.graphics.Bitmap
+import android.graphics.Color
+import android.graphics.ColorSpace
+import android.graphics.Gainmap
+import android.graphics.ImageDecoder
+import android.os.Build
+import android.os.Debug
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -8,15 +14,20 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.unit.dp
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.filters.SdkSuppress
 import com.google.common.truth.Truth.assertThat
 import `is`.walt.passes.core.ImageBytes
 import `is`.walt.passes.core.ImageRole
+import org.junit.Assume.assumeTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.io.ByteArrayOutputStream
 import java.io.DataOutputStream
+import java.nio.ByteBuffer
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.zip.CRC32
 import java.util.zip.DeflaterOutputStream
 
@@ -125,6 +136,53 @@ class BoundedImageDecodeInstrumentedTest {
     }
 
     @Test
+    fun compressedTextInAPngCostsTheDecodeNothing() {
+        // A keyword, its terminator, compression method 0, then text that is not cut short by a zero byte.
+        val text = byteArrayOf('k'.code.toByte(), 0, 0) + deflated(ByteArray(INFLATED_TEXT_BYTES) { 'a'.code.toByte() })
+        val chunks = List(4) { "zTXt" to text }
+        val png = withChunks(pngOf(width = 1, height = 1), afterHeader = chunks, atTheEnd = chunks)
+        // Elsewhere the platform reader does not hold inflated text, and the test shows nothing.
+        val (platform, platformPeak) = peakNativeGrowth { platformDecode(png) }
+        platform.recycle()
+        assumeTrue(platformPeak > 4L * INFLATED_TEXT_BYTES)
+
+        val (decoded, peak) = peakNativeGrowth { decodeBoundedBitmap(png, ImageRenderBounds.Default) }
+
+        assertThat(decoded.second).isNull()
+        assertThat(decoded.first!!.width).isEqualTo(1)
+        assertThat(peak).isLessThan(INFLATED_TEXT_BYTES.toLong())
+    }
+
+    @Test
+    fun aPngDecodesToTheSamePictureWithoutItsMetadata() {
+        val png = withChunks(wideGamutPng(), afterHeader = listOf("tEXt" to ByteArray(64)), atTheEnd = listOf("eXIf" to ByteArray(64)))
+
+        val (bitmap, rejection) = decodeBoundedBitmap(png, ImageRenderBounds.Default)
+
+        val platform = platformDecode(png)
+        assertThat(rejection).isNull()
+        assertThat(bitmap!!.colorSpace).isEqualTo(platform.colorSpace)
+        assertThat(bitmap.copy(Bitmap.Config.ARGB_8888, false).sameAs(platform.copy(Bitmap.Config.ARGB_8888, false))).isTrue()
+    }
+
+    @Test
+    @SdkSuppress(minSdkVersion = Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
+    fun aGainMapInAPngIsNotRead() {
+        val png =
+            Bitmap.createBitmap(16, 16, Bitmap.Config.ARGB_8888).let { base ->
+                base.gainmap = Gainmap(Bitmap.createBitmap(16, 16, Bitmap.Config.ARGB_8888))
+                ByteArrayOutputStream().also { base.compress(Bitmap.CompressFormat.PNG, 100, it) }.toByteArray()
+            }
+        // Only some API levels write a gain map into a PNG and read it back.
+        assumeTrue(platformDecode(png).hasGainmap())
+
+        val (bitmap, rejection) = decodeBoundedBitmap(png, ImageRenderBounds.Default)
+
+        assertThat(rejection).isNull()
+        assertThat(bitmap!!.hasGainmap()).isFalse()
+    }
+
+    @Test
     fun interlacedPngDecodesUpToItsLowerCeiling() {
         val (bitmap, rejection) =
             decodeBoundedBitmap(pngOf(width = 1920, height = 1920, interlaced = true), ImageRenderBounds.Default)
@@ -207,6 +265,62 @@ class BoundedImageDecodeInstrumentedTest {
         }
     }
 
+    /** The platform's own decode of [png], with none of the kernel's checks. */
+    private fun platformDecode(png: ByteArray): Bitmap =
+        ImageDecoder.decodeBitmap(ImageDecoder.createSource(ByteBuffer.wrap(png)))
+
+    // Display P3 with colour and alpha in it, so a lost profile or a changed pixel shows.
+    private fun wideGamutPng(): ByteArray {
+        val bitmap =
+            Bitmap.createBitmap(16, 16, Bitmap.Config.ARGB_8888, true, ColorSpace.get(ColorSpace.Named.DISPLAY_P3))
+        for (y in 0 until 16) for (x in 0 until 16) bitmap.setPixel(x, y, Color.argb(255 - y * 8, x * 16, 255 - x * 16, y * 16))
+        return ByteArrayOutputStream().use { out ->
+            bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
+            bitmap.recycle()
+            out.toByteArray()
+        }
+    }
+
+    /** [png] with [afterHeader] spliced in behind its IHDR chunk and [atTheEnd] ahead of its IEND chunk. */
+    private fun withChunks(
+        png: ByteArray,
+        afterHeader: List<Pair<String, ByteArray>>,
+        atTheEnd: List<Pair<String, ByteArray>>,
+    ): ByteArray =
+        ByteArrayOutputStream().also { out ->
+            out.write(png, 0, PNG_HEADER_BYTES)
+            for ((type, data) in afterHeader) out.writeChunk(type, data)
+            out.write(png, PNG_HEADER_BYTES, png.size - PNG_HEADER_BYTES - EMPTY_CHUNK_BYTES)
+            for ((type, data) in atTheEnd) out.writeChunk(type, data)
+            out.write(png, png.size - EMPTY_CHUNK_BYTES, EMPTY_CHUNK_BYTES)
+        }.toByteArray()
+
+    private fun deflated(bytes: ByteArray): ByteArray =
+        ByteArrayOutputStream().also { out -> DeflaterOutputStream(out).use { it.write(bytes) } }.toByteArray()
+
+    /** Runs [block] and returns its result with the peak native heap growth seen while it ran. */
+    private fun <T> peakNativeGrowth(block: () -> T): Pair<T, Long> {
+        val baseline = Debug.getNativeHeapAllocatedSize()
+        val sampling = CountDownLatch(1)
+        val done = AtomicBoolean(false)
+        var peak = baseline
+        val sampler =
+            Thread {
+                sampling.countDown()
+                while (!done.get()) peak = maxOf(peak, Debug.getNativeHeapAllocatedSize())
+            }
+        sampler.start()
+        sampling.await()
+        val result =
+            try {
+                block()
+            } finally {
+                done.set(true)
+                sampler.join()
+            }
+        return result to maxOf(peak, Debug.getNativeHeapAllocatedSize()) - baseline
+    }
+
     // A valid all-black greyscale PNG, streamed so a 16 MP fixture costs the test a few kilobytes.
     private fun pngOf(width: Int, height: Int, interlaced: Boolean = false): ByteArray {
         val header =
@@ -258,6 +372,10 @@ class BoundedImageDecodeInstrumentedTest {
 
         // Signature, then the IHDR chunk with its length, type, data and CRC.
         const val PNG_HEADER_BYTES = 33
+
+        // Length, type and CRC of a chunk with no data, which is what IEND is.
+        const val EMPTY_CHUNK_BYTES = 12
+        const val INFLATED_TEXT_BYTES = 4 * 1024 * 1024
 
         // xStart, yStart, xStep, yStep of each Adam7 pass.
         val ADAM7 =

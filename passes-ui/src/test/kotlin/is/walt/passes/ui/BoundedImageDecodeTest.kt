@@ -72,6 +72,14 @@ class BoundedImageDecodeTest {
     }
 
     @Test
+    fun aPngThatEndsInsideAChunkIsMalformedFromTheBytes() {
+        val (bitmap, rejection) = decodeBoundedBitmap(pngHeader(width = 8, height = 8), ImageRenderBounds.Default)
+
+        assertThat(bitmap).isNull()
+        assertThat(rejection).isEqualTo(ImageDecodeRejection.Malformed)
+    }
+
+    @Test
     fun platformGateAcceptsOnlyAPngAtOrUnderTheCeiling() {
         assertThat(sourceRejection(mimeType = "image/png", width = 4096, height = 4096)).isNull()
         assertThat(sourceRejection(mimeType = "image/png", width = 16_777_216, height = 1)).isNull()
