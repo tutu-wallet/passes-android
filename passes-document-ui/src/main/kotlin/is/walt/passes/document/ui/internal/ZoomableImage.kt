@@ -262,8 +262,8 @@ private fun pageRectInSlot(slotW: Float, slotH: Float, pageAspect: Float?): Page
     }
 }
 
-// 5x stays sharp because the visible region is re-rendered at viewport resolution, within
-// the 4 MP per-bitmap cap.
+// PDF pages stay sharp at 5x because the visible region is re-rendered at viewport
+// resolution, within the 4 MP per-bitmap cap; the image arm decodes once and upsamples.
 internal const val DEFAULT_MIN_SCALE: Float = 1f
 internal const val DEFAULT_MAX_SCALE: Float = 5f
 internal const val DEFAULT_DOUBLE_TAP_SCALE: Float = 2f

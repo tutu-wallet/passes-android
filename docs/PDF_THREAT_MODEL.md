@@ -4,8 +4,9 @@ For PDF import, the repository's trust claim ("every security-and-privacy-critic
 behavior Walt makes about pass handling lives in code you can read") decomposes into
 a per-threat enumeration plus three load-bearing controls. Where a mitigation is the
 consumer's (provenance on the list and the detail surface, nothing that reads as
-verified in its own chrome, display-label isolation), its row says so. Each threat lists where it lives in the format, the mitigating control, and
-for accepted risks the rationale.
+verified in its own chrome, display-label isolation), its row says so. Each threat
+lists where it lives in the format, the mitigating control, and for accepted risks
+the rationale.
 
 This is the security-side companion to ADR 0005 ("PDF document support"): the ADR
 records what the architecture is, this document records why each piece must exist.

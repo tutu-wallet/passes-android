@@ -1,13 +1,13 @@
 # ScannableCard generator: threat model
 
 For the ScannableCard feature, the repository's trust claim ("every
-security-and-privacy-critical behavior Walt makes about pass handling lives in code
-you can read") decomposes into a per-threat enumeration plus six load-bearing
-controls. One of them, C2, and the list concessions under it are held by the consumer,
-as is running C4's gate on every path that saves a card: the kernel documents them and
-cannot enforce them. Each threat lists what it is, the mitigating control, and for accepted
-risks the rationale for accepting the residual exposure. This document records why
-each piece of the feature has to exist.
+security-and-privacy-critical behavior Walt makes about pass handling lives in code you
+can read") decomposes into a per-threat enumeration plus six load-bearing controls. One
+of them, C2, and the list concessions under it are held by the consumer, as is running
+C4's gate on every path that saves a card: the kernel documents them and cannot enforce
+them. Each threat lists what it is, the mitigating control, and for accepted risks the
+rationale for accepting the residual exposure. This document records why each piece of
+the feature has to exist.
 
 The structural posture is **new artifact class, not new subtype of `Pass`**. PKPASS
 handling guarantees that every `Pass` carries a signature status computed against the
@@ -27,7 +27,8 @@ than parser corruption.
 ## Six load-bearing controls
 
 All mitigations reduce to six controls, referenced by label. Five are structural in the
-kernel; C2 is the consumer's, and so is running C4's gate on every path that saves a card.
+kernel; C2 is the consumer's, and so is running C4's gate on every path that saves a
+card.
 
 **C1. Distinct artifact class end-to-end.** `ScannableCard` is not a `Pass`, does not
 implement a `Pass` interface, shares no sealed parent with `Pass`, and is not
@@ -63,9 +64,9 @@ keeps each in its own section. A kernel list surface amends this document. The
 consumer's list is permitted strictly when all five hold:
 
 1. No list item of any class carries a signature or verified affordance. The trust
-   ladder (signature badge, signature status in words) lives exclusively on detail
-   surfaces, so there is no host-drawn verified visual for a user-created or document
-   item to imitate.
+   ladder (a signature badge on pkpass detail surfaces, signature status in words on
+   detail surfaces) stays off the list, so there is no host-drawn verified visual for a
+   user-created or document item to imitate.
 2. Every user-created and document item (scannable cards, documents, composites)
    carries its class label. The label is visible on the item without interaction, is
    never truncated, displaced or covered by user, file or issuer text, and the item's
@@ -112,10 +113,10 @@ consumer's list is permitted strictly when all five hold:
    user-chosen image on any item, and a code outside the list-face code render
    concession below. Supplied text is covered by the residual risk below.
 5. Detail-surface provenance holds. A user-created or document item opens a detail
-   surface carrying the host's "Pass type" row (below; ADR 0005 D5.T for documents),
-   the provenance signal this bound relies on past the class label: no kernel surface
-   for a card or document, the full-screen document view included, states provenance. A pkpass item
-   opens the pkpass detail surface, which states its signature status in words, not
+   surface carrying the host's "Pass type" row (below; ADR 0005 D5.T for documents), the
+   provenance signal this bound relies on past the class label: no kernel surface for a
+   card or document, the full-screen document view included, states provenance. A pkpass
+   item opens the pkpass detail surface, which states its signature status in words, not
    behind a foldout, tap or other disclosure.
 
 The *C1 list-level distinction* is conditions 1 to 4, and the rest of this document
@@ -394,14 +395,15 @@ payloads keep one more byte of v40-M byte-mode capacity (2,331 against 2,330 for
 non-ASCII). Stored Aztec cards that fit ISO-8859-1, and byte-mode ASCII QR cards,
 re-render as different symbols with the same text.
 
-**C4. URI-scheme confirmation before a card is saved, for the byte-capable symbologies.**
-Before a ScannableCard is saved in a format that can carry an actionable payload, `passes-core`'s
-URI-scheme classifier inspects the payload against a conservative allowlist (`http`,
-`https`, `tel`, `sms`, `mailto`, `geo`, `wifi`, `bitcoin`, `ethereum`, `magnet`,
-`market`, `intent`). A match, or a "looks URI-shaped but unrecognized scheme" fallback,
-raises the confirmation dialog before the row is persisted; the user must explicitly
-confirm "yes, this code is meant to encode an actionable URI." Pattern source:
-`B3UrlConfirmSheet` in `passes-ui` (`SecuritySheets.kt`).
+**C4. URI-scheme confirmation before a card is saved, for the byte-capable
+symbologies.** Before a ScannableCard is saved in a format that can carry an actionable
+payload, `passes-core`'s URI-scheme classifier inspects the payload against a
+conservative allowlist (`http`, `https`, `tel`, `sms`, `mailto`, `geo`, `wifi`,
+`bitcoin`, `ethereum`, `magnet`, `market`, `intent`). A match, or a "looks URI-shaped
+but unrecognized scheme" fallback, raises the confirmation dialog before the row is
+persisted; the user must explicitly confirm "yes, this code is meant to encode an
+actionable URI." Pattern source: `B3UrlConfirmSheet` in `passes-ui`
+(`SecuritySheets.kt`).
 
 The gate covers PDF417 and Aztec as well as QR: `QrPayloadKind.requiresCreateConfirmation(format)`
 consults `ScannableFormat.canCarryActionablePayload()`, an exhaustive `when` in
@@ -412,9 +414,8 @@ persists a card must let `requiresCreateConfirmation(format)` decide alone and m
 save a card it flags until the user confirms that code. That includes a card restored
 from a wallet file, whose payload the user did not type, and a format change to a
 format that flags the stored payload; the consumer is expected to pin both with tests.
-The sheet's copy says
-"this code", not "this QR", so a dialog about an Aztec boarding pass does not describe
-something other than what the user is saving.
+The sheet's copy says "this code", not "this QR", so a dialog about an Aztec boarding
+pass does not describe something other than what the user is saving.
 
 **C5. Untrusted-byte barcode decoding is confined.** The kernel uses `com.google.zxing:core`
 (Apache 2.0, pure JVM) to encode a bit matrix from a user-typed payload and format, and
@@ -485,11 +486,11 @@ the QR and may auto-open the URL, auto-join the Wi-Fi, auto-launch the intent or
 auto-prompt a payment. Walt becomes a delivery channel for URIs the recipient device
 trusts because the QR is in someone's wallet.
 
-**Mitigation.** C4: before the card is saved, the classifier raises a confirmation dialog naming the
-scheme and the rendered payload (wrapped in FSI/PDI bidi isolates). The user must accept
-"this code is meant to encode an actionable URI" before the row is persisted.
-Unrecognized-but-URI-shaped strings (`unknown-scheme://x`) take the fallback warning path
-rather than silent acceptance.
+**Mitigation.** C4: before the card is saved, the classifier raises a confirmation
+dialog naming the scheme and the rendered payload (wrapped in FSI/PDI bidi isolates).
+The user must accept "this code is meant to encode an actionable URI" before the row is
+persisted. Unrecognized-but-URI-shaped strings (`unknown-scheme://x`) take the fallback
+warning path rather than silent acceptance.
 
 **Status.** Mitigated, with the residual that a user who deliberately clicks through the
 preview is choosing to ship the URI. The mitigation is informed consent, not refusal, and
@@ -781,7 +782,7 @@ v2"; each is deliberately absent because it re-opens a threat row above.
 | C1      | `ScannableCardSurfaceTest.scannableCardDoesNotShareSupertypeWithPass`; storage `PublicApiSurfaceTest` `SCANNABLE_CARDS` assertion (separate table). Consumer list concession: expected consumer-side tests, listed at the end of that concession |
 | C2      | Consumer-side: a test that the details section renders a "Pass type" row, a test that no deep link, shortcut, widget or exported intent opens a detail or scan surface directly, and the list tests of the consumer list concession. Kernel: `scannableCardScreenHasExactlyFourUserVisibleParameters` (the surface's parameter shape). Colour row: `ScannableCardTrustSurfaceTest.faceTintDoesNotSuppressLabelOrPayload` (and its dark-tint twin), `codePanelIsLiterallyWhiteNotAThemeTokenOrTheFaceTint`, `inkOnClearsWcagAaAgainstEveryTintIncludingTheWorstCase`, `DocumentFaceTintTest.faceTintLeavesThePageRenderRequestUnchanged`; the shared tint gate by `passes-ui-core`'s `FaceTintTest` |
 | C3      | Length-cap, charset and Cf/Cc rejection unit tests; `theTwoDimensionalFormatsEncodeAtTheirValidatorCap`, `theTwoDimensionalFormatsRoundTripAtTheirValidatorCap`, `BarcodeEncoderRoundTripTest.nonAsciiPayloadsSurviveOnTheCharsetPinnedFormats`, `BarcodeEncoderCharsetTest`; `noFormatIsDecodeOnly` and `isCreatableAgreesWithWhatTheValidatorAccepts`; byte-capable charset rules in `ScannableFormatConstraintsTest` |
-| C4      | `QrPayloadClassifierTest`, `BarcodeCreateConfirmSheetTest`; consumer-side (expected), tests that a restored code, and a format change, that `requiresCreateConfirmation` flags is not saved unconfirmed |
+| C4      | `QrPayloadClassifierTest`, `BarcodeCreateConfirmSheetTest`; consumer-side (expected), tests that a code `requiresCreateConfirmation` flags is not saved unconfirmed on restore or on a format change |
 | C5      | Encoder integration test; decode confinement by the isolated-decode tests (`BarcodeDecodeServiceInstrumentedTest`, `YPlaneFrameDecodeTest`) and, consumer-side, an instrumented composite-import test (no host-process decode of source bytes) and a guard test that no CameraX `ImageCapture` appears in the consumer's `src/main` |
 | C6      | No test in this repo (no schema snapshot); closest is `ScannableCardSurfaceTest.scannableCardConstructorIsExercisedWithEveryShape` |
 
