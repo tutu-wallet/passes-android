@@ -14,7 +14,7 @@ Thirteen Gradle modules. `docs/module-map.md` holds the full contract of each (w
 
 | Module | Kind | Owns |
 |---|---|---|
-| `passes-core` | pure JVM | Parser, model, signature verifier, `.strings` parser, `TelemetryGuard`, `PassBundleReader`, `PassEncoder`, `PngHeader` |
+| `passes-core` | pure JVM | Parser, model, signature verifier, `.strings` parser, `TelemetryGuard`, `PassBundleReader`, `PassEncoder`, `PngHeader`, `PngPicture` |
 | `passes-document-core` | pure JVM | Sealed `Document` model (PDF, image), `DocumentRejectedKind`, PDF header sniff, import config, `DocumentTelemetryGuard` |
 | `passes-barcode-core` | pure JVM | The one ZXing symbol decode and the symbology allowlist |
 | `passes-isolation` | Android, mechanism only | memfd `PfdFactory`, isolated-worker bind/teardown session, bounded fd read, `rasterReplyFits` |

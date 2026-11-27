@@ -277,7 +277,8 @@ public fun ExpiredOverlay(
 /**
  * Decodes [bytes] as a PNG using Android `ImageDecoder`, with the source ceiling and
  * the [bounds] applied via `setOnHeaderDecodedListener`. An image larger than [bounds]
- * is downsampled to fit. A refused image (not a PNG, over its source ceiling, or
+ * is downsampled to fit. The decoder is given only the chunks that carry the picture;
+ * text, metadata and unknown chunks are left out. A refused image (not a PNG, over its source ceiling, or
  * undecodable) is not decoded, draws nothing and fires
  * `telemetry.onImageDecodeRejected`. An `OutOfMemoryError` from the decode propagates.
  *

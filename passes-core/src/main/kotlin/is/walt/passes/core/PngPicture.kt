@@ -15,28 +15,29 @@ public object PngPicture {
      * A copy of [bytes] holding IHDR, the first sRGB, gAMA, cHRM, iCCP, PLTE and tRNS ahead of the
      * image data, every IDAT, and an empty IEND. Null for bytes that are not a PNG or end inside a chunk.
      */
-    public fun of(bytes: ByteArray): ByteArray? {
-        if (PngHeader.read(bytes) == null) return null
-        val picture = ByteArray(bytes.size + EMPTY_IEND.size)
-        PNG_SIGNATURE.copyInto(picture)
-        var written = PNG_SIGNATURE.size
-        val kept = HashSet<Int>()
-        var offset = PNG_SIGNATURE.size
-        while (offset < bytes.size) {
-            val chunk = chunkAt(bytes, offset) ?: return null
-            if (chunk.type == IEND) break
-            // Once the image data has begun, nothing but image data is kept.
-            val isFirstOfItsKind = IDAT !in kept && chunk.type !in kept && chunk.isPictureChunk(bytes)
-            if (chunk.type == IDAT || isFirstOfItsKind) {
-                kept += chunk.type
-                bytes.copyInto(picture, written, chunk.start, chunk.end)
-                written += chunk.end - chunk.start
-            }
-            offset = chunk.end
+    public fun of(bytes: ByteArray): ByteArray? = if (PngHeader.read(bytes) == null) null else pictureOf(bytes)
+}
+
+private fun pictureOf(bytes: ByteArray): ByteArray? {
+    val picture = ByteArray(bytes.size + EMPTY_IEND.size)
+    PNG_SIGNATURE.copyInto(picture)
+    var written = PNG_SIGNATURE.size
+    val kept = HashSet<Int>()
+    var offset = PNG_SIGNATURE.size
+    while (offset < bytes.size) {
+        val chunk = chunkAt(bytes, offset) ?: return null
+        if (chunk.type == IEND) break
+        // Once the image data has begun, nothing but image data is kept.
+        val isFirstOfItsKind = IDAT !in kept && chunk.type !in kept && chunk.isPictureChunk(bytes)
+        if (chunk.type == IDAT || isFirstOfItsKind) {
+            kept += chunk.type
+            bytes.copyInto(picture, written, chunk.start, chunk.end)
+            written += chunk.end - chunk.start
         }
-        EMPTY_IEND.copyInto(picture, written)
-        return picture.copyOf(written + EMPTY_IEND.size)
+        offset = chunk.end
     }
+    EMPTY_IEND.copyInto(picture, written)
+    return picture.copyOf(written + EMPTY_IEND.size)
 }
 
 /** One chunk of [PngPicture.of]'s walk: its length and type are read, its CRC and data are not. */
@@ -46,12 +47,16 @@ private class Chunk(val type: Int, val start: Int, val dataLength: Int) {
 }
 
 /** The chunk at [offset], or null when [bytes] end before its declared end. */
-private fun chunkAt(bytes: ByteArray, offset: Int): Chunk? {
+private fun chunkAt(
+    bytes: ByteArray,
+    offset: Int,
+): Chunk? {
     val room = bytes.size - offset - CHUNK_HEADER_BYTES - U32_BYTES
     // The length is an unsigned 32-bit value, compared as a Long so that it cannot wrap.
-    val length = if (room < 0) return null else readU32BigEndian(bytes, offset)
-    if (length > room) return null
-    return Chunk(type = readU32BigEndian(bytes, offset + U32_BYTES).toInt(), start = offset, dataLength = length.toInt())
+    val length = if (room < 0) null else readU32BigEndian(bytes, offset).takeIf { it <= room }
+    return length?.let {
+        Chunk(type = readU32BigEndian(bytes, offset + U32_BYTES).toInt(), start = offset, dataLength = it.toInt())
+    }
 }
 
 private fun Chunk.isPictureChunk(bytes: ByteArray): Boolean {
@@ -60,16 +65,25 @@ private fun Chunk.isPictureChunk(bytes: ByteArray): Boolean {
 }
 
 /** True for iCCP data that is a name, a terminator, method 0 and a stream within the profile cap. */
-private fun profileFits(bytes: ByteArray, start: Int, length: Int): Boolean {
+private fun profileFits(
+    bytes: ByteArray,
+    start: Int,
+    length: Int,
+): Boolean {
     val nameEnd =
         (0 until minOf(length, MAX_PROFILE_NAME_BYTES + 1)).firstOrNull { bytes[start + it] == NUL } ?: return false
     val streamStart = nameEnd + 2
-    if (length < streamStart || bytes[start + nameEnd + 1] != DEFLATE) return false
-    return inflatesWithin(bytes, start + streamStart, length - streamStart, PngPicture.MAX_PROFILE_BYTES)
+    val isDeflate = length >= streamStart && bytes[start + nameEnd + 1] == DEFLATE
+    return isDeflate && inflatesWithin(bytes, start + streamStart, length - streamStart, PngPicture.MAX_PROFILE_BYTES)
 }
 
 /** Inflates into a scratch buffer and keeps nothing: true for a whole stream of at most [limit] bytes. */
-private fun inflatesWithin(bytes: ByteArray, start: Int, length: Int, limit: Int): Boolean {
+private fun inflatesWithin(
+    bytes: ByteArray,
+    start: Int,
+    length: Int,
+    limit: Int,
+): Boolean {
     val inflater = Inflater()
     return try {
         inflater.setInput(bytes, start, length)

@@ -155,14 +155,16 @@ class BoundedImageDecodeInstrumentedTest {
 
     @Test
     fun aPngDecodesToTheSamePictureWithoutItsMetadata() {
-        val png = withChunks(wideGamutPng(), afterHeader = listOf("tEXt" to ByteArray(64)), atTheEnd = listOf("eXIf" to ByteArray(64)))
+        val metadata = listOf("tEXt" to ByteArray(64), "eXIf" to ByteArray(64))
+        val png = withChunks(wideGamutPng(), afterHeader = metadata, atTheEnd = metadata)
 
         val (bitmap, rejection) = decodeBoundedBitmap(png, ImageRenderBounds.Default)
 
         val platform = platformDecode(png)
         assertThat(rejection).isNull()
         assertThat(bitmap!!.colorSpace).isEqualTo(platform.colorSpace)
-        assertThat(bitmap.copy(Bitmap.Config.ARGB_8888, false).sameAs(platform.copy(Bitmap.Config.ARGB_8888, false))).isTrue()
+        val pixels = bitmap.copy(Bitmap.Config.ARGB_8888, false)
+        assertThat(pixels.sameAs(platform.copy(Bitmap.Config.ARGB_8888, false))).isTrue()
     }
 
     @Test
@@ -273,7 +275,9 @@ class BoundedImageDecodeInstrumentedTest {
     private fun wideGamutPng(): ByteArray {
         val bitmap =
             Bitmap.createBitmap(16, 16, Bitmap.Config.ARGB_8888, true, ColorSpace.get(ColorSpace.Named.DISPLAY_P3))
-        for (y in 0 until 16) for (x in 0 until 16) bitmap.setPixel(x, y, Color.argb(255 - y * 8, x * 16, 255 - x * 16, y * 16))
+        for (y in 0 until 16) {
+            for (x in 0 until 16) bitmap.setPixel(x, y, Color.argb(255 - y * 8, x * 16, 255 - x * 16, y * 16))
+        }
         return ByteArrayOutputStream().use { out ->
             bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
             bitmap.recycle()

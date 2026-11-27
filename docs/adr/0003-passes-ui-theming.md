@@ -161,3 +161,13 @@ Pass images are PNG by the format's contract, and `BoundedImage` holds them to i
 An interlaced PNG has a lower source ceiling, 1920 x 1920 px of area, because the platform codec holds an interlaced image whole at any output size. This reopens the "imports, then never draws" gap for one case: the parser admits an interlaced PNG up to its 4096 x 4096 default, and `BoundedImage` refuses it above 1920 x 1920 as `ExceedsArea`. Pass images at the sizes the format calls for are far below either.
 
 Trade-off: a pass whose images are JPEG or another format under a `.png` name drew them before and draws nothing now. The parser leaves such an image out of a newly parsed pass (ADR 0001 addendum), so a consumer falls back as for a missing image; a row stored earlier still holds the bytes, and a consumer that wants the same fallback there tests them with `PngHeader.read`.
+
+## Amendment to D5: `BoundedImage` decodes the picture chunks only
+
+The platform PNG reader does work for chunks that draw nothing: it inflates a text chunk and holds it for the whole decode, wherever the chunk sits in the file, and on API 36 it decodes a gain map carried in a PNG. The header checks bound pixels, not that work. So `BoundedImage` gives the platform decoder a copy built by `passes-core`'s `PngPicture`, holding IHDR, the first sRGB, gAMA, cHRM, iCCP, PLTE and tRNS ahead of the image data, every IDAT and an empty IEND, each but IDAT at the length the format gives it. Every other chunk is left out, with no list of chunks to refuse: a chunk the platform starts reading in a later release is left out too.
+
+A filter was chosen over a refusal because design tools write text, XMP and EXIF chunks into ordinary images, and refusing those would stop real pass images from drawing. The colour chunks are kept because dropping them changes how a correctly tagged image is drawn. A colour profile is the one kept chunk that is compressed, so it is inflated into a scratch buffer and kept only when it is a whole stream of at most 262,144 bytes; a larger or unreadable one is left out and the image draws as sRGB.
+
+Trade-offs. Nothing a left-out chunk says is applied: an EXIF orientation, a gain map, a `cICP` colour description. Each decode copies the kept chunks once. A PNG that ends inside a chunk is `Malformed` from its bytes, where it reached the codec before. The stored bytes stay as imported, since the manifest hashes cover them, so the filter runs at each display and not at import.
+
+The isolated decodes (`passes-barcode`, `passes-image`) do not apply it. They accept other containers as well, and what a file costs there is spent inside a sandbox whose exhaustion or death the host reads as a rejection.

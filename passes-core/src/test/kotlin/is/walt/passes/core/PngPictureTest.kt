@@ -69,7 +69,8 @@ class PngPictureTest {
 
     @Test
     fun keepsNothingButImageDataOnceItHasBegun() {
-        val late = listOf("PLTE" to ByteArray(3), "tRNS" to ByteArray(1), "sRGB" to ByteArray(1), "zTXt" to ByteArray(9))
+        val late =
+            listOf("PLTE" to ByteArray(3), "tRNS" to ByteArray(1), "sRGB" to ByteArray(1), "zTXt" to ByteArray(9))
         val chunks = listOf(IHDR, "IDAT" to byteArrayOf(1)) + late + ("IDAT" to byteArrayOf(2)) + late + IEND
 
         val picture = PngPicture.of(png(chunks))
@@ -148,7 +149,8 @@ class PngPictureTest {
         val cutInAChunkHeader = png(listOf(IHDR, "IDAT" to ByteArray(32))) + ByteArray(11)
         val cutInTheHeaderChunk = png.copyOf(SIGNATURE.size + 8 + 13 + 3)
         // An unsigned 32-bit length: read signed it is -1, and added to an offset it would wrap.
-        val hugeLength = png(listOf(IHDR)) + byteArrayOf(-1, -1, -1, -1) + "tEXt".toByteArray(Charsets.US_ASCII) + ByteArray(64)
+        val hugeLength =
+            png(listOf(IHDR)) + byteArrayOf(-1, -1, -1, -1) + "tEXt".toByteArray(Charsets.US_ASCII) + ByteArray(64)
 
         for (bytes in listOf(cutInImageData, cutInAChunkHeader, cutInTheHeaderChunk, hugeLength)) {
             assertThat(PngPicture.of(bytes)).isNull()

@@ -192,14 +192,26 @@ footer, plus their @2x and @3x variants) are decoded and displayed at the size t
 layout calls for. An image larger than the caller's bounds is scaled down to fit. An
 image the decoder refuses draws nothing.
 
-**Trust claim.** Three limits apply to every pass image, whatever configuration its
-bytes were imported or stored under. No parameter loosens the first two.
+**Trust claim.** Four limits apply to every pass image, whatever configuration its
+bytes were imported or stored under. No parameter loosens the first three.
 
 - **PNG only.** `BoundedImage` reads the PNG signature and IHDR chunk from the bytes
   with `passes-core`'s `PngHeader`. Bytes that do not start with both are refused
   before the platform decoder is given them, so no JPEG, WebP, GIF, HEIF or other
   codec parses pass bytes, header included. Behind that check, the decode is refused
   again unless the platform decoder itself reports `image/png`.
+- **Picture chunks only.** The platform decoder is not given the stored bytes. It is
+  given a copy that `passes-core`'s `PngPicture` builds from them, holding only the
+  chunks that carry the picture: IHDR, the first sRGB, gAMA, cHRM, iCCP, PLTE and tRNS
+  ahead of the image data, every IDAT, and an empty IEND. Each of them but IDAT must
+  have the length the PNG format gives it, and a colour profile (iCCP) is kept only
+  when it inflates to at most 262,144 bytes. Everything else is left out: text (tEXt,
+  zTXt, iTXt), EXIF, animation, a gain map, nine-patch and unknown chunks, any chunk
+  but image data once the image data has begun, and every byte after IEND. The
+  platform PNG reader inflates a text chunk and holds it for the whole decode wherever
+  it sits in the file, and on API 36 it decodes a gain map carried in a PNG; neither
+  is done for a pass image. A PNG that ends inside a chunk is refused as `Malformed`
+  before the platform decoder is given anything. The stored bytes are not changed.
 - **Source ceiling.** A PNG declaring more than 4096 x 4096 pixels of area
   (16,777,216, the parser's default `maxImagePixelCount`) is refused. An interlaced PNG
   is refused above 1920 x 1920 pixels of area (3,686,400), because the platform codec
@@ -216,9 +228,9 @@ bytes were imported or stored under. No parameter loosens the first two.
 A refused image is never decoded. One refused from its bytes never reaches the platform
 decoder; one the platform's own reading refuses ends before its image data is read.
 
-**Residual risk.** An accepted PNG is fed whole through the platform's PNG codec in the
-app process, not in an isolated one. What the codec buffers is the platform's, and was
-measured only for the cases named here:
+**Residual risk.** The picture chunks of an accepted PNG are fed through the platform's
+PNG codec in the app process, not in an isolated one. What the codec buffers is the
+platform's, and was measured only for the cases named here:
 
 - On API 34, a non-interlaced PNG decodes without a full-size intermediate (the device
   test below pins that).
@@ -228,8 +240,11 @@ measured only for the cases named here:
 - The number of decodes is not limited: each `BoundedImage` in composition decodes its
   own image. A decode that exhausts memory can take the host process down; an
   `OutOfMemoryError` from it propagates to the host.
-- A PNG whose header reads correctly and whose body is malformed still reaches the
-  codec, which is where it is found to be malformed.
+- A PNG whose chunks can be walked and whose image data is malformed still reaches the
+  codec, which is where it is found to be malformed. No chunk's CRC is checked before
+  the codec.
+- A kept colour profile is parsed by the platform in the app process.
+- Each decode copies the image's kept chunks once, on top of the stored bytes.
 
 **How tested.**
 
@@ -239,12 +254,23 @@ measured only for the cases named here:
   give, and the second check's refusal of every reported type but `image/png`.
   `passes-core`'s `PngHeaderTest` pins the header read. `passes-image-decode`'s
   `BoundedBitmapDecodeTest` pins the division arithmetic.
+- `passes-core`'s `PngPictureTest` pins, on the JVM: which chunks are kept and that the
+  kept ones come back byte for byte, the first-only rule, the length of each kind, that
+  nothing but image data is kept once it has begun, the end at the first IEND, the
+  profile cap at 262,144 bytes and one byte over, a profile that cannot be read, and
+  the refusal of bytes that end inside a chunk or declare a chunk longer than the file.
 - `BoundedImageDecodeInstrumentedTest` runs the platform decoder (CI on API 28, 31, 34
   and 36): an image over the bounds comes back inside them and reports nothing, an
   image inside them keeps its size, a 4096 x 4096 image decodes to 1365 x 1365, an
   image one column over the ceiling is refused at bounds below, at and above the
   default, real JPEG, WebP and GIF files are refused as not PNG, and an interlaced
-  PNG decodes at its ceiling and is refused one column over it.
+  PNG decodes at its ceiling and is refused one column over it. Three tests cover the
+  picture chunks: a PNG carrying 32 MB of inflated text decodes for under 4 MB (the
+  test skips itself on an API level whose reader does not hold such text), a
+  wide-gamut PNG with metadata decodes to the pixels and colour space the platform
+  gives the same file, and a PNG with a gain map decodes without one (the test runs
+  where the platform writes and reads a gain map in a PNG, which of the CI legs is
+  API 36).
 - `passes-image-decode`'s `BoundedBitmapDecodeInstrumentedTest` pins the shared
   mechanism: a box larger than the source never enlarges it, a box never rescues an
   image the header gate refused, decoding a 3839 x 3839 image into a 1920 x 1920

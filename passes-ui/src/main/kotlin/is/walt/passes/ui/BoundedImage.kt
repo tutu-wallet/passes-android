@@ -95,24 +95,27 @@ internal fun decodeBoundedBitmap(
 ): Pair<Bitmap?, ImageDecodeRejection?> {
     pngRejection(rawBytes)?.let { return null to it }
     // The platform reader holds what metadata chunks carry, so it is given the picture's chunks alone.
-    val picture = PngPicture.of(rawBytes) ?: return null to ImageDecodeRejection.Malformed
+    val picture = PngPicture.of(rawBytes)
     val decoded =
-        decodeBounded(
-            rawBytes = picture,
-            policy =
-                BoundedDecodePolicy(
-                    // Display only, so a hardware bitmap is fine.
-                    allocator = ImageDecoder.ALLOCATOR_DEFAULT,
-                    gate = ::sourceRejection,
-                    maxSize = DecodeSize(bounds.maxWidthPx, bounds.maxHeightPx),
-                    onMalformed = { ImageDecodeRejection.Malformed },
-                    onRuntimeFailure = { ImageDecodeRejection.Other },
-                    // The host has no rejection bucket for an OOM, so it propagates.
-                    onOutOfMemory = null,
-                ),
-        )
+        if (picture == null) {
+            BoundedBitmap.Rejected(ImageDecodeRejection.Malformed)
+        } else {
+            decodeBounded(rawBytes = picture, policy = displayPolicy(bounds))
+        }
     return when (decoded) {
         is BoundedBitmap.Decoded -> decoded.bitmap to null
         is BoundedBitmap.Rejected -> null to decoded.reason
     }
 }
+
+private fun displayPolicy(bounds: ImageRenderBounds): BoundedDecodePolicy<ImageDecodeRejection> =
+    BoundedDecodePolicy(
+        // Display only, so a hardware bitmap is fine.
+        allocator = ImageDecoder.ALLOCATOR_DEFAULT,
+        gate = ::sourceRejection,
+        maxSize = DecodeSize(bounds.maxWidthPx, bounds.maxHeightPx),
+        onMalformed = { ImageDecodeRejection.Malformed },
+        onRuntimeFailure = { ImageDecodeRejection.Other },
+        // The host has no rejection bucket for an OOM, so it propagates.
+        onOutOfMemory = null,
+    )
