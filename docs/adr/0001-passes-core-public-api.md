@@ -135,10 +135,10 @@ Amendment to D3: `ParseSucceededEvent` has `droppedImageCount: Int = 0`, a count
 
 `PngHeader` is public: `PngHeader.read(bytes)` returns the declared width, height and interlace flag, or null, and decodes nothing. It is the parser's test, exposed so `passes-ui` applies the same one before a pass image reaches a decoder. The parser is not the control for what gets decoded, since rows stored before this rule and `ImageBytes` a consumer builds never pass through it; `BoundedImage` is (`passes-ui/TRUST_CLAIMS.md` section 6).
 
-`PngPicture` is public: `PngPicture.of(bytes)` returns a copy of a PNG holding only the chunks that carry its picture, or null for bytes that are not a PNG or end inside a chunk. It reads chunk lengths and types, inflates a colour profile into a scratch buffer to measure it, and decodes no pixel. `passes-ui` gives the platform decoder that copy (ADR 0003, "Amendment to D5: `BoundedImage` decodes the picture chunks only"). The parser does not apply it: `Pass.images` holds each entry's bytes as the archive carried them.
+`PngPicture` is public: `PngPicture.of(bytes)` returns a copy of a PNG holding only the chunks that carry its picture, or null for bytes that are not a PNG or end inside a chunk. It reads chunk lengths and types, inflates at most one colour profile into a scratch buffer to measure it, and decodes no pixel. `passes-ui` gives the platform decoder that copy (ADR 0003, "Amendment to D5: `BoundedImage` decodes the picture chunks only"). The parser does not apply it: `Pass.images` holds each entry's bytes as the archive carried them.
 
 `PassEncoder` writes whatever images a `Pass` holds. One that is not a PNG carries no pixel cap there and is left out again when the archive is parsed.
 
 ## Tests
 
-`PassBundleReaderTest`, `PassBundleReaderSourceTest` and `PassBundleSurfaceTest` (D5 nested caps, D7); `SafeArchiveExtractorTest` and `PassParserTest` (inflated cap, locale drop, image drop); `PngHeaderTest` (the header read); `PassEncoderTest` (D8); `StringsParserTest` (grammar).
+`PassBundleReaderTest`, `PassBundleReaderSourceTest` and `PassBundleSurfaceTest` (D5 nested caps, D7); `SafeArchiveExtractorTest` and `PassParserTest` (inflated cap, locale drop, image drop); `PngHeaderTest` (the header read); `PngPictureTest` (the chunks kept and left out); `PassEncoderTest` (D8); `StringsParserTest` (grammar).

@@ -9,11 +9,11 @@ import java.util.zip.Inflater
  */
 public object PngPicture {
     /** The most a kept colour profile (iCCP) inflates to. A larger one is left out. */
-    public const val MAX_PROFILE_BYTES: Int = 256 * 1024
+    internal const val MAX_PROFILE_BYTES: Int = 256 * 1024
 
     /**
-     * A copy of [bytes] holding IHDR, the first sRGB, gAMA, cHRM, iCCP, PLTE and tRNS ahead of the
-     * image data, every IDAT, and an empty IEND. Null for bytes that are not a PNG or end inside a chunk.
+     * A copy of [bytes] holding IHDR, then sRGB, gAMA, cHRM, iCCP, PLTE and tRNS where the first of
+     * each is well formed, every IDAT and an empty IEND. Null for bytes that are not a PNG or end inside a chunk.
      */
     public fun of(bytes: ByteArray): ByteArray? = if (PngHeader.read(bytes) == null) null else pictureOf(bytes)
 }
@@ -22,15 +22,16 @@ private fun pictureOf(bytes: ByteArray): ByteArray? {
     val picture = ByteArray(bytes.size + EMPTY_IEND.size)
     PNG_SIGNATURE.copyInto(picture)
     var written = PNG_SIGNATURE.size
-    val kept = HashSet<Int>()
+    val decided = HashSet<Int>()
+    var imageDataBegun = false
     var offset = PNG_SIGNATURE.size
     while (offset < bytes.size) {
         val chunk = chunkAt(bytes, offset) ?: return null
         if (chunk.type == IEND) break
+        if (chunk.type == IDAT) imageDataBegun = true
         // Once the image data has begun, nothing but image data is kept.
-        val isFirstOfItsKind = IDAT !in kept && chunk.type !in kept && chunk.isPictureChunk(bytes)
-        if (chunk.type == IDAT || isFirstOfItsKind) {
-            kept += chunk.type
+        val kept = if (imageDataBegun) chunk.type == IDAT else chunk.isPictureChunk(bytes, decided)
+        if (kept) {
             bytes.copyInto(picture, written, chunk.start, chunk.end)
             written += chunk.end - chunk.start
         }
@@ -40,7 +41,7 @@ private fun pictureOf(bytes: ByteArray): ByteArray? {
     return picture.copyOf(written + EMPTY_IEND.size)
 }
 
-/** One chunk of [PngPicture.of]'s walk: its length and type are read, its CRC and data are not. */
+/** One chunk of [PngPicture.of]'s walk, placed by its length and type. Its CRC is never read. */
 private class Chunk(val type: Int, val start: Int, val dataLength: Int) {
     val dataStart: Int get() = start + CHUNK_HEADER_BYTES
     val end: Int get() = dataStart + dataLength + U32_BYTES
@@ -59,12 +60,19 @@ private fun chunkAt(
     }
 }
 
-private fun Chunk.isPictureChunk(bytes: ByteArray): Boolean {
-    val lengths = PICTURE_CHUNK_LENGTHS[type] ?: return false
+/**
+ * True for a well-formed chunk that is the first of a picture kind. A kind is decided by its first
+ * chunk alone: [decided] holds it from then on, so a later one is never looked at.
+ */
+private fun Chunk.isPictureChunk(
+    bytes: ByteArray,
+    decided: MutableSet<Int>,
+): Boolean {
+    val lengths = PICTURE_CHUNK_LENGTHS[type]?.takeIf { decided.add(type) } ?: return false
     return dataLength in lengths && (type != ICCP || profileFits(bytes, dataStart, dataLength))
 }
 
-/** True for iCCP data that is a name, a terminator, method 0 and a stream within the profile cap. */
+/** True for iCCP data that is a name, a terminator, method 0 and a whole profile within the cap. */
 private fun profileFits(
     bytes: ByteArray,
     start: Int,
@@ -74,11 +82,14 @@ private fun profileFits(
         (0 until minOf(length, MAX_PROFILE_NAME_BYTES + 1)).firstOrNull { bytes[start + it] == NUL } ?: return false
     val streamStart = nameEnd + 2
     val isDeflate = length >= streamStart && bytes[start + nameEnd + 1] == DEFLATE
-    return isDeflate && inflatesWithin(bytes, start + streamStart, length - streamStart, PngPicture.MAX_PROFILE_BYTES)
+    return isDeflate && isWholeProfile(bytes, start + streamStart, length - streamStart, PngPicture.MAX_PROFILE_BYTES)
 }
 
-/** Inflates into a scratch buffer and keeps nothing: true for a whole stream of at most [limit] bytes. */
-private fun inflatesWithin(
+/**
+ * Inflates into a scratch buffer and keeps nothing. True for a whole stream of at most [limit]
+ * bytes that opens, as an ICC profile does, with its own length.
+ */
+private fun isWholeProfile(
     bytes: ByteArray,
     start: Int,
     length: Int,
@@ -88,13 +99,16 @@ private fun inflatesWithin(
     return try {
         inflater.setInput(bytes, start, length)
         val scratch = ByteArray(INFLATE_SCRATCH_BYTES)
-        var total = 0
-        do {
-            // Zero means the stream ended, was cut short, or asks for a dictionary.
-            val count = inflater.inflate(scratch)
+        var count = inflater.inflate(scratch)
+        // A reader may allocate the length a profile declares before it has inflated that much.
+        val declared = if (count >= U32_BYTES) readU32BigEndian(scratch, 0) else NO_LENGTH
+        var total = count
+        // Zero means the stream ended, was cut short, or asks for a dictionary.
+        while (count > 0 && total <= limit) {
+            count = inflater.inflate(scratch)
             total += count
-        } while (count > 0 && total <= limit)
-        inflater.finished() && total <= limit
+        }
+        inflater.finished() && total <= limit && declared == total.toLong()
     } catch (_: DataFormatException) {
         false
     } finally {
@@ -108,7 +122,7 @@ private val IDAT = chunkType("IDAT")
 private val IEND = chunkType("IEND")
 private val ICCP = chunkType("iCCP")
 
-/** The chunks kept once each ahead of the image data, with the data lengths the PNG format gives them. */
+/** The kinds kept once each ahead of the image data, with the data lengths the PNG format allows them. */
 private val PICTURE_CHUNK_LENGTHS: Map<Int, IntRange> =
     mapOf(
         chunkType("IHDR") to 13..13,
@@ -127,5 +141,6 @@ private val EMPTY_IEND: ByteArray =
 private const val CHUNK_HEADER_BYTES = 2 * U32_BYTES
 private const val MAX_PROFILE_NAME_BYTES = 79
 private const val INFLATE_SCRATCH_BYTES = 8 * 1024
+private const val NO_LENGTH = -1L
 private const val NUL: Byte = 0
 private const val DEFLATE: Byte = 0

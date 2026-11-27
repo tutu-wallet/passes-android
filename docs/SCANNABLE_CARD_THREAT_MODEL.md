@@ -103,8 +103,9 @@ consumer's list is permitted strictly when all five hold:
      `ImageRenderBounds.Default` or tighter, which decodes a PNG and nothing else,
      gives the platform decoder only the chunks that carry the picture, caps the
      dimensions of the bitmap it returns and refuses an image over the kernel's source
-     ceiling without decoding it. That is the path the kernel provides for pass images, not the isolated process that images a user
-     imports decode in (C5; ADR 0005 D3 and section I).
+     ceiling without decoding it. That is the path the kernel provides for pass images,
+     not the isolated process that images a user imports decode in (C5; ADR 0005 D3 and
+     section I).
 
    Every other pixel source stays out of the list: a document page or image, a
    user-chosen image on any item, and a code outside the list-face code render

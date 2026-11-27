@@ -141,10 +141,10 @@ class BoundedImageDecodeInstrumentedTest {
         val text = byteArrayOf('k'.code.toByte(), 0, 0) + deflated(ByteArray(INFLATED_TEXT_BYTES) { 'a'.code.toByte() })
         val chunks = List(4) { "zTXt" to text }
         val png = withChunks(pngOf(width = 1, height = 1), afterHeader = chunks, atTheEnd = chunks)
-        // Elsewhere the platform reader does not hold inflated text, and the test shows nothing.
         val (platform, platformPeak) = peakNativeGrowth { platformDecode(png) }
         platform.recycle()
-        assumeTrue(platformPeak > 4L * INFLATED_TEXT_BYTES)
+        // Without this cost on the platform's own decode, the test below would show nothing.
+        expectFromApi(Build.VERSION_CODES.UPSIDE_DOWN_CAKE, platformPeak > 4L * INFLATED_TEXT_BYTES)
 
         val (decoded, peak) = peakNativeGrowth { decodeBoundedBitmap(png, ImageRenderBounds.Default) }
 
@@ -161,6 +161,10 @@ class BoundedImageDecodeInstrumentedTest {
         val (bitmap, rejection) = decodeBoundedBitmap(png, ImageRenderBounds.Default)
 
         val platform = platformDecode(png)
+        // Where the platform writes no profile into the fixture, only the pixels are compared.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            assertThat(platform.colorSpace).isEqualTo(ColorSpace.get(ColorSpace.Named.DISPLAY_P3))
+        }
         assertThat(rejection).isNull()
         assertThat(bitmap!!.colorSpace).isEqualTo(platform.colorSpace)
         val pixels = bitmap.copy(Bitmap.Config.ARGB_8888, false)
@@ -175,8 +179,8 @@ class BoundedImageDecodeInstrumentedTest {
                 base.gainmap = Gainmap(Bitmap.createBitmap(16, 16, Bitmap.Config.ARGB_8888))
                 ByteArrayOutputStream().also { base.compress(Bitmap.CompressFormat.PNG, 100, it) }.toByteArray()
             }
-        // Only some API levels write a gain map into a PNG and read it back.
-        assumeTrue(platformDecode(png).hasGainmap())
+        // Without a gain map on the platform's own decode, the test below would show nothing.
+        expectFromApi(GAIN_MAP_IN_PNG_API, platformDecode(png).hasGainmap())
 
         val (bitmap, rejection) = decodeBoundedBitmap(png, ImageRenderBounds.Default)
 
@@ -265,6 +269,11 @@ class BoundedImageDecodeInstrumentedTest {
             bitmap.recycle()
             out.toByteArray()
         }
+    }
+
+    /** A precondition measured from [apiLevel] up: it must hold there, and the test skips where it does not below. */
+    private fun expectFromApi(apiLevel: Int, holds: Boolean) {
+        if (Build.VERSION.SDK_INT >= apiLevel) assertThat(holds).isTrue() else assumeTrue(holds)
     }
 
     /** The platform's own decode of [png], with none of the kernel's checks. */
@@ -380,6 +389,9 @@ class BoundedImageDecodeInstrumentedTest {
         // Length, type and CRC of a chunk with no data, which is what IEND is.
         const val EMPTY_CHUNK_BYTES = 12
         const val INFLATED_TEXT_BYTES = 4 * 1024 * 1024
+
+        // The first API level seen to write a gain map into a PNG and read it back.
+        const val GAIN_MAP_IN_PNG_API = 36
 
         // xStart, yStart, xStep, yStep of each Adam7 pass.
         val ADAM7 =

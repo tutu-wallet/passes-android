@@ -94,7 +94,7 @@ internal fun decodeBoundedBitmap(
     bounds: ImageRenderBounds,
 ): Pair<Bitmap?, ImageDecodeRejection?> {
     pngRejection(rawBytes)?.let { return null to it }
-    // The platform reader holds what metadata chunks carry, so it is given the picture's chunks alone.
+    // Only the chunks that draw reach the platform reader, so a metadata chunk costs the decode nothing.
     val picture = PngPicture.of(rawBytes)
     val decoded =
         if (picture == null) {

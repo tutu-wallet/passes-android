@@ -4,6 +4,7 @@ import com.google.common.truth.Truth.assertThat
 import org.junit.Test
 import java.io.ByteArrayOutputStream
 import java.io.DataOutputStream
+import java.nio.ByteBuffer
 import java.util.zip.CRC32
 import java.util.zip.DeflaterOutputStream
 
@@ -125,11 +126,28 @@ class PngPictureTest {
         val notDeflate = "icc".toByteArray(Charsets.US_ASCII) + byteArrayOf(0, 0) + ByteArray(64) { 0x55 }
         val nameOnly = "icc".toByteArray(Charsets.US_ASCII)
 
-        for (profile in listOf(unterminatedName, unknownMethod, truncated, notDeflate, nameOnly, ByteArray(0))) {
+        val declaresMore = profileChunk(inflatedBytes = 512, declaredBytes = 8_000_000)
+        val declaresLess = profileChunk(inflatedBytes = 512, declaredBytes = 508)
+        val malformed = listOf(unterminatedName, unknownMethod, truncated, notDeflate, nameOnly, ByteArray(0))
+        val unreadable = malformed + listOf(declaresMore, declaresLess)
+
+        for (profile in unreadable) {
             val picture = PngPicture.of(png(listOf(IHDR, "iCCP" to profile, "IDAT" to byteArrayOf(1), IEND)))
 
             assertThat(picture).isEqualTo(png(listOf(IHDR, "IDAT" to byteArrayOf(1), IEND)))
         }
+    }
+
+    @Test
+    fun aKindIsDecidedByItsFirstChunkEvenWhenThatOneIsLeftOut() {
+        val overTheCap = "iCCP" to profileChunk(inflatedBytes = PngPicture.MAX_PROFILE_BYTES + 1)
+        val leftOut = listOf(overTheCap, "sRGB" to ByteArray(2), "PLTE" to ByteArray(769))
+        val wellFormed =
+            listOf("iCCP" to profileChunk(inflatedBytes = 512), "sRGB" to ByteArray(1), "PLTE" to ByteArray(3))
+
+        val picture = PngPicture.of(png(listOf(IHDR) + leftOut + wellFormed + ("IDAT" to byteArrayOf(1)) + IEND))
+
+        assertThat(picture).isEqualTo(png(listOf(IHDR, "IDAT" to byteArrayOf(1), IEND)))
     }
 
     @Test
@@ -170,11 +188,16 @@ class PngPictureTest {
             }
         }.toByteArray()
 
-    // An iCCP chunk's data: profile name, terminator, compression method 0, a zlib stream.
-    private fun profileChunk(inflatedBytes: Int): ByteArray {
+    // An iCCP chunk's data: profile name, terminator, compression method 0, then a zlib stream
+    // of a profile, whose first four bytes declare its length.
+    private fun profileChunk(
+        inflatedBytes: Int,
+        declaredBytes: Int = inflatedBytes,
+    ): ByteArray {
+        val profile = ByteBuffer.allocate(inflatedBytes).putInt(0, declaredBytes).array()
         val stream =
             ByteArrayOutputStream().also { out ->
-                DeflaterOutputStream(out).use { it.write(ByteArray(inflatedBytes)) }
+                DeflaterOutputStream(out).use { it.write(profile) }
             }.toByteArray()
         return PROFILE_NAME.toByteArray(Charsets.US_ASCII) + byteArrayOf(0, 0) + stream
     }

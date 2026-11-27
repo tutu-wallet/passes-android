@@ -101,7 +101,7 @@ class BoundedImageDecodeTest {
             .isEqualTo(ImageDecodeRejection.ExceedsArea)
     }
 
-    // A PNG signature and IHDR chunk with nothing after them: all the byte-level check reads.
+    // A PNG signature and an IHDR chunk cut before its CRC: all the header check reads.
     private fun pngHeader(width: Int, height: Int, interlaced: Boolean = false): ByteArray =
         ByteArrayOutputStream().also { out ->
             DataOutputStream(out).apply {
