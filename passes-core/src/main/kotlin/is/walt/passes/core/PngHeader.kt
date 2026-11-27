@@ -36,7 +36,7 @@ private fun ByteArray.matchesAt(
     expected: ByteArray,
 ): Boolean = expected.indices.all { this[offset + it] == expected[it] }
 
-private fun readU32BigEndian(
+internal fun readU32BigEndian(
     bytes: ByteArray,
     offset: Int,
 ): Long =
@@ -44,12 +44,12 @@ private fun readU32BigEndian(
         value.shl(Byte.SIZE_BITS) or (bytes[offset + i].toLong() and 0xFFL)
     }
 
-private val PNG_SIGNATURE: ByteArray = byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A)
+internal val PNG_SIGNATURE: ByteArray = byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A)
 
 // The chunk's length, always 13, then its type.
 private val IHDR_START: ByteArray = byteArrayOf(0, 0, 0, 13) + "IHDR".toByteArray(Charsets.US_ASCII)
 
-private const val U32_BYTES = 4
+internal const val U32_BYTES = 4
 private const val IHDR_START_OFFSET = 8
 private const val WIDTH_OFFSET = 16
 private const val HEIGHT_OFFSET = 20
