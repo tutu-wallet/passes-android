@@ -11,13 +11,6 @@ import java.lang.reflect.Method
 class DocumentSurfaceLockTest {
 
     @Test
-    fun documentTrustCaptionHasExactlyOneUserVisibleParameter() {
-        // (modifier) — D5: no `enabled`, no theme suppression flag, no overload that
-        // accepts a state to hide the caption. The caption is structurally always-on.
-        assertUserVisibleParamCount("DocumentTrustCaptionKt", "DocumentTrustCaption", expected = 1)
-    }
-
-    @Test
     fun documentViewHasExactlyTenUserVisibleParameters() {
         // (doc, pdfFile, renderer, imageFile, imageDecoder, modifier, telemetry, onOpenFullScreen,
         // fullScreenAffordance, faceTint). One that hid the page or image, or added share-out, breaches D5/D8.
@@ -57,8 +50,7 @@ class DocumentSurfaceLockTest {
     @Test
     fun fullScreenDocumentViewHasExactlyTenUserVisibleParameters() {
         // (doc, pdfFile, renderer, imageFile, imageDecoder, onClose, modifier, telemetry,
-        // initialPage, closeButton). D5: the caption is composed inside the surface, docked
-        // outside the zoom transform, and no parameter can omit it or add an extraction affordance.
+        // initialPage, closeButton). One that added share-out or extraction breaches D4/D8.
         assertUserVisibleParamCount(
             "FullScreenDocumentViewKt",
             "FullScreenDocumentView",
@@ -98,7 +90,6 @@ class DocumentSurfaceLockTest {
     fun documentSurfacesHaveNoOverloads() {
         // An overload could add a parameter that the count locks miss.
         listOf(
-            "DocumentTrustCaptionKt" to "DocumentTrustCaption",
             "DocumentViewKt" to "DocumentView",
             "FullScreenDocumentViewKt" to "FullScreenDocumentView",
         ).forEach { (file, name) ->

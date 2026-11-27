@@ -9,17 +9,8 @@ package `is`.walt.passes.document
 public value class PdfDocumentId(public override val value: String) : DocumentId
 
 /**
- * The pure-Kotlin model for a successfully-imported PDF — the sole [Document] arm today.
- * Mirrors the role [Pass] plays in `passes-core` for pkpass archives, but is deliberately
- * a *sibling* concept (per ADR 0005 D1) — `PdfDocument` and `Pass` share no superclass.
- * Documents are not signature-verified (D5); their trust caption is sourced from
- * [provenance], which has a single arm by design. [pageCount] is the PDF-specific field
- * that lives on this arm rather than on the [Document] supertype.
- *
- * The displayed [displayLabel] is supplied at import time by the consumer; the model layer
- * never derives it from PDF metadata, because metadata is part of the
- * no-extraction-from-content discipline (D4). Callers should pass a filename if they have
- * one and a date-based fallback ("PDF, added <date>") otherwise.
+ * An imported PDF, a sibling of `Pass` with no shared superclass and no signature status (ADR 0005
+ * D1, D5). [displayLabel] comes from the consumer at import, never from PDF metadata (D4).
  */
 public data class PdfDocument(
     public override val id: PdfDocumentId,

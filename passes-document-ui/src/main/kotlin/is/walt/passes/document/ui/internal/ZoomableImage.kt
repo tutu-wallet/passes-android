@@ -117,10 +117,8 @@ internal fun ZoomableImage(
     Box(
         modifier = modifier
             .fillMaxSize()
-            // The graphicsLayer scale below draws outside layout bounds unless an ancestor
-            // clips. Clip HERE (an unscaled layer) — not via clip=true on the scaled layer,
-            // whose clip shape would scale with it — so zoomed content can never overdraw
-            // the trust-caption dock beside this slot (ADR 0005 Z.8, ZoomableImageClipTest).
+            // Clip on this unscaled layer, not the scaled one, so zoomed content never draws
+            // outside the slot (ADR 0005 Z.7, ZoomableImageClipTest).
             .clipToBounds()
             .onSizeChanged { slotSize = it }
             .pointerInput(Unit) {

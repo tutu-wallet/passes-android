@@ -33,22 +33,8 @@ import org.robolectric.annotation.GraphicsMode
 import kotlin.math.roundToInt
 
 /**
- * Pixel-level lock that zoomed [ZoomableImage] content cannot draw outside its slot
- * (ADR 0005 Z.8 / wpass-pl7.4 review). The bitmap is scaled with `graphicsLayer`, which
- * draws OUTSIDE layout bounds unless clipped; on the full-screen surface the slot's
- * sibling is the docked trust-caption band, so un-clipped overdraw puts attacker-chosen
- * document pixels behind and around the caption. The PDF arm was only incidentally
- * protected by `HorizontalPager`'s own clipping; the image arm has no pager, so the clip
- * must live on [ZoomableImage] itself.
- *
- * Layout-bounds assertions cannot see overdraw, so this renders to pixels: a solid-red
- * bitmap in the full-screen dock structure, the deterministic double-tap 2x zoom, then a
- * `view.draw` capture (compose-test's window capture does not run under Robolectric)
- * asserting no red reaches the dock band. The dock is deliberately UNPAINTED: the theme
- * contract permits a transparent captionBackground, and an opaque dock would mask the
- * overdraw in sibling draw order — precisely the configuration under which the defect is
- * user-visible. A vacuous pass is ruled out by asserting the zoom really engaged (red
- * reaches the slot edges the letterboxed 1x fit leaves white).
+ * Zoomed [ZoomableImage] content never draws outside its slot onto host content beside it (ADR 0005
+ * Z.7). Renders to pixels, since layout bounds cannot see `graphicsLayer` overdraw.
  */
 @RunWith(AndroidJUnit4::class)
 @Config(sdk = [34])
@@ -59,14 +45,13 @@ class ZoomableImageClipTest {
     val composeRule = createComposeRule()
 
     @Test
-    fun doubleTapZoomedBitmapNeverDrawsIntoTheDockBandBelowItsSlot() {
+    fun doubleTapZoomedBitmapNeverDrawsOutsideItsSlot() {
         val red = Bitmap.createBitmap(40, 80, Bitmap.Config.ARGB_8888)
             .apply { eraseColor(RED) }
             .asImageBitmap()
 
         composeRule.setContent {
-            // The full-screen surface's BottomDockedLayout shape: the zoom slot takes the
-            // space above a dock band, exactly how FullScreenDocumentView hosts the arms.
+            // A zoom slot with an unpainted neighbour band below it, so overdraw is not masked.
             Box(modifier = Modifier.size(200.dp, 400.dp).background(Color.White)) {
                 Column(modifier = Modifier.fillMaxSize()) {
                     Box(modifier = Modifier.fillMaxWidth().height(340.dp)) {
@@ -77,13 +62,11 @@ class ZoomableImageClipTest {
                             pageAspect = 0.5f,
                         )
                     }
-                    // No background: models the transparent-captionBackground theme, where
-                    // overdraw into the dock band is not masked by the dock's own paint.
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(60.dp)
-                            .testTag("dock"),
+                            .testTag("neighbour"),
                     )
                 }
             }
@@ -98,37 +81,37 @@ class ZoomableImageClipTest {
         val capture = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
         view.draw(Canvas(capture))
         val density = composeRule.density.density
-        val dockTopPx = (
-            composeRule.onNodeWithTag("dock").getUnclippedBoundsInRoot().top.value * density
+        val neighbourTopPx = (
+            composeRule.onNodeWithTag("neighbour").getUnclippedBoundsInRoot().top.value * density
             ).roundToInt()
 
-        val counts = countRed(capture, dockTopPx)
+        val counts = countRed(capture, neighbourTopPx)
         // Sanity: the red bitmap rendered AND the double-tap zoom engaged — otherwise
-        // the dock assertion would pass vacuously against an unzoomed (in-bounds) fit.
+        // the neighbour assertion would pass vacuously against an unzoomed (in-bounds) fit.
         assertThat(counts.inSlot).isGreaterThan(0)
         assertThat(counts.atSlotEdge).isGreaterThan(0)
         assertWithMessage(
-            "zoomed content pixels drew into the dock band below the slot (Z.8); " +
+            "zoomed content pixels drew into the neighbour band below the slot (Z.7); " +
                 "ZoomableImage must clip to its own bounds",
-        ).that(counts.inDock).isEqualTo(0)
+        ).that(counts.inNeighbour).isEqualTo(0)
     }
 
-    private data class RedCounts(val inSlot: Int, val inDock: Int, val atSlotEdge: Int)
+    private data class RedCounts(val inSlot: Int, val inNeighbour: Int, val atSlotEdge: Int)
 
-    private fun countRed(capture: Bitmap, dockTopPx: Int): RedCounts {
+    private fun countRed(capture: Bitmap, neighbourTopPx: Int): RedCounts {
         var inSlot = 0
-        var inDock = 0
+        var inNeighbour = 0
         var atSlotEdge = 0
         for (i in 0 until capture.width * capture.height) {
             val x = i % capture.width
             val y = i / capture.width
             if (capture.getPixel(x, y) != RED) continue
-            if (y >= dockTopPx) inDock++ else inSlot++
+            if (y >= neighbourTopPx) inNeighbour++ else inSlot++
             // At 1x the 0.5-aspect fit leaves letterbox gutters at the slot's horizontal
             // edges; red there proves the 2x zoom really engaged.
-            if (y < dockTopPx && (x < 4 || x > capture.width - 5)) atSlotEdge++
+            if (y < neighbourTopPx && (x < 4 || x > capture.width - 5)) atSlotEdge++
         }
-        return RedCounts(inSlot, inDock, atSlotEdge)
+        return RedCounts(inSlot, inNeighbour, atSlotEdge)
     }
 
     private companion object {
