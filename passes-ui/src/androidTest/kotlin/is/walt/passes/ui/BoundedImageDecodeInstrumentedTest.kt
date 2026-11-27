@@ -9,6 +9,9 @@ import android.os.Build
 import android.os.Debug
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithContentDescription
@@ -253,8 +256,45 @@ class BoundedImageDecodeInstrumentedTest {
             is PassImage.Refused -> null to image.reason
         }
 
+    @Test
+    fun aDecodedBitmapCountsItsPixelsAgainstTheCacheBudget() {
+        val png = pngOf(width = 100, height = 100)
+        val image = decodePassImage(png, ImageRenderBounds.Default)
+        // At least a byte a pixel, whatever config and allocator the platform chose.
+        val cache = PassImageCache(maxBytes = 100 * 100)
+
+        cache.put(ImageBytes(png), ImageRenderBounds.Default, image)
+
+        assertThat(image).isInstanceOf(PassImage.Decoded::class.java)
+        assertThat(cache.get(ImageBytes(png), ImageRenderBounds.Default)).isNull()
+    }
+
+    @Test
+    fun aDecodedImageShownAgainFromTheCacheDrawsInTheFirstFrame() {
+        val cache = PassImageCache()
+        val png = pngOf(width = 64, height = 64)
+        var shown by mutableStateOf(true)
+        composeRule.setContent { if (shown) TestImage(png, CopyOnWriteArrayList(), cache) }
+        composeRule.waitUntil(DECODE_TIMEOUT_MS) {
+            composeRule.onAllNodesWithContentDescription(DESCRIPTION).fetchSemanticsNodes().isNotEmpty()
+        }
+        shown = false
+        composeRule.waitForIdle()
+
+        // With the clock held, only the composition that brings the image back can draw it.
+        composeRule.mainClock.autoAdvance = false
+        shown = true
+        composeRule.mainClock.advanceTimeByFrame()
+
+        assertThat(composeRule.onAllNodesWithContentDescription(DESCRIPTION).fetchSemanticsNodes()).hasSize(1)
+    }
+
     @Composable
-    private fun TestImage(png: ByteArray, rejections: MutableList<ImageDecodeRejection>) {
+    private fun TestImage(
+        png: ByteArray,
+        rejections: MutableList<ImageDecodeRejection>,
+        cache: PassImageCache? = null,
+    ) {
         BoundedImage(
             bytes = ImageBytes(png),
             role = ImageRole.Logo,
@@ -266,6 +306,7 @@ class BoundedImageDecodeInstrumentedTest {
                     }
                 },
             modifier = Modifier.size(48.dp),
+            cache = cache,
         )
     }
 
