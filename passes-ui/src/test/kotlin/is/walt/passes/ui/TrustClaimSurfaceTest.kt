@@ -571,7 +571,8 @@ class TrustClaimSurfaceTest {
         val anyBytes = ByteArray(64) { (it * 31).toByte() }
         val (bitmap, rejection) = decodeBoundedBitmap(anyBytes, ImageRenderBounds(maxWidthPx = 1, maxHeightPx = 1))
         assertThat(rejection).isNull()
-        assertThat(bitmap).isNotNull()
+        assertThat(bitmap!!.width).isEqualTo(1)
+        assertThat(bitmap.height).isEqualTo(1)
     }
 
     // wpass-38y: pass.strings substitution must apply symmetrically on the front and

@@ -9,6 +9,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import java.io.ByteArrayOutputStream
 import java.io.DataOutputStream
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.zip.CRC32
 import java.util.zip.DeflaterOutputStream
@@ -84,23 +85,36 @@ class BoundedBitmapDecodeInstrumentedTest {
 
     @Test
     fun downsampledDecodeHoldsNoFullSizeIntermediate() {
-        // The source just under twice the box is the shape an exact-fit target decodes at full size.
+        // Just under twice the box, where a scale that is not a whole number decodes at full size first.
         val side = 3839
         val png = blackPngOf(side)
         val baseline = Debug.getNativeHeapAllocatedSize()
+        val sampling = CountDownLatch(1)
         val done = AtomicBoolean(false)
         var peak = baseline
-        val sampler = Thread { while (!done.get()) peak = maxOf(peak, Debug.getNativeHeapAllocatedSize()) }
+        val sampler =
+            Thread {
+                sampling.countDown()
+                while (!done.get()) peak = maxOf(peak, Debug.getNativeHeapAllocatedSize())
+            }
         sampler.start()
+        sampling.await()
 
-        val result = decodeBounded(rawBytes = png, policy = policy(maxSide = side, maxSize = DecodeSize(1920, 1920)))
+        val result =
+            try {
+                decodeBounded(rawBytes = png, policy = policy(maxSide = side, maxSize = DecodeSize(1920, 1920)))
+            } finally {
+                done.set(true)
+                sampler.join()
+            }
 
-        done.set(true)
-        sampler.join()
         val bitmap = (result as BoundedBitmap.Decoded).bitmap
+        peak = maxOf(peak, Debug.getNativeHeapAllocatedSize())
         assertThat(bitmap.width).isEqualTo(1919)
-        val fullSizeBytes = side.toLong() * side * 4
-        assertThat(peak - baseline).isLessThan(fullSizeBytes / 2)
+        assertThat(bitmap.height).isEqualTo(1919)
+        // The lower bound shows the probe sees bitmap memory at all on this API level.
+        assertThat(peak - baseline).isAtLeast(bitmap.allocationByteCount * 9L / 10)
+        assertThat(peak - baseline).isLessThan(side.toLong() * side * 4 / 2)
         bitmap.recycle()
     }
 

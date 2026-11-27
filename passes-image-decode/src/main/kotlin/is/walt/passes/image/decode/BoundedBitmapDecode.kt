@@ -44,7 +44,7 @@ public fun <R : Any> decodeBounded(
 
 /**
  * The size to decode at: 1x1 for a rejected image, else [header] divided by the smallest whole
- * number that fits it inside [maxSize]. A whole-number sample needs no full-size intermediate.
+ * number that fits [maxSize]. The codec samples at that number; no full-size bitmap is scaled down.
  */
 internal fun decodeSize(header: DecodeSize, rejected: Boolean, maxSize: DecodeSize?): DecodeSize {
     if (rejected) return DecodeSize(1, 1)

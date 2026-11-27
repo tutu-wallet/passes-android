@@ -139,8 +139,8 @@ jobs:
         if: ${{ !cancelled() && steps.storage-connected.conclusion != 'skipped' }}
         run: ./gradlew :passes-barcode:api${{ matrix.api }}googleDebugAndroidTest --stacktrace
 
-      # passes-ui carries the wpass-80y.5 face-tint pin, which reads painted pixels and so
-      # cannot run under Robolectric. Same condition and reasoning as the step above.
+      # passes-ui's device tests read painted pixels and run the platform image decoder,
+      # which Robolectric cannot do. Same condition and reasoning as the step above.
       - name: Run connected tests (passes-ui)
         if: ${{ !cancelled() && steps.storage-connected.conclusion != 'skipped' }}
         run: ./gradlew :passes-ui:api${{ matrix.api }}googleDebugAndroidTest --stacktrace

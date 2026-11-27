@@ -36,9 +36,8 @@ android {
 }
 
 dependencies {
-    // No project deps: the rejection type R is the caller's, so this module names no
-    // policy of its own. It depends only on android.graphics (the framework) for the
-    // ImageDecoder lever. Both consumers (passes-barcode, passes-ui) sit above it.
+    // No project deps: the rejection type is the caller's, so this module names no policy
+    // of its own. It needs only android.graphics; its consumers sit above it.
 
     testImplementation(libs.junit)
     testImplementation(libs.truth)

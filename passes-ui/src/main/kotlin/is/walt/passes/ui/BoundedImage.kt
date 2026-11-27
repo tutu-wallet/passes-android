@@ -59,7 +59,7 @@ public fun BoundedImage(
 
 /**
  * Source pixel count above which an image is refused from its header, before the bitmap is
- * allocated. Equal to the parser's default cap, so an image a default import admits can render.
+ * allocated. Equal to the parser's default cap, so a PNG a default import admits can render.
  */
 internal const val MAX_SOURCE_PIXELS: Long = 4096L * 4096L
 

@@ -201,20 +201,24 @@ header, before the bitmap is allocated:
   no parameter raises it.
 - **Output bound.** The bitmap handed to the UI never exceeds the caller's
   `ImageRenderBounds` (default 1920 x 1920). A larger source is decoded at its size
-  divided by the smallest whole number that fits the bounds, so it comes back between
-  half the bounds and the bounds with its aspect ratio kept. A smaller source is never
-  upscaled. A host that draws a small tile can pass a small box and decode a small
-  bitmap; a box of twice the drawn size keeps the result at least as large as the tile.
+  divided by the smallest whole number that fits the bounds. On its tighter axis it
+  comes back between half the bounds and the bounds, and its aspect ratio is kept up to
+  rounding. A smaller source is never upscaled. A host that draws a small tile can pass
+  a small box and decode a small bitmap; with a box of twice the drawn size, a source
+  at least as large as the tile comes back at least as large as the tile.
 
 **Residual risk.** A downsampled decode still feeds the whole compressed image through
-the platform codec in the app process, and what the codec buffers is the platform's:
+the platform codec in the app process. What the codec buffers is the platform's, and
+was measured only for the cases named here:
 
-- Measured on API 34, a non-interlaced PNG decodes without a full-size intermediate
-  (the device test below pins that), and an interlaced PNG is buffered whole whatever
-  the output size, refused images included: up to 64 MB at the ceiling, 128 MB for a
-  16-bit image.
-- The number of decodes is not limited. Each `BoundedImage` in composition decodes its
-  own image, and an `OutOfMemoryError` from a decode propagates to the host.
+- On API 34, a non-interlaced PNG decodes without a full-size intermediate (the device
+  test below pins that). An interlaced PNG is buffered whole whatever the output size:
+  up to 64 MB for an accepted image at the ceiling, 128 MB for a 16-bit one.
+- A refused image is still read, at one pixel, so the codec's own buffers for it follow
+  the size its header declares and the ceiling does not bound them.
+- The number of decodes is not limited: each `BoundedImage` in composition decodes its
+  own image. A decode that exhausts memory can take the host process down; an
+  `OutOfMemoryError` from it propagates to the host.
 
 **How tested.**
 

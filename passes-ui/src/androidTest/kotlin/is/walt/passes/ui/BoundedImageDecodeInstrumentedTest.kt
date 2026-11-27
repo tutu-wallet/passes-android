@@ -102,7 +102,7 @@ class BoundedImageDecodeInstrumentedTest {
     }
 
     @Test
-    fun oversizedImageDrawsAndReportsNothing() {
+    fun oversizedImageDrawsAndReportsNoRejection() {
         val rejections = CopyOnWriteArrayList<ImageDecodeRejection>()
         val png = pngOf(width = 2000, height = 100)
         composeRule.setContent { TestImage(png, rejections) }

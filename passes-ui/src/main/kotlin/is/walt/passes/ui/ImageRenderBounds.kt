@@ -2,7 +2,7 @@ package `is`.walt.passes.ui
 
 /**
  * The largest bitmap `BoundedImage` produces. A larger image is decoded at its size divided by the
- * smallest whole number that fits the box, so it comes back between half the box and the box.
+ * smallest whole number that fits the box: between half the box and the box on its tighter axis.
  */
 public data class ImageRenderBounds(
     public val maxWidthPx: Int,
