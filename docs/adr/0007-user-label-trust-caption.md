@@ -7,7 +7,7 @@
 
 The host wallet offers a rename affordance: a user who imported a boarding pass can label it "Mom's flight home". Documents (`updateDocumentLabel`) and scannable cards (`updateScannableCard`) have no signed identity, so renaming them is harmless. A pkpass is alone in carrying a PKCS#7-attested issuer identity that renaming must not silently hide.
 
-A pkpass's visible identity on the card front and in list tiles is the signed `pass.json` `organizationName` (after `pass.strings` substitution; `PassFront`). That string binds the user's mental model of who issued the pass to the cryptographically verified issuer. A rename that overwrites the displayed title decouples displayed identity from signed identity: the screen says one thing, the attested issuer is another, and nothing on screen says which is which. This ADR fixes the data model, repository API, surface contract and in-repo enforcement that keep the signed identity on every surface presenting the override.
+A pkpass's visible identity on the card front and in list items is the signed `pass.json` `organizationName` (after `pass.strings` substitution; `PassFront`). That string binds the user's mental model of who issued the pass to the cryptographically verified issuer. A rename that overwrites the displayed title decouples displayed identity from signed identity: the screen says one thing, the attested issuer is another, and nothing on screen says which is which. This ADR fixes the data model, repository API, surface contract and in-repo enforcement that keep the signed identity on every surface presenting the override.
 
 ## Decisions
 
@@ -57,9 +57,9 @@ Equality edge case: when `userLabel.trim()` equals the displayed `organizationNa
 
 `PassFront` routes its header eyebrow through it. `PassImportConfirm` does not: at import no `userLabel` exists, so the surface shows signed identity by construction.
 
-A consumer's pkpass tile, list row and any other pkpass chrome must call `PassIdentityBlock` rather than render `StoredPass.userLabel` directly. Surfacing `userLabel` as bare primary identity is a trust-claim violation, the same shape as a verifier-name swap.
+A consumer's pkpass list item and any other pkpass chrome must call `PassIdentityBlock` rather than render `StoredPass.userLabel` directly. Surfacing `userLabel` as bare primary identity is a trust-claim violation, the same shape as a verifier-name swap.
 
-Enforcement: `PublicApiSurfaceTest` in `passes-ui` asserts `PassIdentityBlock` exists and is public, so consumer tile code compiles against a tested symbol. `TrustClaimSurfaceTest` exercises each render case and asserts the signed `organizationName` is on screen in every non-suppressed case. Consumer-side enforcement is code review; this ADR is what the reviewer cites.
+Enforcement: `PublicApiSurfaceTest` in `passes-ui` asserts `PassIdentityBlock` exists and is public, so consumer list code compiles against a tested symbol. `TrustClaimSurfaceTest` exercises each render case and asserts the signed `organizationName` is on screen in every non-suppressed case. Consumer-side enforcement is code review; this ADR is what the reviewer cites.
 
 ### D7. Telemetry: a label-mutation event with no PII
 

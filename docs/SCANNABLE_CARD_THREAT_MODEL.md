@@ -66,25 +66,28 @@ permitted strictly when all five hold:
    imitate.
 2. Every user-created and document item (scannable cards, documents, composites)
    carries its class label. The label is visible on the item without interaction, is
-   never truncated or displaced by user, file or issuer text, and the item's accessible
-   description names the class. Its position is otherwise the consumer's layout choice.
+   never truncated, displaced or covered by user, file or issuer text, and the item's
+   accessible description names the class. Its position is otherwise the consumer's
+   layout choice.
 3. Every pkpass item carries the pass mark, and no item of another class draws it
    anywhere, as a mark, a class glyph or otherwise.
    - Its form is the host's: one glyph or word, the same on every pkpass item whatever
      the pass file or the user supplies.
    - It depicts the class, never approval: no tick, shield, seal or other sign of
      endorsement, and nothing that varies with signature status (condition 1).
-   - It is visible without interaction, at 3:1 contrast or better against the host's
-     surface in every theme.
-   - It is drawn in host colours on the host's surface, clear of any pass tile, at a
-     position that holds only host-drawn content on every item of every class. No
-     user, file or issuer text displaces or covers it.
+   - It is visible without interaction, at 3:1 contrast or better against whatever
+     surface it sits on, in every theme.
+   - It is drawn in host colours on the host's surface, separated from any pass tile
+     by host surface on every side, at a position that holds only host-drawn content
+     on every item of every class. No user, file or issuer text displaces or covers
+     it.
    - It may be silent to assistive technology. The item's accessible description names
      its `PassType` in host words the host uses for no other class.
 4. No list item draws artifact imagery (issuer artwork, document page, image or code),
-   with one exception: a pkpass item's pass tile may show one image from the pass file
-   on the pass file's `backgroundColor`. Those pixels and that colour are the issuer's
-   and can imitate any mark the host draws, so the exception is bound:
+   with one exception: a pkpass item's pass tile may show one image from the pass file,
+   on the pass file's `backgroundColor` or on the item's class colour. Those pixels and
+   the file's colour are the issuer's and can imitate any mark the host draws, so the
+   exception is bound:
    - Image and colour are taken from the pass file alone and are the same for every
      signature status. Showing or withholding them by verification outcome would make
      them a verified affordance (condition 1).
@@ -92,12 +95,13 @@ permitted strictly when all five hold:
      No pixel or colour from the pass file, or derived from it, reaches outside it.
    - The pass mark, the item's text (issuer text included) and its controls sit on the
      host's surface in host colours. Anything else the host draws on a pass tile is
-     decoration that no class, identity or state depends on.
+     decoration: no class, identity or state, expiry included, is carried there alone.
    - The host renders no barcode from the pass in the list, at any size, on the pass
      tile or off it.
-   - The image decodes in the app process through the kernel's `BoundedImage`, which
-     caps the allocation of each decode. That is the path every pass image takes, not
-     the isolated process C5 gives the images a user imports.
+   - The image decodes in the app process through the kernel's `BoundedImage`, at
+     `ImageRenderBounds.Default` or tighter, which caps the dimensions of each decoded
+     bitmap. That is the path the kernel provides for pass images, not the isolated
+     process that images a user imports decode in (C5; ADR 0005 D3).
 
    Every other pixel source stays out of the list: a document page or image, a
    user-chosen image on any item, and a code outside the list-face code render
@@ -154,14 +158,14 @@ bounded:
   surface does.
 - An issuer colour equal to the list's surface hides the pass tile's edge, so its
   artwork can read as drawn on the host's surface. What bounds it is the pass tile's
-  fixed size and position: the artwork cannot leave that frame, and the pass mark and
-  the item's text sit outside it.
+  fixed size and position: the artwork cannot leave that frame, and host surface
+  separates the pass mark and the item's text from it.
 - Artwork can depict a scannable code. A user can then present an unsigned pass's code
   straight from the list without meeting the in-words signature status, which is the
   reach the list-face code render concession guards for user-created codes. Accepted:
   the host cannot tell a depicted code from any other picture, the picture is the
-  issuer's on the list as on the detail surface, and whether it is honoured is the
-  scanner's call (Threat 9).
+  issuer's on the list as on the detail surface, and what a scanner does with it is
+  the scanner's call (Threats 2 and 9).
 - Posing as verified through a file name or user label is bounded only by the class
   label, which names a class that is never verified, and by the detail caption where it
   is docked. Under `HostedTypeRow` the provenance row may sit collapsed, so on the
@@ -169,11 +173,11 @@ bounded:
   item's provenance only as its class label, whatever its title or content claims.
 - The spoken path reserves no position, so it is weaker than the visual one. An
   accessible description reads supplied text beside the host's class words: a user's
-  label can speak the host's words for a `PassType`, and issuer text those for a
-  class. What holds is that the host's own words are always among those spoken, the
-  class for a user-created or document item (condition 2) and the `PassType` for a
-  pkpass item (condition 3). Two items of different classes can still be made to speak
-  alike.
+  label or a document's file name can speak the host's words for a `PassType`, and
+  issuer text those for a class. What holds is that the host's own words are always
+  among those spoken, the class for a user-created or document item (condition 2) and
+  the `PassType` for a pkpass item (condition 3). Two items of different classes can
+  still be made to speak alike.
 
 **Decode exposure.** A list that draws pass tiles decodes one image per pkpass item
 whenever those items are displayed, where a detail surface decodes only the pass the
@@ -186,14 +190,16 @@ tests are expected to pin that:
 
 - one pass file, carrying an image and a background colour, renders the same item at
   every signature status;
-- every user-created and document item shows its class label and speaks its class;
+- every user-created and document item shows its class label and speaks its class,
+  and supplied text of any length or glyph height neither moves nor covers the label;
 - every pkpass item shows the pass mark clear of any pass tile and speaks its
   `PassType`, and supplied text of any length or glyph height neither moves nor covers
   the mark;
 - no item of another class draws the mark, and the mark's position holds only
   host-drawn content on every class;
-- no item draws artifact imagery outside a pass tile, no pass colour paints outside
-  one, pass images decode only through `BoundedImage`, and no pass barcode renders.
+- no item draws artifact imagery outside a pass tile or a list-face code render, no
+  pass colour paints outside a pass tile, pass images decode only through
+  `BoundedImage`, and no pass barcode renders.
 
 ### C1 / C2 concession: list-face code render
 
@@ -224,8 +230,8 @@ code is not a render; condition 4 of the consumer list concession governs it.
 
 ### C1 / C2 concession: colour carries no trust meaning, for any class
 
-The colour of an item's face or tile has one of two sources, and neither depends on
-signature status:
+The colour of an item's face or pass tile has one of two sources, and neither depends
+on signature status:
 
 - **Class colour.** A consumer may colour any item by artifact class and let the user
   reassign it.
@@ -243,9 +249,9 @@ colour is exclusive to a signed pass.
 
 1. **No item colour presents as verified.** No list item of any class carries a
    signature affordance (condition 1 of the consumer list concession). On a detail
-   surface the only one is the `PassFront` pill, which renders on a pkpass alone and
-   takes its colours from the status (ADR 0003 D2), never from an item colour. It is
-   the one status-keyed colour in the kernel, and it stays on the pill.
+   surface the only status-keyed colour is the `PassFront` pill's, which renders on a
+   pkpass alone and comes from the status (ADR 0003 D2), never from an item colour. It
+   stays on the pill.
 2. **Signature status is stated in words, on the detail surface only.** "Verified -
    signed by issuer" / "Unverified - unsigned by issuer" / "User provided pass, issuer
    cannot be verified". Text, not chrome, so a colour choice cannot imitate it.
@@ -448,7 +454,7 @@ reduction in defense-in-depth is accepted deliberately.
 `HostedTypeRow` concessions, the C1 list-level distinction carries the load: a class
 label on every user-created and document item, the pass mark on every pkpass item, no
 verified affordance on any item of any class, and artifact imagery nowhere but a pass
-tile. Colour distinguishes nothing on its own and is not relied on to, and the class
+tile or a list-face code render. Colour distinguishes nothing on its own and is not relied on to, and the class
 label and the pass mark name a class without proving what an item claims (residual risk
 of the consumer list concession). This is the load-bearing concern of the feature; every
 control traces back to this row.
