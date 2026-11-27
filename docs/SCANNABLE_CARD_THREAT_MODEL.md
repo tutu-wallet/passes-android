@@ -103,8 +103,8 @@ host's voice, and it is bounded:
 Dropping or weakening any of the four conditions amends this document. The kernel
 cannot verify them at runtime, so the obligation is the consumer's: its wallet-list
 tests are expected to pin that a verified pass and an unsigned one render the same
-item, that every user-created and document item shows and speaks its class label, and
-that no item draws artifact imagery.
+item, that every user-created and document item shows its class label and speaks its
+class, and that no item draws artifact imagery.
 
 ### C1 / C2 concession: list-face code render
 
@@ -667,7 +667,7 @@ v2"; each is deliberately absent because it re-opens a threat row above.
 
 | Control | Pinned by |
 |---------|-----------|
-| C1      | `ScannableCardSurfaceTest.scannableCardDoesNotShareSupertypeWithPass`; storage `PublicApiSurfaceTest` `SCANNABLE_CARDS` assertion (separate table). No separate-lane composable test. Consumer list concession: consumer-side, tests that a verified and an unsigned pass render the same list item, that every user-created and document item shows and speaks its class label, and that no item draws artifact imagery |
+| C1      | `ScannableCardSurfaceTest.scannableCardDoesNotShareSupertypeWithPass`; storage `PublicApiSurfaceTest` `SCANNABLE_CARDS` assertion (separate table). No separate-lane composable test. Consumer list concession: consumer-side, tests that a verified and an unsigned pass render the same list item, that every user-created and document item shows its class label and speaks its class, and that no item draws artifact imagery |
 | C2      | Non-suppressible caption test; no snapshot test of the at-least-two-distinct-elements rule; `scannableCardScreenHasExactlyFiveUserVisibleParameters`; `scannableCardScreenTrustCaptionParamIsThePlacementType` (placement is the audited choice, not a Boolean); `fullScreenHostedTypeRowOmitsKernelCaption` and `hostedTypeRowStillRendersBarcodeAndPayloadCaption` (the "Pass type" concession); consumer-side, a test that the details section renders a "Pass type" row. Colour row: `ScannableCardTrustSurfaceTest.faceTintDoesNotSuppressBarcodeLabelPayloadOrTrustCaption` (and its dark-tint twin), `codePanelIsLiterallyWhiteNotAThemeTokenOrTheFaceTint`, `inkOnClearsWcagAaAgainstEveryTintIncludingTheWorstCase`, `DocumentFaceTintTest.faceTintDoesNotSuppressTheTrustCaptionOnEitherArm` and `faceTintLeavesThePageRenderRequestUnchanged`; the shared tint gate by `passes-ui-core`'s `FaceTintTest` |
 | C3      | Length-cap, charset and Cf/Cc rejection unit tests; `theTwoDimensionalFormatsEncodeAtTheirValidatorCap`, `theTwoDimensionalFormatsRoundTripAtTheirValidatorCap`, `BarcodeEncoderRoundTripTest.nonAsciiPayloadsSurviveOnTheCharsetPinnedFormats`, `BarcodeEncoderCharsetTest`; `noFormatIsDecodeOnly` and `isCreatableAgreesWithWhatTheValidatorAccepts`; byte-capable charset rules in `ScannableFormatConstraintsTest` |
 | C4      | `QrPayloadClassifierTest`, `BarcodeCreateConfirmSheetTest` |
