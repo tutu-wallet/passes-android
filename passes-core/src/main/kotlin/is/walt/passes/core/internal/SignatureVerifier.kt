@@ -58,10 +58,11 @@ import java.security.cert.X509Certificate
  *  1. CMS structurally well-formed and the signed math evaluates against
  *     `manifestBytes` to "doesn't match" — either [SignerInformation.verify] returns
  *     `false` or BC raises [CMSSignerDigestMismatchException] — **and** the
- *     wire-order fallback in [verifiesOverWireEncodedAttributes] also fails. →
+ *     wire-order fallback in [verifiesOverWireEncodedAttributes] also returns `false`. →
  *     [Failed] ([TamperReason.ManifestSignatureMismatch]).
  *  2. CMS structurally malformed, an unexpected BouncyCastle exception, or any
- *     cryptographic operation fails outside the digest-mismatch path. → [Failed]
+ *     cryptographic operation fails outside the digest-mismatch path, the wire-order
+ *     fallback included: a check that could not run has not shown a mismatch. → [Failed]
  *     ([TamperReason.SignatureCryptoFailure]). The outer `runCatching` is the
  *     load-bearing safety net here: `verifySignature` must never propagate an
  *     exception out, since the parser-glue bead's `when` cannot surface one.
@@ -106,27 +107,29 @@ internal fun verifySignature(
 
 /**
  * **Test seam, DO NOT call from production code.** Lets a test inject a faulting
- * [loadTrust], which returns the trust anchors and known intermediates.
+ * [loadTrust], or a fault raised as the wire-order fallback starts ([beforeWireOrderCheck]).
  */
 internal fun verifySignatureWithTrustLoaderForTesting(
     signatureBytes: ByteArray,
     manifestBytes: ByteArray,
     config: ParserConfig,
+    beforeWireOrderCheck: () -> Unit = {},
     loadTrust: () -> Pair<Set<TrustAnchor>, Set<X509Certificate>>,
-): SignatureVerifyResult = verifyWithTrustLoader(signatureBytes, manifestBytes, config, loadTrust)
+): SignatureVerifyResult = verifyWithTrustLoader(signatureBytes, manifestBytes, config, beforeWireOrderCheck, loadTrust)
 
 /** The one `runCatching` every entrypoint shares. */
 private fun verifyWithTrustLoader(
     signatureBytes: ByteArray,
     manifestBytes: ByteArray,
     config: ParserConfig,
+    beforeWireOrderCheck: () -> Unit = {},
     loadTrust: () -> Pair<Set<TrustAnchor>, Set<X509Certificate>>,
 ): SignatureVerifyResult {
     // loadTrust stays inside: a stripped or corrupt bundled .cer throws there, and `by lazy`
     // re-throws on every call, so each call must still map to SignatureCryptoFailure.
     return runCatching {
         val (trustAnchors, knownIntermediates) = loadTrust()
-        val ctx = VerifyContext(config, trustAnchors, knownIntermediates)
+        val ctx = VerifyContext(config, trustAnchors, knownIntermediates, beforeWireOrderCheck)
         verifyAndClassify(signatureBytes, manifestBytes, ctx)
     }.getOrElse { SignatureVerifyResult.Failed(TamperReason.SignatureCryptoFailure) }
 }
@@ -175,7 +178,7 @@ private fun finalizeVerification(
     manifestBytes: ByteArray,
     ctx: VerifyContext,
 ): SignatureVerifyResult {
-    if (!verifyMath(signerCert.signer, signerCert.holder, signatureBytes, manifestBytes)) {
+    if (!verifyMath(signerCert, signatureBytes, manifestBytes, ctx.beforeWireOrderCheck)) {
         return SignatureVerifyResult.Failed(TamperReason.ManifestSignatureMismatch)
     }
     val converter = JcaX509CertificateConverter().setProvider(BC_PROVIDER)
@@ -191,7 +194,7 @@ private fun finalizeVerification(
  * BouncyCastle 1.77 fork under the `"BC"` slot whose 105 services do not include
  * `Signature.SHA256withRSA`. Passing the string `"BC"` to BC builders resolves it via
  * [java.security.Security.getProvider], which returns Android's stripped instance
- * rather than the `bcprov-jdk18on:1.79` we ship in our APK; the verifier's
+ * rather than the `bcprov-jdk18on` we ship in our APK; the verifier's
  * `Signature.getInstance("SHA256withRSA", "BC")` lookup then throws
  * [java.security.NoSuchAlgorithmException], the outer `runCatching` absorbs it, and
  * every Apple-signed pkpass surfaces as [SignatureVerifyResult.Failed]
@@ -210,7 +213,8 @@ private fun finalizeVerification(
  * as unreferenced unless kept. `passes-core` ships the required keep rules in
  * `META-INF/proguard/passes-core.pro`; without them this provider constructs but
  * registers almost nothing, and every Apple-signed pkpass collapses onto
- * [TamperReason.SignatureCryptoFailure].
+ * [TamperReason.SignatureCryptoFailure]. `ShrunkBuildSignatureTest` runs this file's
+ * paths on an R8 output built with those rules.
  */
 private val BC_PROVIDER: BouncyCastleProvider by lazy { BouncyCastleProvider() }
 
@@ -236,18 +240,18 @@ private fun firstSignerWithCert(signedData: CMSSignedData): SignerWithHolder? {
 }
 
 private fun verifyMath(
-    signer: SignerInformation,
-    leafHolder: X509CertificateHolder,
+    signerCert: SignerWithHolder,
     signatureBytes: ByteArray,
     manifestBytes: ByteArray,
+    beforeWireOrderCheck: () -> Unit,
 ): Boolean {
     val verifier =
         JcaSimpleSignerInfoVerifierBuilder()
             .setProvider(BC_PROVIDER)
-            .build(leafHolder)
+            .build(signerCert.holder)
     val derVerified =
         try {
-            signer.verify(verifier)
+            signerCert.signer.verify(verifier)
         } catch (_: CMSSignerDigestMismatchException) {
             // BC raises this when the signed digest attribute doesn't match the recomputed
             // digest of `manifestBytes`. That is exactly the mismatch arm; collapsing it
@@ -255,12 +259,10 @@ private fun verifyMath(
             false
         }
     if (derVerified) return true
-    // Fail closed, and keep the taxonomy stable: an exception raised only inside the
-    // fallback must not turn the DER path's ManifestSignatureMismatch verdict into
-    // SignatureCryptoFailure at the outer runCatching.
-    return runCatching {
-        verifiesOverWireEncodedAttributes(signer, leafHolder, signatureBytes, manifestBytes)
-    }.getOrDefault(false)
+    // Not caught here: a fallback that throws reaches the outer runCatching as
+    // SignatureCryptoFailure, so a check that could not run is never reported as a mismatch.
+    beforeWireOrderCheck()
+    return verifiesOverWireEncodedAttributes(signerCert.signer, signerCert.holder, signatureBytes, manifestBytes)
 }
 
 /**
@@ -297,8 +299,9 @@ private fun verifyMath(
  * saw.
  *
  * Fails closed: any structural surprise (absent attributes, missing or repeated digest
- * attribute, multi-signer envelope, indefinite-length BER) returns `false`, as does any
- * exception, and the caller reports tampering.
+ * attribute, multi-signer envelope, indefinite-length BER) returns `false` and the caller
+ * reports tampering. An exception propagates and is reported as
+ * [TamperReason.SignatureCryptoFailure].
  */
 @Suppress("ReturnCount")
 private fun verifiesOverWireEncodedAttributes(
@@ -465,4 +468,5 @@ private data class VerifyContext(
     val config: ParserConfig,
     val trustAnchors: Set<TrustAnchor>,
     val knownIntermediates: Set<X509Certificate>,
+    val beforeWireOrderCheck: () -> Unit,
 )

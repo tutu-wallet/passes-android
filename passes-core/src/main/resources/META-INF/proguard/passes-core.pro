@@ -39,6 +39,7 @@
 # provider classes, so R8's normal reachability retains exactly the parts in use.
 -keep class org.bouncycastle.jcajce.provider.** { *; }
 -keep class org.bouncycastle.jce.provider.** { *; }
+# ShrunkBuildSignatureTest fails without the two keeps above.
 -dontwarn org.bouncycastle.**
 
 # Intentionally NOT included:

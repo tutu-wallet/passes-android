@@ -45,6 +45,10 @@ truth = { module = "com.google.truth:truth", version.ref = "truth" }
 bouncycastle-bcprov = { module = "org.bouncycastle:bcprov-jdk18on", version.ref = "bouncycastle" }
 bouncycastle-bcpkix = { module = "org.bouncycastle:bcpkix-jdk18on", version.ref = "bouncycastle" }
 
+# R8 as bundled inside this repo's AGP; the shrunk-build test in passes-core runs it in
+# classfile mode.
+android-builder = { group = "com.android.tools.build", name = "builder", version.ref = "agp" }
+
 # Android core
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "androidxCoreKtx" }
 androidx-lifecycle-runtime-ktx = { group = "androidx.lifecycle", name = "lifecycle-runtime-ktx", version.ref = "androidxLifecycle" }

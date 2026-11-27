@@ -378,28 +378,6 @@ class SignatureVerifierTest {
         return CMSSignedData.replaceCertificatesAndCRLs(signed, CollectionStore(leafOnly), null, null).encoded
     }
 
-    /**
-     * Manifest + detached signature bytes pulled from a real Apple-signed pkpass.
-     * Named fields so callers can't transpose the two `ByteArray`s — both arguments
-     * to [verifySignature] are also `ByteArray`, and a positional pair would invite
-     * exactly that bug at every call site.
-     */
-    private data class AppleSignedFixture(
-        val manifest: ByteArray,
-        val signature: ByteArray,
-    )
-
-    private fun loadAppleSignedFixture(): AppleSignedFixture {
-        val cls = SignatureVerifierTest::class.java
-        val manifest =
-            cls.getResourceAsStream("fixtures/apple-signed/manifest.json")?.use { it.readBytes() }
-                ?: error("Fixture missing: fixtures/apple-signed/manifest.json")
-        val signature =
-            cls.getResourceAsStream("fixtures/apple-signed/signature")?.use { it.readBytes() }
-                ?: error("Fixture missing: fixtures/apple-signed/signature")
-        return AppleSignedFixture(manifest, signature)
-    }
-
     @Test
     fun appleVerifiedWhenSignerIdIsSubjectKeyIdentifier() {
         // Forward coverage for the SubjectKeyIdentifier signer-ID flavor that every
@@ -470,6 +448,28 @@ class SignatureVerifierTest {
                 ParserConfig(),
                 setOf(TrustAnchor(root, null)),
                 setOf(intermediate),
+            )
+
+        assertOk(result, SignatureStatus.AppleVerified)
+    }
+
+    @Test
+    fun ecdsaSignedEnvelopeVerifies() {
+        // The bundled G3 root and G6 intermediate are ECDSA; every other synthetic chain is RSA.
+        val rootKey = newEcKeyPair()
+        val root = selfSignedCertificate(rootKey, "CN=Test EC Root")
+        val leafKey = newEcKeyPair()
+        val leaf = signLeafCertificate(leafKey.public, rootKey, root, "CN=Test EC Leaf")
+        val manifest = "{\"pass.json\":\"abcd\"}".toByteArray()
+        val signature = cmsDetachedSignature(manifest, leaf, leafKey.private, listOf(leaf, root))
+
+        val result =
+            verifySignatureAgainstAnchorsForTesting(
+                signature,
+                manifest,
+                ParserConfig(),
+                setOf(TrustAnchor(root, null)),
+                emptySet(),
             )
 
         assertOk(result, SignatureStatus.AppleVerified)

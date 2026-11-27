@@ -29,6 +29,7 @@ import org.bouncycastle.cms.CMSProcessableByteArray
 import org.bouncycastle.cms.CMSSignedDataGenerator
 import org.bouncycastle.cms.jcajce.JcaSignerInfoGeneratorBuilder
 import org.bouncycastle.jce.provider.BouncyCastleProvider
+import org.bouncycastle.operator.ContentSigner
 import org.bouncycastle.operator.jcajce.JcaContentSignerBuilder
 import org.bouncycastle.operator.jcajce.JcaDigestCalculatorProviderBuilder
 import java.math.BigInteger
@@ -40,6 +41,7 @@ import java.security.PublicKey
 import java.security.Security
 import java.security.Signature
 import java.security.cert.X509Certificate
+import java.security.spec.ECGenParameterSpec
 import java.util.Date
 
 /**
@@ -50,7 +52,7 @@ import java.util.Date
  * and a regression in one suite is informative about the same path in the other.
  *
  * Visibility is `internal` to the module — these helpers are test-only because they
- * generate ephemeral RSA keys, but Kotlin's test source set lives in the same module
+ * generate ephemeral keys, but Kotlin's test source set lives in the same module
  * as production code, so any test class in `passes-core` can call them.
  */
 internal fun ensureBouncyCastleProvider() {
@@ -63,6 +65,14 @@ internal fun newRsaKeyPair(): KeyPair {
     ensureBouncyCastleProvider()
     val gen = KeyPairGenerator.getInstance("RSA", BC_PROVIDER_NAME)
     gen.initialize(RSA_KEY_BITS)
+    return gen.generateKeyPair()
+}
+
+/** An ECDSA P-384 pair, the key type of the bundled G3 root and G6 intermediate. */
+internal fun newEcKeyPair(): KeyPair {
+    ensureBouncyCastleProvider()
+    val gen = KeyPairGenerator.getInstance("EC", BC_PROVIDER_NAME)
+    gen.initialize(ECGenParameterSpec("secp384r1"))
     return gen.generateKeyPair()
 }
 
@@ -88,7 +98,7 @@ internal fun selfSignedCertificate(
             keyPair.public,
         )
     builder.addSubjectKeyIdentifier(keyPair.public)
-    val signer = JcaContentSignerBuilder(SIG_ALGO).setProvider(BC_PROVIDER_NAME).build(keyPair.private)
+    val signer = contentSignerFor(keyPair.private)
     return JcaX509CertificateConverter()
         .setProvider(BC_PROVIDER_NAME)
         .getCertificate(builder.build(signer))
@@ -123,7 +133,7 @@ internal fun signLeafCertificate(
         builder.addExtension(Extension.basicConstraints, true, BasicConstraints(0))
     }
     builder.addSubjectKeyIdentifier(leafPublicKey)
-    val signer = JcaContentSignerBuilder(SIG_ALGO).setProvider(BC_PROVIDER_NAME).build(issuerKey.private)
+    val signer = contentSignerFor(issuerKey.private)
     return JcaX509CertificateConverter()
         .setProvider(BC_PROVIDER_NAME)
         .getCertificate(builder.build(signer))
@@ -142,7 +152,7 @@ internal fun cmsDetachedSignature(
     includedCerts: List<X509Certificate>,
 ): ByteArray {
     ensureBouncyCastleProvider()
-    val contentSigner = JcaContentSignerBuilder(SIG_ALGO).setProvider(BC_PROVIDER_NAME).build(signerKey)
+    val contentSigner = contentSignerFor(signerKey)
     val infoGen =
         JcaSignerInfoGeneratorBuilder(
             JcaDigestCalculatorProviderBuilder().setProvider(BC_PROVIDER_NAME).build(),
@@ -173,7 +183,7 @@ internal fun cmsDetachedSignatureWithSki(
     includedCerts: List<X509Certificate>,
 ): ByteArray {
     ensureBouncyCastleProvider()
-    val contentSigner = JcaContentSignerBuilder(SIG_ALGO).setProvider(BC_PROVIDER_NAME).build(signerKey)
+    val contentSigner = contentSignerFor(signerKey)
     val infoGen =
         JcaSignerInfoGeneratorBuilder(
             JcaDigestCalculatorProviderBuilder().setProvider(BC_PROVIDER_NAME).build(),
@@ -347,14 +357,19 @@ private fun JcaX509v3CertificateBuilder.addSubjectKeyIdentifier(publicKey: Publi
 }
 
 // String name lookup is fine here: tests run on JVM where Security.addProvider
-// (called from `ensureBouncyCastleProvider`) installs bcprov-jdk18on:1.79 under "BC"
+// (called from `ensureBouncyCastleProvider`) installs bcprov-jdk18on under "BC"
 // before any helper resolves. The production verifier deliberately holds an instance
 // instead — see `BC_PROVIDER` in `SignatureVerifier.kt` and the wpass-4js writeup —
 // because Android already has a stripped BC parked in the "BC" slot. Tests are
 // unaffected by that failure mode, so the cheaper string lookup is appropriate;
 // the explicit `_NAME` suffix flags the type difference for readers.
 private const val BC_PROVIDER_NAME = "BC"
-private const val SIG_ALGO = "SHA256withRSA"
+
+private fun contentSignerFor(key: PrivateKey): ContentSigner {
+    val algorithm = if (key.algorithm.startsWith("EC")) "SHA256withECDSA" else "SHA256withRSA"
+    return JcaContentSignerBuilder(algorithm).setProvider(BC_PROVIDER_NAME).build(key)
+}
+
 private const val RSA_KEY_BITS = 2048
 private const val ONE_HOUR_MILLIS = 60L * 60L * 1000L
 private const val ONE_YEAR_MILLIS = 365L * 24L * ONE_HOUR_MILLIS
