@@ -236,8 +236,9 @@ class PublicApiSurfaceTest {
     }
 
     @Test
-    fun imageDecodeRejectionCoversThreeBuckets() {
+    fun imageDecodeRejectionCoversFourBuckets() {
         assertThat(ImageDecodeRejection.entries.map { it.name }).containsExactly(
+            "NotPng",
             "ExceedsArea",
             "Malformed",
             "Other",

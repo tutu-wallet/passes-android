@@ -1,5 +1,6 @@
 package `is`.walt.passes.ui
 
+import android.graphics.Bitmap
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -92,13 +93,54 @@ class BoundedImageDecodeInstrumentedTest {
     }
 
     @Test
-    fun undecodableBytesAreMalformed() {
-        val garbage = ByteArray(256) { (it * 37 + 13).toByte() }
+    fun otherContainersUnderAPngRoleAreRefused() {
+        val containers =
+            listOf(
+                compressed(Bitmap.CompressFormat.JPEG),
+                @Suppress("DEPRECATION") compressed(Bitmap.CompressFormat.WEBP),
+                GIF_1X1,
+                ByteArray(256) { (it * 37 + 13).toByte() },
+            )
 
-        val (bitmap, rejection) = decodeBoundedBitmap(garbage, ImageRenderBounds.Default)
+        val outcomes = containers.map { decodeBoundedBitmap(it, ImageRenderBounds.Default) }
+
+        assertThat(outcomes.map { (bitmap, _) -> bitmap }).containsExactly(null, null, null, null)
+        assertThat(outcomes.map { (_, rejection) -> rejection })
+            .containsExactly(
+                ImageDecodeRejection.NotPng,
+                ImageDecodeRejection.NotPng,
+                ImageDecodeRejection.NotPng,
+                ImageDecodeRejection.NotPng,
+            )
+    }
+
+    @Test
+    fun pngCutOffAfterItsHeaderIsMalformed() {
+        val png = pngOf(width = 64, height = 64)
+
+        val (bitmap, rejection) = decodeBoundedBitmap(png.copyOf(PNG_HEADER_BYTES), ImageRenderBounds.Default)
 
         assertThat(bitmap).isNull()
         assertThat(rejection).isEqualTo(ImageDecodeRejection.Malformed)
+    }
+
+    @Test
+    fun interlacedPngDecodesUpToItsLowerCeiling() {
+        val (bitmap, rejection) =
+            decodeBoundedBitmap(pngOf(width = 1920, height = 1920, interlaced = true), ImageRenderBounds.Default)
+
+        assertThat(rejection).isNull()
+        assertThat(bitmap!!.width).isEqualTo(1920)
+        assertThat(bitmap.height).isEqualTo(1920)
+    }
+
+    @Test
+    fun interlacedPngOverItsLowerCeilingIsRefused() {
+        val (bitmap, rejection) =
+            decodeBoundedBitmap(pngOf(width = 1921, height = 1920, interlaced = true), ImageRenderBounds.Default)
+
+        assertThat(bitmap).isNull()
+        assertThat(rejection).isEqualTo(ImageDecodeRejection.ExceedsArea)
     }
 
     @Test
@@ -127,6 +169,19 @@ class BoundedImageDecodeInstrumentedTest {
         }
     }
 
+    @Test
+    fun otherContainerDrawsNothingAndReportsOnce() {
+        val rejections = CopyOnWriteArrayList<ImageDecodeRejection>()
+        composeRule.setContent { TestImage(compressed(Bitmap.CompressFormat.JPEG), rejections) }
+
+        composeRule.waitUntil(DECODE_TIMEOUT_MS) { rejections.isNotEmpty() }
+        composeRule.waitForIdle()
+        assertThat(rejections).containsExactly(ImageDecodeRejection.NotPng)
+        composeRule.onAllNodesWithContentDescription(DESCRIPTION).fetchSemanticsNodes().let {
+            assertThat(it).isEmpty()
+        }
+    }
+
     @Composable
     private fun TestImage(png: ByteArray, rejections: MutableList<ImageDecodeRejection>) {
         BoundedImage(
@@ -143,21 +198,32 @@ class BoundedImageDecodeInstrumentedTest {
         )
     }
 
+    private fun compressed(format: Bitmap.CompressFormat): ByteArray {
+        val bitmap = Bitmap.createBitmap(16, 16, Bitmap.Config.ARGB_8888)
+        return ByteArrayOutputStream().use { out ->
+            bitmap.compress(format, 90, out)
+            bitmap.recycle()
+            out.toByteArray()
+        }
+    }
+
     // A valid all-black greyscale PNG, streamed so a 16 MP fixture costs the test a few kilobytes.
-    private fun pngOf(width: Int, height: Int): ByteArray {
+    private fun pngOf(width: Int, height: Int, interlaced: Boolean = false): ByteArray {
         val header =
             ByteArrayOutputStream().also {
                 DataOutputStream(it).apply {
                     writeInt(width)
                     writeInt(height)
-                    write(byteArrayOf(8, 0, 0, 0, 0))
+                    write(byteArrayOf(8, 0, 0, 0, if (interlaced) 1 else 0))
                 }
             }.toByteArray()
         val pixels =
             ByteArrayOutputStream().also { out ->
                 DeflaterOutputStream(out).use { deflater ->
-                    val row = ByteArray(width + 1)
-                    repeat(height) { deflater.write(row) }
+                    for ((rows, rowBytes) in scanlinesOf(width, height, interlaced)) {
+                        val row = ByteArray(rowBytes)
+                        repeat(rows) { deflater.write(row) }
+                    }
                 }
             }.toByteArray()
         return ByteArrayOutputStream().also { out ->
@@ -166,6 +232,14 @@ class BoundedImageDecodeInstrumentedTest {
             out.writeChunk("IDAT", pixels)
             out.writeChunk("IEND", ByteArray(0))
         }.toByteArray()
+    }
+
+    // Row count and bytes per row (filter byte included) of each pass: one, or Adam7's seven.
+    private fun scanlinesOf(width: Int, height: Int, interlaced: Boolean): List<Pair<Int, Int>> {
+        if (!interlaced) return listOf(height to width + 1)
+        return ADAM7.map { (xStart, yStart, xStep, yStep) ->
+            (height - yStart + yStep - 1) / yStep to (width - xStart + xStep - 1) / xStep + 1
+        }.filter { (rows, rowBytes) -> rows > 0 && rowBytes > 1 }
     }
 
     private fun ByteArrayOutputStream.writeChunk(type: String, data: ByteArray) {
@@ -181,5 +255,29 @@ class BoundedImageDecodeInstrumentedTest {
         const val DESCRIPTION = "logo"
         const val DECODE_TIMEOUT_MS = 10_000L
         val PNG_SIGNATURE = byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A)
+
+        // Signature, then the IHDR chunk with its length, type, data and CRC.
+        const val PNG_HEADER_BYTES = 33
+
+        // xStart, yStart, xStep, yStep of each Adam7 pass.
+        val ADAM7 =
+            listOf(
+                listOf(0, 0, 8, 8),
+                listOf(4, 0, 8, 8),
+                listOf(0, 4, 4, 8),
+                listOf(2, 0, 4, 4),
+                listOf(0, 2, 2, 4),
+                listOf(1, 0, 2, 2),
+                listOf(0, 1, 1, 2),
+            )
+
+        // GIF89a, 1 x 1, two-colour table, one image.
+        val GIF_1X1 =
+            intArrayOf(
+                0x47, 0x49, 0x46, 0x38, 0x39, 0x61, 0x01, 0x00, 0x01, 0x00, 0x80, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF,
+                0x2C, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00,
+                0x02, 0x02, 0x44, 0x01, 0x00, 0x3B,
+            ).map { it.toByte() }.toByteArray()
     }
 }

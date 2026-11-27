@@ -3,6 +3,7 @@ package `is`.walt.passes.core.internal
 import `is`.walt.passes.core.ParserConfig
 import `is`.walt.passes.core.Pass
 import `is`.walt.passes.core.PassEncodeResult
+import `is`.walt.passes.core.PngHeader
 import `is`.walt.passes.core.ResourceLimit
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -22,7 +23,7 @@ import java.util.zip.ZipOutputStream
  *
  * Every [ParserConfig] limit the parser enforces is checked here, in the same units and
  * where possible through the parser's own guard ([enforceJsonLimits],
- * [readPngDimensions]), so a refusal here is exactly a rejection there.
+ * [PngHeader]), so a refusal here is exactly a rejection there.
  */
 internal fun writePassArchive(
     pass: Pass,
@@ -76,17 +77,13 @@ private fun jsonLimit(
         else -> ResourceLimit.JsonStringSize
     }
 
-/** Mirrors the parser's pixel cap, including "unreadable IHDR skips the cap". */
+/** The parser's pixel cap. An image that is not a PNG carries none; the parser leaves it out. */
 private fun imageLimit(
     pass: Pass,
     config: ParserConfig,
 ): ResourceLimit? {
     val cap = config.maxImagePixelCount.toLong()
-    val over =
-        pass.images.values.any { image ->
-            val dim = readPngDimensions(image.bytes)
-            dim != null && (dim.width > cap || dim.height > cap || dim.width * dim.height > cap)
-        }
+    val over = pass.images.values.any { PngHeader.read(it.bytes)?.exceedsPixelCount(cap) == true }
     return if (over) ResourceLimit.ImagePixelCount else null
 }
 

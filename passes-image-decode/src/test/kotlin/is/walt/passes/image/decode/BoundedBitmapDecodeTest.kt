@@ -34,28 +34,21 @@ class BoundedBitmapDecodeTest {
     @Test
     fun containOutOfMemoryPropagatesWhenNoFold() {
         // In-process display posture: no rejection bucket for an OOM, so signal propagate.
-        val contained = containOutOfMemory(pendingRejection = null, policy = policy(maxSide = 8, onOutOfMemory = null))
+        val contained = containOutOfMemory(policy(maxSide = 8, onOutOfMemory = null))
         assertThat(contained).isNull()
     }
 
     @Test
     fun containOutOfMemoryFoldsWhenSupplied() {
         // Sandbox posture: an OOM is contained as the caller's fold value.
-        val contained = containOutOfMemory(pendingRejection = null, policy = policy(maxSide = 8))
+        val contained = containOutOfMemory(policy(maxSide = 8))
         assertThat(contained).isEqualTo(BoundedBitmap.Rejected(Reason.Oom))
-    }
-
-    @Test
-    fun containOutOfMemoryPrefersPendingGateRejection() {
-        // A header rejection already in flight wins over the OOM fold (the `rejection ?:` idiom).
-        val contained = containOutOfMemory(pendingRejection = Reason.TooLarge, policy = policy(maxSide = 8))
-        assertThat(contained).isEqualTo(BoundedBitmap.Rejected(Reason.TooLarge))
     }
 
     private val box = DecodeSize(1920, 1920)
 
     private fun decodeSize(width: Int, height: Int, maxSize: DecodeSize? = box) =
-        decodeSize(DecodeSize(width, height), rejected = false, maxSize = maxSize)
+        decodeSize(DecodeSize(width, height), maxSize)
 
     @Test
     fun noBoxDecodesAtTheHeaderSize() {
@@ -90,13 +83,6 @@ class BoundedBitmapDecodeTest {
         assertThat(decodeSize(16_777_216, 1)).isEqualTo(DecodeSize(1919, 1))
         assertThat(decodeSize(1, 16_777_216)).isEqualTo(DecodeSize(1, 1919))
         assertThat(decodeSize(Int.MAX_VALUE, Int.MAX_VALUE, maxSize = DecodeSize(1, 1))).isEqualTo(DecodeSize(1, 1))
-    }
-
-    @Test
-    fun rejectedImageDecodesAtOnePixelWhateverTheBox() {
-        val header = DecodeSize(64, 32)
-        assertThat(decodeSize(header, rejected = true, maxSize = null)).isEqualTo(DecodeSize(1, 1))
-        assertThat(decodeSize(header, rejected = true, maxSize = box)).isEqualTo(DecodeSize(1, 1))
     }
 
     @Test

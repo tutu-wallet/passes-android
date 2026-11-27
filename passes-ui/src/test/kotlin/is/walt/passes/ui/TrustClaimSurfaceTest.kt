@@ -557,16 +557,6 @@ class TrustClaimSurfaceTest {
         assertThat(bareLocalPartNodes).isEmpty()
     }
 
-    @Test
-    fun boundedImageDecoderShrinksInsteadOfRefusingAnImageOverItsBounds() {
-        // Robolectric's decoder stub is about 100 x 100 for any bytes, far over these bounds.
-        val anyBytes = ByteArray(64) { (it * 31).toByte() }
-        val (bitmap, rejection) = decodeBoundedBitmap(anyBytes, ImageRenderBounds(maxWidthPx = 1, maxHeightPx = 1))
-        assertThat(rejection).isNull()
-        assertThat(bitmap!!.width).isEqualTo(1)
-        assertThat(bitmap.height).isEqualTo(1)
-    }
-
     // wpass-38y: pass.strings substitution must apply symmetrically on the front and
     // the back. The chroniques (pass.com.tixly) regression had the back rendering raw
     // `#LABELKEY#` placeholders; the parallel concern is that organizationName, which

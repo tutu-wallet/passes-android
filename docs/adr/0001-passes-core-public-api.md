@@ -127,6 +127,16 @@ Grammar: the `.strings` parser reads a subset of Apple's old-style property-list
 
 Deliberate divergences, where Apple's parser accepts input this one rejects (the locale is dropped): unknown escapes such as `\x`, `\U` with fewer than four hex digits, octal `\200` to `\377`, an unterminated block comment, trailing text after the last entry, XML and binary-plist `.strings` files, and BOM-less files that are not UTF-8 or UTF-16 (no single-byte fallback, which would bring back the silent mis-rendering the strict decoder exists to prevent). Also rejected: lone surrogates, unterminated strings and non-string values.
 
+## Addendum: an image that is not a PNG is left out, not the pass
+
+A top-level `*.png` entry is kept in `Pass.images` only when it starts with the PNG signature and an IHDR chunk declaring non-zero sides. Any other bytes under an image name (another container, a truncated file, an empty entry) are left out; the pass still parses and the renderer falls back as for any missing image. Every image kept therefore has a readable header for the pixel cap. Integrity is untouched: manifest and signature checks run over every archive entry first. The resource limit still fails the whole pass: a PNG over `maxImagePixelCount` is `ResourceLimitExceeded(ImagePixelCount)`.
+
+Amendment to D3: `ParseSucceededEvent` has `droppedImageCount: Int = 0`, a count like `imageCount` that carries no entry name or content.
+
+`PngHeader` is public: `PngHeader.read(bytes)` returns the declared width, height and interlace flag, or null, and decodes nothing. It is the parser's test, exposed so `passes-ui` applies the same one before a pass image reaches a decoder. The parser is not the control for what gets decoded, since rows stored before this rule and `ImageBytes` a consumer builds never pass through it; `BoundedImage` is (`passes-ui/TRUST_CLAIMS.md` section 6).
+
+`PassEncoder` writes whatever images a `Pass` holds. One that is not a PNG carries no pixel cap there and is left out again when the archive is parsed.
+
 ## Tests
 
-`PassBundleReaderTest`, `PassBundleReaderSourceTest` and `PassBundleSurfaceTest` (D5 nested caps, D7); `SafeArchiveExtractorTest` and `PassParserTest` (inflated cap, locale drop); `PassEncoderTest` (D8); `StringsParserTest` (grammar).
+`PassBundleReaderTest`, `PassBundleReaderSourceTest` and `PassBundleSurfaceTest` (D5 nested caps, D7); `SafeArchiveExtractorTest` and `PassParserTest` (inflated cap, locale drop, image drop); `PngHeaderTest` (the header read); `PassEncoderTest` (D8); `StringsParserTest` (grammar).

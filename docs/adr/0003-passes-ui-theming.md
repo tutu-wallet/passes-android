@@ -118,7 +118,7 @@ Events and the signal each carries:
 - `onPassRendered(type, signatureBand)`: baseline.
 - `onPassBackOpened(type)`: pass-back-tap rate.
 - `onSecuritySheetShown` / `Confirmed` / `Dismissed(intentKind, type)`: shown is the denominator, confirmed and dismissed the numerators. A spike in dismissals is the phishing signal: users open the sheet and bail.
-- `onImageDecodeRejected(reason)`: refused-image rate, one event per decode attempt, so again each time the image re-enters composition. An image that is only larger than its bounds is downsampled and fires nothing, so a spike means malformed or over-ceiling images in the wild.
+- `onImageDecodeRejected(reason)`: refused-image rate, one event per decode attempt, so again each time the image re-enters composition. An image that is only larger than its bounds is downsampled and fires nothing, so a spike means images in the wild that are not PNG, malformed or over their ceiling.
 - `onImportConfirmShown` / `Confirmed` / `Dismissed(type, band)`, `onImportRejected(kind)`, and `onBarcodeCreateGateShown` / `Confirmed` / `Dismissed(kind)`: the import-confirm and barcode-create gates.
 
 `NoopUiTelemetryGuard` is provided for hosts that have not wired a guard.
@@ -153,3 +153,11 @@ Tests: `ScannableCardTrustSurfaceTest` (`inkOnClearsWcagAaAgainstEveryTintInclud
 `BoundedImage` first refused any image over 1920 px on a side or 4 MP, while the parser admits images up to 4096 x 4096 px of area, so an image could import and then never draw. `ImageRenderBounds` is now the output box only: a larger source is decoded at a whole-number division of its size that fits the box. The refusal moved to a fixed source ceiling of 4096 x 4096 px of area, equal to the parser's default cap, which `BoundedImage` applies from the header and no parameter raises.
 
 Trade-off: the largest source the in-process decode accepts rose from 1920 x 1920 (3.7 MP) to 16.7 MP. The bitmap produced at the default bounds is no larger than before, and the whole-number division keeps the decoder from scaling down a full-size bitmap to produce it. What the codec itself buffers is the residual risk `TRUST_CLAIMS.md` section 6 states.
+
+## Amendment to D5: `BoundedImage` decodes PNG only
+
+Pass images are PNG by the format's contract, and `BoundedImage` holds them to it. It reads the PNG signature and IHDR chunk from the bytes first (`passes-core`'s `PngHeader`) and refuses anything else as `ImageDecodeRejection.NotPng` before the platform decoder is called; the decode is refused again unless the decoder reports `image/png`. A refused image is not decoded at all.
+
+An interlaced PNG has a lower source ceiling, 1920 x 1920 px of area, because the platform codec holds an interlaced image whole at any output size. This reopens the "imports, then never draws" gap for one case: the parser admits an interlaced PNG up to its 4096 x 4096 default, and `BoundedImage` refuses it above 1920 x 1920 as `ExceedsArea`. Pass images at the sizes the format calls for are far below either.
+
+Trade-off: a pass whose images are JPEG or another format under a `.png` name drew them before and draws nothing now. The parser leaves such an image out of a newly parsed pass (ADR 0001 addendum), so a consumer falls back as for a missing image; a row stored earlier still holds the bytes, and a consumer that wants the same fallback there tests them with `PngHeader.read`.

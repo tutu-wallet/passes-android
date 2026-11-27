@@ -192,13 +192,19 @@ footer, plus their @2x and @3x variants) are decoded and displayed at the size t
 layout calls for. An image larger than the caller's bounds is scaled down to fit. An
 image the decoder refuses draws nothing.
 
-**Trust claim.** Two limits apply to every pass image. Both are decided from the image
-header, before the bitmap is allocated:
+**Trust claim.** Three limits apply to every pass image, whatever configuration its
+bytes were imported or stored under. No parameter loosens the first two.
 
-- **Source ceiling.** An image declaring more than 4096 x 4096 pixels of area
-  (16,777,216, the parser's default `maxImagePixelCount`) is refused. `BoundedImage`
-  applies the ceiling itself, whatever configuration the bytes were imported under, and
-  no parameter raises it.
+- **PNG only.** `BoundedImage` reads the PNG signature and IHDR chunk from the bytes
+  with `passes-core`'s `PngHeader`. Bytes that do not start with both are refused
+  before the platform decoder is given them, so no JPEG, WebP, GIF, HEIF or other
+  codec parses pass bytes, header included. Behind that check, the decode is refused
+  again unless the platform decoder itself reports `image/png`.
+- **Source ceiling.** A PNG declaring more than 4096 x 4096 pixels of area
+  (16,777,216, the parser's default `maxImagePixelCount`) is refused. An interlaced PNG
+  is refused above 1920 x 1920 pixels of area (3,686,400), because the platform codec
+  holds an interlaced image whole at any output size. Both are decided from the bytes,
+  and the first again from the size the platform decoder reports.
 - **Output bound.** The bitmap handed to the UI never exceeds the caller's
   `ImageRenderBounds` (default 1920 x 1920). A larger source is decoded at its size
   divided by the smallest whole number that fits the bounds. On its tighter axis it
@@ -207,31 +213,43 @@ header, before the bitmap is allocated:
   a small box and decode a small bitmap; with a box of twice the drawn size, a source
   at least as large as the tile comes back at least as large as the tile.
 
-**Residual risk.** A downsampled decode still feeds the whole compressed image through
-the platform codec in the app process. What the codec buffers is the platform's, and
-was measured only for the cases named here:
+A refused image is never decoded. One refused from its bytes never reaches the platform
+decoder; one the platform's own reading refuses ends before its image data is read.
+
+**Residual risk.** An accepted PNG is fed whole through the platform's PNG codec in the
+app process, not in an isolated one. What the codec buffers is the platform's, and was
+measured only for the cases named here:
 
 - On API 34, a non-interlaced PNG decodes without a full-size intermediate (the device
-  test below pins that). An interlaced PNG is buffered whole whatever the output size:
-  up to 64 MB for an accepted image at the ceiling, 128 MB for a 16-bit one.
+  test below pins that).
+- An interlaced PNG is held whole whatever the output size. On API 35 that measured
+  about 14 MB at the lower ceiling, or 28 MB for a 16-bit one, on top of the output
+  bitmap. No test pins those figures.
 - The number of decodes is not limited: each `BoundedImage` in composition decodes its
   own image. A decode that exhausts memory can take the host process down; an
   `OutOfMemoryError` from it propagates to the host.
+- A PNG whose header reads correctly and whose body is malformed still reaches the
+  codec, which is where it is found to be malformed.
 
 **How tested.**
 
-- `BoundedImageDecodeTest` pins the ceiling's value, its parity with the parser default
-  and the ceiling decision, on the JVM. `passes-image-decode`'s `BoundedBitmapDecodeTest`
-  pins the division arithmetic.
+- `BoundedImageDecodeTest` pins, on the JVM: both ceilings' values, the first's parity
+  with the parser default, the refusal of JPEG, WebP, GIF, HEIF, truncated and empty
+  bytes from the bytes alone, that the decode returns a refusal only the bytes can
+  give, and the second check's refusal of every reported type but `image/png`.
+  `passes-core`'s `PngHeaderTest` pins the header read. `passes-image-decode`'s
+  `BoundedBitmapDecodeTest` pins the division arithmetic.
 - `BoundedImageDecodeInstrumentedTest` runs the platform decoder (CI on API 28, 31, 34
   and 36): an image over the bounds comes back inside them and reports nothing, an
-  image inside them keeps its size, a 4096 x 4096 image decodes to 1365 x 1365, and an
+  image inside them keeps its size, a 4096 x 4096 image decodes to 1365 x 1365, an
   image one column over the ceiling is refused at bounds below, at and above the
-  default.
+  default, real JPEG, WebP and GIF files are refused as not PNG, and an interlaced
+  PNG decodes at its ceiling and is refused one column over it.
 - `passes-image-decode`'s `BoundedBitmapDecodeInstrumentedTest` pins the shared
   mechanism: a box larger than the source never enlarges it, a box never rescues an
-  image the header gate refused, and decoding a 3839 x 3839 image into a 1920 x 1920
-  box peaks below half the memory of the full-size bitmap.
+  image the header gate refused, decoding a 3839 x 3839 image into a 1920 x 1920
+  box peaks below half the memory of the full-size bitmap, and refusing an interlaced
+  image costs under 1 MB where decoding it costs its full size.
 - `PublicApiSurfaceTest` pins `ImageRenderBounds.Default` to 1920 x 1920 and rejects
   non-positive dimensions at construction.
 - Coil's default decoder is not used for pass images; only the

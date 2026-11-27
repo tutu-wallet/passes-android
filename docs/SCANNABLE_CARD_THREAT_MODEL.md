@@ -100,8 +100,9 @@ consumer's list is permitted strictly when all five hold:
    - The host renders no barcode from the pass in the list, at any size, on the pass
      tile or off it.
    - The image decodes in the app process through the kernel's `BoundedImage`, at
-     `ImageRenderBounds.Default` or tighter, which caps the dimensions of the bitmap it
-     returns and refuses an image over the kernel's source ceiling. That is the path
+     `ImageRenderBounds.Default` or tighter, which decodes a PNG and nothing else, caps
+     the dimensions of the bitmap it returns and refuses an image over the kernel's
+     source ceiling without decoding it. That is the path
      the kernel provides for pass images, not the isolated process that images a user
      imports decode in (C5; ADR 0005 D3 and section I).
 
@@ -182,8 +183,9 @@ bounded:
 
 **Decode exposure.** A list that draws pass tiles decodes one image per pkpass item
 whenever those items are displayed, where a detail surface decodes only the pass the
-user opened. The decode is in-process and bounded per image (condition 4), so the list
-adds reach to an exposure pass images already carry and no new decode path.
+user opened. The decode is in-process, PNG-only and bounded per image (condition 4),
+so the list adds reach to an exposure pass images already carry and no new decode
+path.
 
 Dropping or weakening any of the five conditions amends this document. The kernel
 cannot verify them at runtime, so the obligation is the consumer's. Its wallet-list

@@ -171,8 +171,9 @@ public enum class BarcodeCreateKind {
     UnknownScheme,
 }
 
-/** Why a pass image was refused: over the source pixel ceiling, undecodable, or anything else. */
+/** Why a pass image was refused: not a PNG, over its source pixel ceiling, undecodable, or anything else. */
 public enum class ImageDecodeRejection {
+    NotPng,
     ExceedsArea,
     Malformed,
     Other,
