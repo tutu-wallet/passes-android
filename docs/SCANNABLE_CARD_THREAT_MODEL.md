@@ -70,7 +70,7 @@ permitted strictly when all four hold:
    imitate any mark the host draws. A code may render only under the list-face code
    render concession below. Supplied text is covered by the residual risk below.
 4. Detail-surface provenance holds. A user-created or document item opens a detail
-   surface carrying the bottom-docked caption or the audited `HostedTypeRow` carrier
+   surface carrying the kernel's docked caption or the audited `HostedTypeRow` carrier
    below (ADR 0005 D5.T for documents). A pkpass item opens the pkpass detail surface,
    which states its signature status in words, not behind a foldout, tap or other
    disclosure.
@@ -96,9 +96,9 @@ host's voice, and it is bounded:
   restyle or fold away.
 - Posing as verified through a file name or user label is bounded only by the class
   label, which names a class that is never verified, and by the detail caption where it
-  is docked. Under `HostedTypeRow` the provenance row may sit collapsed, so a user who
-  never expands it meets a user-created or document item's provenance only as its class
-  label, whatever its title or content claims.
+  is docked. Under `HostedTypeRow` the provenance row may sit collapsed, so on the
+  inline detail surface a user who never expands it meets a user-created or document
+  item's provenance only as its class label, whatever its title or content claims.
 
 Dropping or weakening any of the four conditions amends this document. The kernel
 cannot verify them at runtime, so the obligation is the consumer's: its wallet-list
@@ -228,13 +228,13 @@ things the docked-caption contract forbade:
 **Why this is bounded.** The load-bearing mitigation for Threat 1 is C1 + C2 combined,
 and C1 is untouched in the direction it must hold: every user-created and document
 item names its class in the host's voice and cannot shed it, and no list item carries a
-verified affordance (premise 1 above), so passing for a pkpass gains nothing at list
-scale. The detail surface is reached
-only after the user has seen the list-level distinction, on a card they created and can
-delete. The row, even collapsed, is a labelled, consistent location for provenance. Walt
-remains a display device (Threat 9). The residual risk is that a user who relies solely
-on the detail surface, never expands the foldout and ignores the list-level distinction
-loses the in-words reminder; judged acceptable for a user viewing their own card.
+verified affordance (condition 1 of the consumer list concession), so passing for a
+pkpass gains nothing at list scale. The detail surface is reached only after the user
+has seen the list-level distinction, on a card they created and can delete. The row,
+even collapsed, is a labelled, consistent location for provenance. Walt remains a
+display device (Threat 9). The residual risk is that a user who relies solely on the
+detail surface, never expands the foldout and ignores the list-level distinction loses
+the in-words reminder; judged acceptable for a user viewing their own card.
 
 **Bound of the concession.** `HostedTypeRow` is permitted strictly for a host that (a)
 renders a "Pass type" row enumerating the artifact class on its detail surface and (b)
@@ -358,11 +358,12 @@ layer to a host type row, shifting the load almost entirely onto C1's list-level
 distinction. Both reductions in defense-in-depth are accepted deliberately.
 
 **Status.** Mitigated structurally. Where a consumer takes both the consumer list and
-`HostedTypeRow` concessions, the C1 list-level distinction carries the load: a class label on every user-created and
-document item, and no verified affordance on any item of any class. Colour
-distinguishes nothing on its own and is not relied on to, and the class label marks a
-class without proving one (residual risk of the consumer list concession). This is the
-load-bearing concern of the feature; every control traces back to this row.
+`HostedTypeRow` concessions, the C1 list-level distinction carries the load: a class
+label on every user-created and document item, no verified affordance and no artifact
+imagery on any item of any class. Colour distinguishes nothing on its own and is not
+relied on to, and the class label marks a class without proving one (residual risk of
+the consumer list concession). This is the load-bearing concern of the feature; every
+control traces back to this row.
 
 ### 2. Hostile URI payload encoded into a QR that another device auto-acts on - Spoofing / Elevation of privilege
 
