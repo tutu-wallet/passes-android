@@ -1,5 +1,6 @@
 package `is`.walt.passes.ui
 
+import android.graphics.Bitmap
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.google.common.truth.Truth.assertThat
 import `is`.walt.passes.core.ParserConfig
@@ -65,7 +66,7 @@ class BoundedImageDecodeTest {
         // Under the main ceiling, and the platform decoder cannot see interlacing: only the byte check refuses this.
         val interlaced = pngHeader(width = 1921, height = 1920, interlaced = true)
 
-        val (bitmap, rejection) = decodeBoundedBitmap(interlaced, ImageRenderBounds.Default)
+        val (bitmap, rejection) = decoded(interlaced, ImageRenderBounds.Default)
 
         assertThat(bitmap).isNull()
         assertThat(rejection).isEqualTo(ImageDecodeRejection.ExceedsArea)
@@ -73,7 +74,7 @@ class BoundedImageDecodeTest {
 
     @Test
     fun aPngThatEndsInsideAChunkIsMalformedFromTheBytes() {
-        val (bitmap, rejection) = decodeBoundedBitmap(pngHeader(width = 8, height = 8), ImageRenderBounds.Default)
+        val (bitmap, rejection) = decoded(pngHeader(width = 8, height = 8), ImageRenderBounds.Default)
 
         assertThat(bitmap).isNull()
         assertThat(rejection).isEqualTo(ImageDecodeRejection.Malformed)
@@ -100,6 +101,13 @@ class BoundedImageDecodeTest {
         assertThat(sourceRejection(mimeType = "image/png", width = Int.MAX_VALUE, height = Int.MAX_VALUE))
             .isEqualTo(ImageDecodeRejection.ExceedsArea)
     }
+
+    /** [decodePassImage] as the bitmap or the refusal. */
+    private fun decoded(png: ByteArray, bounds: ImageRenderBounds): Pair<Bitmap?, ImageDecodeRejection?> =
+        when (val image = decodePassImage(png, bounds)) {
+            is PassImage.Decoded -> image.bitmap to null
+            is PassImage.Refused -> null to image.reason
+        }
 
     // A PNG signature and an IHDR chunk cut before its CRC: all the header check reads.
     private fun pngHeader(width: Int, height: Int, interlaced: Boolean = false): ByteArray =

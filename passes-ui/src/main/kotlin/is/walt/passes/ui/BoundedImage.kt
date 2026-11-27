@@ -1,6 +1,5 @@
 package `is`.walt.passes.ui
 
-import android.graphics.Bitmap
 import android.graphics.ImageDecoder
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Spacer
@@ -21,12 +20,14 @@ import `is`.walt.passes.image.decode.BoundedBitmap
 import `is`.walt.passes.image.decode.BoundedDecodePolicy
 import `is`.walt.passes.image.decode.DecodeSize
 import `is`.walt.passes.image.decode.decodeBounded
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /**
  * The only path from pass image bytes to pixels: a bounded `ImageDecoder` decode of a PNG to at most
  * [bounds]. A refused image draws nothing and reports to [telemetry]; an [OutOfMemoryError] propagates.
+ * With a [cache], an image it holds draws at once and is neither decoded nor reported again.
  */
 @Composable
 public fun BoundedImage(
@@ -36,15 +37,17 @@ public fun BoundedImage(
     telemetry: UiTelemetryGuard,
     modifier: Modifier = Modifier,
     bounds: ImageRenderBounds = ImageRenderBounds.Default,
+    cache: PassImageCache? = null,
 ) {
-    var bitmap by remember(bytes, bounds) { mutableStateOf<Bitmap?>(null) }
+    // Read during composition, so a cached image draws in the first frame.
+    val cached = remember(bytes, bounds, cache) { cache?.get(bytes, bounds) }
+    var bitmap by remember(bytes, bounds, cache) { mutableStateOf((cached as? PassImage.Decoded)?.bitmap) }
 
-    LaunchedEffect(bytes, bounds) {
-        val (decoded, reason) = withContext(Dispatchers.IO) {
-            decodeBoundedBitmap(bytes.bytes, bounds)
+    LaunchedEffect(bytes, bounds, cache) {
+        when (val image = cached ?: loadPassImage(bytes, bounds, cache)) {
+            is PassImage.Decoded -> bitmap = image.bitmap
+            is PassImage.Refused -> if (image.claimReport()) telemetry.onImageDecodeRejected(image.reason)
         }
-        bitmap = decoded
-        reason?.let { telemetry.onImageDecodeRejected(it) }
     }
 
     val current = bitmap
@@ -58,6 +61,30 @@ public fun BoundedImage(
         Spacer(modifier)
     }
 }
+
+/**
+ * Pass image decodes running at once in the process. The codec can hold an interlaced source whole,
+ * so the first show of a list would otherwise hold one per visible image.
+ */
+internal const val DECODE_PARALLELISM: Int = 2
+
+internal val passImageDecodeDispatcher: CoroutineDispatcher = Dispatchers.IO.limitedParallelism(DECODE_PARALLELISM)
+
+/**
+ * Decodes off the caller's thread and stores the result in [cache] there, so a decode that has started
+ * is kept when its caller leaves. One still queued when its caller leaves never runs.
+ */
+internal suspend fun loadPassImage(
+    bytes: ImageBytes,
+    bounds: ImageRenderBounds,
+    cache: PassImageCache?,
+    dispatcher: CoroutineDispatcher = passImageDecodeDispatcher,
+    decode: (ByteArray, ImageRenderBounds) -> PassImage = ::decodePassImage,
+): PassImage =
+    withContext(dispatcher) {
+        // Again here: a decode of the same image queued ahead of this one may have stored it.
+        cache?.get(bytes, bounds) ?: decode(bytes.bytes, bounds).also { cache?.put(bytes, bounds, it) }
+    }
 
 /**
  * Source pixel count above which an image is refused from its header, before the bitmap is
@@ -89,22 +116,22 @@ internal fun sourceRejection(mimeType: String?, width: Int, height: Int): ImageD
     }
 
 /** The decode behind [BoundedImage], split out so tests can drive it without a composition. */
-internal fun decodeBoundedBitmap(
+internal fun decodePassImage(
     rawBytes: ByteArray,
     bounds: ImageRenderBounds,
-): Pair<Bitmap?, ImageDecodeRejection?> {
-    pngRejection(rawBytes)?.let { return null to it }
+): PassImage {
+    val refusal = pngRejection(rawBytes)
     // Only the chunks that draw reach the platform reader, so a metadata chunk costs the decode nothing.
-    val picture = PngPicture.of(rawBytes)
+    val picture = if (refusal == null) PngPicture.of(rawBytes) else null
     val decoded =
-        if (picture == null) {
-            BoundedBitmap.Rejected(ImageDecodeRejection.Malformed)
-        } else {
-            decodeBounded(rawBytes = picture, policy = displayPolicy(bounds))
+        when {
+            refusal != null -> BoundedBitmap.Rejected(refusal)
+            picture == null -> BoundedBitmap.Rejected(ImageDecodeRejection.Malformed)
+            else -> decodeBounded(rawBytes = picture, policy = displayPolicy(bounds))
         }
     return when (decoded) {
-        is BoundedBitmap.Decoded -> decoded.bitmap to null
-        is BoundedBitmap.Rejected -> null to decoded.reason
+        is BoundedBitmap.Decoded -> PassImage.Decoded(decoded.bitmap)
+        is BoundedBitmap.Rejected -> PassImage.Refused(decoded.reason)
     }
 }
 

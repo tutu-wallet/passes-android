@@ -40,7 +40,7 @@ class BoundedImageDecodeInstrumentedTest {
 
     @Test
     fun sourceWiderThanTheBoxIsDownsampledNotRejected() {
-        val (bitmap, rejection) = decodeBoundedBitmap(pngOf(width = 2000, height = 100), ImageRenderBounds.Default)
+        val (bitmap, rejection) = decoded(pngOf(width = 2000, height = 100), ImageRenderBounds.Default)
 
         assertThat(rejection).isNull()
         assertThat(bitmap!!.width).isEqualTo(1000)
@@ -49,7 +49,7 @@ class BoundedImageDecodeInstrumentedTest {
 
     @Test
     fun sourceInsideTheBoxKeepsItsSize() {
-        val (bitmap, rejection) = decodeBoundedBitmap(pngOf(width = 360, height = 220), ImageRenderBounds.Default)
+        val (bitmap, rejection) = decoded(pngOf(width = 360, height = 220), ImageRenderBounds.Default)
 
         assertThat(rejection).isNull()
         assertThat(bitmap!!.width).isEqualTo(360)
@@ -60,7 +60,7 @@ class BoundedImageDecodeInstrumentedTest {
     fun tileBoundsDecodeATileSizedBitmap() {
         val tile = ImageRenderBounds(maxWidthPx = 200, maxHeightPx = 300)
 
-        val (bitmap, rejection) = decodeBoundedBitmap(pngOf(width = 1000, height = 500), tile)
+        val (bitmap, rejection) = decoded(pngOf(width = 1000, height = 500), tile)
 
         assertThat(rejection).isNull()
         assertThat(bitmap!!.width).isEqualTo(200)
@@ -69,7 +69,7 @@ class BoundedImageDecodeInstrumentedTest {
 
     @Test
     fun extremeAspectKeepsAtLeastOnePixel() {
-        val (bitmap, rejection) = decodeBoundedBitmap(pngOf(width = 4000, height = 1), ImageRenderBounds.Default)
+        val (bitmap, rejection) = decoded(pngOf(width = 4000, height = 1), ImageRenderBounds.Default)
 
         assertThat(rejection).isNull()
         assertThat(bitmap!!.width).isEqualTo(1333)
@@ -78,7 +78,7 @@ class BoundedImageDecodeInstrumentedTest {
 
     @Test
     fun sourceAtTheCeilingDecodesIntoTheBox() {
-        val (bitmap, rejection) = decodeBoundedBitmap(pngOf(width = 4096, height = 4096), ImageRenderBounds.Default)
+        val (bitmap, rejection) = decoded(pngOf(width = 4096, height = 4096), ImageRenderBounds.Default)
 
         assertThat(rejection).isNull()
         assertThat(bitmap!!.width).isEqualTo(1365)
@@ -96,7 +96,7 @@ class BoundedImageDecodeInstrumentedTest {
             )
 
         for (each in bounds) {
-            val (bitmap, rejection) = decodeBoundedBitmap(png, each)
+            val (bitmap, rejection) = decoded(png, each)
 
             assertThat(bitmap).isNull()
             assertThat(rejection).isEqualTo(ImageDecodeRejection.ExceedsArea)
@@ -113,7 +113,7 @@ class BoundedImageDecodeInstrumentedTest {
                 ByteArray(256) { (it * 37 + 13).toByte() },
             )
 
-        val outcomes = containers.map { decodeBoundedBitmap(it, ImageRenderBounds.Default) }
+        val outcomes = containers.map { decoded(it, ImageRenderBounds.Default) }
 
         assertThat(outcomes.map { (bitmap, _) -> bitmap }).containsExactly(null, null, null, null)
         assertThat(outcomes.map { (_, rejection) -> rejection })
@@ -129,7 +129,7 @@ class BoundedImageDecodeInstrumentedTest {
     fun pngCutOffAfterItsHeaderIsMalformed() {
         val png = pngOf(width = 64, height = 64)
 
-        val (bitmap, rejection) = decodeBoundedBitmap(png.copyOf(PNG_HEADER_BYTES), ImageRenderBounds.Default)
+        val (bitmap, rejection) = decoded(png.copyOf(PNG_HEADER_BYTES), ImageRenderBounds.Default)
 
         assertThat(bitmap).isNull()
         assertThat(rejection).isEqualTo(ImageDecodeRejection.Malformed)
@@ -146,7 +146,7 @@ class BoundedImageDecodeInstrumentedTest {
         // Without this cost on the platform's own decode, the test below would show nothing.
         expectFromApi(Build.VERSION_CODES.UPSIDE_DOWN_CAKE, platformPeak > 4L * INFLATED_TEXT_BYTES)
 
-        val (decoded, peak) = peakNativeGrowth { decodeBoundedBitmap(png, ImageRenderBounds.Default) }
+        val (decoded, peak) = peakNativeGrowth { decoded(png, ImageRenderBounds.Default) }
 
         assertThat(decoded.second).isNull()
         assertThat(decoded.first!!.width).isEqualTo(1)
@@ -158,7 +158,7 @@ class BoundedImageDecodeInstrumentedTest {
         val metadata = listOf("tEXt" to ByteArray(64), "eXIf" to ByteArray(64))
         val png = withChunks(wideGamutPng(), afterHeader = metadata, atTheEnd = metadata)
 
-        val (bitmap, rejection) = decodeBoundedBitmap(png, ImageRenderBounds.Default)
+        val (bitmap, rejection) = decoded(png, ImageRenderBounds.Default)
 
         val platform = platformDecode(png)
         // Below this level the fixture is not held to Display P3; the comparison below runs everywhere.
@@ -182,7 +182,7 @@ class BoundedImageDecodeInstrumentedTest {
         // Without a gain map on the platform's own decode, the test below would show nothing.
         expectFromApi(GAIN_MAP_IN_PNG_API, platformDecode(png).hasGainmap())
 
-        val (bitmap, rejection) = decodeBoundedBitmap(png, ImageRenderBounds.Default)
+        val (bitmap, rejection) = decoded(png, ImageRenderBounds.Default)
 
         assertThat(rejection).isNull()
         assertThat(bitmap!!.hasGainmap()).isFalse()
@@ -191,7 +191,7 @@ class BoundedImageDecodeInstrumentedTest {
     @Test
     fun interlacedPngDecodesUpToItsLowerCeiling() {
         val (bitmap, rejection) =
-            decodeBoundedBitmap(pngOf(width = 1920, height = 1920, interlaced = true), ImageRenderBounds.Default)
+            decoded(pngOf(width = 1920, height = 1920, interlaced = true), ImageRenderBounds.Default)
 
         assertThat(rejection).isNull()
         assertThat(bitmap!!.width).isEqualTo(1920)
@@ -201,7 +201,7 @@ class BoundedImageDecodeInstrumentedTest {
     @Test
     fun interlacedPngOverItsLowerCeilingIsRefused() {
         val (bitmap, rejection) =
-            decodeBoundedBitmap(pngOf(width = 1921, height = 1920, interlaced = true), ImageRenderBounds.Default)
+            decoded(pngOf(width = 1921, height = 1920, interlaced = true), ImageRenderBounds.Default)
 
         assertThat(bitmap).isNull()
         assertThat(rejection).isEqualTo(ImageDecodeRejection.ExceedsArea)
@@ -245,6 +245,13 @@ class BoundedImageDecodeInstrumentedTest {
             assertThat(it).isEmpty()
         }
     }
+
+    /** [decodePassImage] as the bitmap or the refusal. */
+    private fun decoded(png: ByteArray, bounds: ImageRenderBounds): Pair<Bitmap?, ImageDecodeRejection?> =
+        when (val image = decodePassImage(png, bounds)) {
+            is PassImage.Decoded -> image.bitmap to null
+            is PassImage.Refused -> null to image.reason
+        }
 
     @Composable
     private fun TestImage(png: ByteArray, rejections: MutableList<ImageDecodeRejection>) {
