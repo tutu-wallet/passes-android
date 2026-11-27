@@ -85,18 +85,15 @@ class BoundedRasterDecoderTest {
 
     @Test
     fun rasterPolicyDecodesIntoTwiceTheRequestedOutput() {
-        val policy = rasterPolicy(maxWidthPx = 600, maxHeightPx = 800, config = config) {}
+        val policy = rasterPolicy(maxWidthPx = 600, maxHeightPx = 800, config = config)
         assertThat(policy.maxSize).isEqualTo(DecodeSize(1200, 1600))
     }
 
     @Test
-    fun rasterPolicyHandsOnTheHeaderOfAnAcceptedImageOnly() {
-        val headers = mutableListOf<DecodeSize>()
-        val policy = rasterPolicy(maxWidthPx = 64, maxHeightPx = 64, config = config) { headers += it }
-
+    fun rasterPolicyGatesOnTheHeaderCaps() {
+        val policy = rasterPolicy(maxWidthPx = 64, maxHeightPx = 64, config = config)
         assertThat(policy.gate.evaluate("image/png", 300, 200)).isNull()
         assertThat(policy.gate.evaluate("image/gif", 300, 200)).isEqualTo(ImageDecodeRejectedKind.NotAnImage)
-        assertThat(headers).containsExactly(DecodeSize(300, 200))
     }
 
     @Test

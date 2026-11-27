@@ -37,17 +37,8 @@ public enum class DocumentFormat {
 }
 
 /**
- * What [PassRepository.insertDocument] persists, as a sealed discriminator over the document
- * kinds the `documents` table now holds (wpass-i9x). Each arm carries the kind-specific
- * fields — page count for PDFs, decoded pixel dimensions for images — while sharing the
- * common label / original bytes / thumbnail bytes. Modelled as a sealed interface (not a
- * widened parameter list of nullables) so a caller cannot construct a nonsensical mix
- * (an image with a page count, a PDF with dimensions); the type makes each kind's fields
- * exactly the ones that apply.
- *
- * [bytes] is the ORIGINAL document bytes (PDF bytes, or the original compressed image
- * bytes); storage round-trips them as an opaque BLOB and never decodes them. [thumbnailBytes]
- * is the PNG thumbnail the kernel's document importer encoded, round-tripped the same way.
+ * What [PassRepository.insertDocument] persists, one arm per kind. Storage keeps [bytes] (the original document) and
+ * [thumbnailBytes] (the importer's PNG) as opaque BLOBs and never decodes either.
  */
 public sealed interface DocumentInsert {
     public val label: String

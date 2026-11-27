@@ -470,9 +470,8 @@ internal class DefaultDocumentImporter(
         }
 
         /**
-         * Rebuilds the sandbox's raster in a host `Bitmap`, scales it into [DocumentThumbnailBounds] and
-         * PNG-encodes that as the stored thumbnail. No codec reads untrusted bytes here; any throw folds to
-         * [ImageDecodeRejectedKind.DecodeFailed], and the `SharedMemory` is closed on every path.
+         * PNG-encodes the sandbox's raster, scaled into [DocumentThumbnailBounds], as the stored thumbnail. No codec
+         * reads untrusted bytes here; a throw folds to `DecodeFailed`, and the `SharedMemory` is always closed.
          */
         private fun encodeRasterToThumbnail(ok: ImageDecodeResult.Ok): ImageDecodeOutcome =
             runCatching {
@@ -481,8 +480,7 @@ internal class DefaultDocumentImporter(
                     val bitmap = Bitmap.createBitmap(ok.widthPx, ok.heightPx, Bitmap.Config.ARGB_8888)
                     try {
                         bitmap.copyPixelsFromBuffer(mapped)
-                        val size = thumbnailSize(ok.widthPx, ok.heightPx)
-                        val thumbnail = Bitmap.createScaledBitmap(bitmap, size.widthPx, size.heightPx, true)
+                        val thumbnail = scaledDown(bitmap, thumbnailSize(ok.widthPx, ok.heightPx))
                         try {
                             val png = ByteArrayOutputStream().also { out ->
                                 thumbnail.compress(Bitmap.CompressFormat.PNG, PNG_QUALITY, out)
@@ -501,6 +499,14 @@ internal class DefaultDocumentImporter(
             }.getOrElse {
                 runCatching { ok.sharedMemory.close() }
                 ImageDecodeOutcome.Rejected(ImageDecodeRejectedKind.DecodeFailed)
+            }
+
+        // Halving first keeps a single bilinear pass from aliasing text in a large screenshot.
+        private fun scaledDown(source: Bitmap, target: ThumbnailSize): Bitmap =
+            scaleSteps(ThumbnailSize(source.width, source.height), target).fold(source) { current, step ->
+                Bitmap.createScaledBitmap(current, step.widthPx, step.heightPx, true).also {
+                    if (current !== source) current.recycle()
+                }
             }
 
         private const val PNG_QUALITY: Int = 100

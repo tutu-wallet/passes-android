@@ -15,19 +15,21 @@ public fun <R : Any> decodeBounded(
 ): BoundedBitmap<R> {
     val source = ImageDecoder.createSource(ByteBuffer.wrap(rawBytes))
     var rejection: R? = null
+    var header: DecodeSize? = null
     return try {
         val bitmap =
             ImageDecoder.decodeBitmap(source) { decoder, info, _ ->
                 decoder.allocator = policy.allocator
-                val header = DecodeSize(info.size.width, info.size.height)
-                rejection = policy.gate.evaluate(info.mimeType, header.width, header.height)
+                val size = DecodeSize(info.size.width, info.size.height)
+                rejection = policy.gate.evaluate(info.mimeType, size.width, size.height)
                 // Thrown before the platform decodes a pixel, so a refused image is never decoded.
                 if (rejection != null) throw HeaderRefused()
+                header = size
                 // An image already at its target keeps the platform's unscaled decode.
-                val target = decodeSize(header, policy.maxSize)
-                if (target != header) decoder.setTargetSize(target.width, target.height)
+                val target = decodeSize(size, policy.maxSize)
+                if (target != size) decoder.setTargetSize(target.width, target.height)
             }
-        BoundedBitmap.Decoded(bitmap)
+        BoundedBitmap.Decoded(bitmap, checkNotNull(header))
     } catch (_: HeaderRefused) {
         BoundedBitmap.Rejected(checkNotNull(rejection))
     } catch (_: IOException) {
@@ -92,8 +94,9 @@ public data class DecodeSize(val width: Int, val height: Int) {
 
 /** Outcome of [decodeBounded]. The caller owns and must release a decoded [Bitmap]. */
 public sealed interface BoundedBitmap<out R> {
+    /** [header] is the size the platform reported for the source, before any [BoundedDecodePolicy.maxSize] division. */
     // Not a data class: a Bitmap has identity, not value, equality.
-    public class Decoded(public val bitmap: Bitmap) : BoundedBitmap<Nothing>
+    public class Decoded(public val bitmap: Bitmap, public val header: DecodeSize) : BoundedBitmap<Nothing>
 
     public data class Rejected<out R>(val reason: R) : BoundedBitmap<R>
 }

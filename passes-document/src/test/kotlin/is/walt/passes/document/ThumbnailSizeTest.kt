@@ -26,3 +26,23 @@ class ThumbnailSizeTest {
         assertThat(thumbnailSize(1, 2048)).isEqualTo(ThumbnailSize(1, 800))
     }
 }
+
+class ScaleStepsTest {
+    @Test
+    fun halvesWhileTheHalfStillCoversTheTargetThenScalesOnce() {
+        assertThat(scaleSteps(ThumbnailSize(2048, 1536), ThumbnailSize(600, 450)))
+            .containsExactly(ThumbnailSize(1024, 768), ThumbnailSize(600, 450))
+            .inOrder()
+    }
+
+    @Test
+    fun aSmallReductionIsOneStep() {
+        assertThat(scaleSteps(ThumbnailSize(1000, 750), ThumbnailSize(600, 450)))
+            .containsExactly(ThumbnailSize(600, 450))
+    }
+
+    @Test
+    fun theSameSizeNeedsNoStep() {
+        assertThat(scaleSteps(ThumbnailSize(600, 450), ThumbnailSize(600, 450))).isEmpty()
+    }
+}

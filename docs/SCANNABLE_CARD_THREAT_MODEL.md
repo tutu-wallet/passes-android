@@ -116,9 +116,11 @@ consumer's list is permitted strictly when all five hold:
    file's, a wallet file's sender included, and can depict anything, so this exception
    is bound the same way:
    - The pixels are the thumbnail the kernel's importer stored with the document, the
-     same for the life of the item. It fits 600 x 800 (`DocumentThumbnailBounds`):
-     page 0 rendered in the isolated renderer, or the isolated decoder's raster scaled
-     down in the app process without a codec. The host stores no other thumbnail, on a
+     same for the life of the item: page 0 rendered in the isolated renderer, or the
+     isolated decoder's raster scaled down in the app process, where no codec reads
+     untrusted bytes. The importer fits it to 600 x 800 (`DocumentThumbnailBounds`); an
+     image document stored by an earlier kernel can hold its whole raster, up to 2048 px
+     a side, which meets the same limits. The host stores no other thumbnail, on a
      wallet-file restore as on an import, and renders no page or image live for the
      list.
    - The document tile has a host-fixed size and position, the same on every document
@@ -136,9 +138,12 @@ consumer's list is permitted strictly when all five hold:
      on them in the app process. The bytes a user imported still decode only in the
      isolated process (C5; ADR 0005 D3 and section I).
 
-   Every other pixel source stays out of the list: a user-chosen image on any item, and
-   a code rendered on any item, from a card's or composite's payload or from a pass's
-   barcode. Supplied text is covered by the residual risk below.
+   Every other pixel source stays out of the list: an image the user picks to decorate
+   any item, and a code rendered on any item, from a card's or composite's payload or
+   from a pass's barcode. The kernel's `CompactCodeView` renders a code only off the
+   list, in previews such as a create or import-confirm sheet, and its parameter lock
+   (`ComposableSurfaceLockTest.compactCodeViewHasExactlyFourUserVisibleParameters`)
+   keeps it mechanism-only there. Supplied text is covered by the residual risk below.
 5. Detail-surface provenance holds. A user-created or document item opens a detail
    surface carrying the host's "Pass type" row (below; ADR 0005 D5.T for documents), the
    provenance signal this bound relies on past the class label: no kernel surface for a
@@ -182,8 +187,7 @@ label can print the same words in a title, and a document tile can depict the sa
 things, a whole pass included. None of it is the host's voice, and it is bounded:
 
 - Posing as a user-created or document class gains little past the list. The item
-  keeps the pass mark, by condition 5 it opens the pkpass detail surface, and the host
-  renders no code for it in the list.
+  keeps the pass mark, and by condition 5 it opens the pkpass detail surface.
 - Posing as verified, or as a known issuer, through issuer text or pass tile artwork is
   bounded by conditions 1 and 5. The host draws no verified mark at list scale for
   artwork to copy, a signed pass and an unsigned one render the same item, and the
@@ -228,7 +232,8 @@ without one, it is decoded each time its item is displayed. Every such decode is
 in-process, PNG-only, bounded per image (condition 4) and run at most two at a time in
 the process, so the list adds reach to an exposure pass images already carry and no
 new decode path. A document thumbnail meets those limits whatever its bytes are; the
-one the kernel stores is a PNG it encoded itself, at most 600 x 800. Its bytes stay in
+one the kernel's importer stores is a PNG it encoded itself, at most 600 x 800, or up
+to 2048 px a side for an image stored by an earlier kernel. Its bytes stay in
 the encrypted store and are deleted with the document. A host that keeps the cache
 clears it after the composition that drops a deleted pass's or document's row
 (`passes-ui/TRUST_CLAIMS.md` section 6).
@@ -248,7 +253,7 @@ tests are expected to pin that:
   host-drawn content on every class;
 - a document item's tile shows only the thumbnail the kernel's importer stored for it,
   on an import and a wallet-file restore alike, clipped to a host-fixed tile with the
-  class label outside it;
+  class label outside it, and decoded at `ImageRenderBounds.Default` or tighter;
 - no item draws artifact imagery outside a pass tile or a document tile, no pass
   colour paints outside a pass tile, pass images and document thumbnails decode only
   through `BoundedImage`, and no code renders from a payload or a pass's barcode.
@@ -341,7 +346,9 @@ This is weaker than a caption that states provenance in words, in two ways:
 and C1 holds in the direction it must: every user-created and document
 item names its class in the host's voice and cannot shed it, none can carry the pass
 mark (condition 3 of the consumer list concession), and no list item carries a verified
-affordance (condition 1), so passing for a pkpass gains nothing at list scale. The
+affordance (condition 1). A card draws no imagery in the list, so passing for a pkpass
+gains it nothing there; a document tile can depict a pass, which the residual risk of
+that concession accepts. The
 detail surface is entered from the list, or straight after the user creates or imports
 the item (bound (c)), and the user can delete the card. The row, even collapsed, is a
 labelled, consistent location for provenance. Walt remains a display device (Threat 9).
@@ -809,7 +816,7 @@ v2"; each is deliberately absent because it re-opens a threat row above.
 | C2      | Consumer-side: a test that the details section renders a "Pass type" row, a test that no deep link, shortcut, widget or exported intent opens a detail or scan surface directly, and the list tests of the consumer list concession. Kernel: `scannableCardScreenHasExactlyFourUserVisibleParameters` (the surface's parameter shape). Colour row: `ScannableCardTrustSurfaceTest.faceTintDoesNotSuppressLabelOrPayload` (and its dark-tint twin), `codePanelIsLiterallyWhiteNotAThemeTokenOrTheFaceTint`, `inkOnClearsWcagAaAgainstEveryTintIncludingTheWorstCase`, `DocumentFaceTintTest.faceTintLeavesThePageRenderRequestUnchanged`; the shared tint gate by `passes-ui-core`'s `FaceTintTest` |
 | C3      | Length-cap, charset and Cf/Cc rejection unit tests; `theTwoDimensionalFormatsEncodeAtTheirValidatorCap`, `theTwoDimensionalFormatsRoundTripAtTheirValidatorCap`, `BarcodeEncoderRoundTripTest.nonAsciiPayloadsSurviveOnTheCharsetPinnedFormats`, `BarcodeEncoderCharsetTest`; `noFormatIsDecodeOnly` and `isCreatableAgreesWithWhatTheValidatorAccepts`; byte-capable charset rules in `ScannableFormatConstraintsTest` |
 | C4      | `QrPayloadClassifierTest`, `BarcodeCreateConfirmSheetTest`; consumer-side (expected), tests that a code `requiresCreateConfirmation` flags is not saved unconfirmed on restore or on a format change |
-| C5      | Encoder integration test; decode confinement by the isolated-decode tests (`BarcodeDecodeServiceInstrumentedTest`, `YPlaneFrameDecodeTest`); the stored list thumbnail by `ImageThumbnailInstrumentedTest` (fits the 600 x 800 box) and `BoundedImageDecodeInstrumentedTest.aStoredDocumentThumbnailDecodesAtTileBounds`; and, consumer-side, an instrumented composite-import test (no host-process decode of source bytes) and a guard test that no CameraX `ImageCapture` appears in the consumer's `src/main` |
+| C5      | Encoder integration test; decode confinement by the isolated-decode tests (`BarcodeDecodeServiceInstrumentedTest`, `YPlaneFrameDecodeTest`); the stored list thumbnail by `ImageThumbnailInstrumentedTest` (fits the 600 x 800 box), `PdfImporterTest` (page 0 requested at 600 x 800) and `BoundedImageDecodeInstrumentedTest.aStoredDocumentThumbnailDecodesAtTileBounds` (PNGs encoded as the importers encode them decode at tile bounds); and, consumer-side, an instrumented composite-import test (no host-process decode of source bytes) and a guard test that no CameraX `ImageCapture` appears in the consumer's `src/main` |
 | C6      | No test in this repo (no schema snapshot); closest is `ScannableCardSurfaceTest.scannableCardConstructorIsExercisedWithEveryShape` |
 
 ## Out of scope for this document

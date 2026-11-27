@@ -14,3 +14,15 @@ internal fun thumbnailSize(widthPx: Int, heightPx: Int): ThumbnailSize {
         heightPx = (heightPx * fit).roundToInt().coerceIn(1, maxH),
     )
 }
+
+/** Sizes to scale through from [from] to [to]: halvings while the half still covers [to], then [to]. */
+internal fun scaleSteps(from: ThumbnailSize, to: ThumbnailSize): List<ThumbnailSize> {
+    val steps = mutableListOf<ThumbnailSize>()
+    var current = from
+    while (current.widthPx / 2 >= to.widthPx && current.heightPx / 2 >= to.heightPx) {
+        current = ThumbnailSize(current.widthPx / 2, current.heightPx / 2)
+        steps += current
+    }
+    if (current != to) steps += to
+    return steps
+}

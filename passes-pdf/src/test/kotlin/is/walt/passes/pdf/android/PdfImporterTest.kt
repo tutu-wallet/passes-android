@@ -187,13 +187,12 @@ class PdfImporterTest {
     @Test
     fun successPathInvokesPersistExactlyOnceAndReturnsImported() = runTest {
         val sm = SharedMemory.create("walt-test-import", DEFAULT_THUMB_PIXEL_BYTES)
-        val factory =
-            RecordingSessionFactory(
-                binder = StaticBinder(
-                    probeResult = ProbeResult.Ok(pageCount = 4),
-                    renderResult = RenderResult.Ok(sm, DEFAULT_THUMB_W, DEFAULT_THUMB_H, 1f),
-                ),
+        val binder =
+            StaticBinder(
+                probeResult = ProbeResult.Ok(pageCount = 4),
+                renderResult = RenderResult.Ok(sm, DEFAULT_THUMB_W, DEFAULT_THUMB_H, 1f),
             )
+        val factory = RecordingSessionFactory(binder = binder)
         val persists = mutableListOf<PersistArgs>()
         val result =
             importer(sessionFactory = factory).import(
@@ -214,6 +213,7 @@ class PdfImporterTest {
         assertThat(persists.single().byteSize).isEqualTo(VALID_PDF_BYTES.size)
         assertThat(persists.single().pages).isEqualTo(4)
         assertThat(persists.single().thumbSize).isGreaterThan(0)
+        assertThat(binder.renderRequests).containsExactly(Triple(0, 600, 800))
         assertThat(factory.lastSession?.closed).isTrue()
     }
 
@@ -558,6 +558,8 @@ class PdfImporterTest {
         private val probeResult: ProbeResult = ProbeResult.Rejected(DocumentRejectedKind.RendererFailed),
         private val renderResult: RenderResult = RenderResult.Rejected(DocumentRejectedKind.RendererFailed),
     ) : PdfRendererBinder {
+        val renderRequests: MutableList<Triple<Int, Int, Int>> = mutableListOf()
+
         override suspend fun probe(pdf: ParcelFileDescriptor): ProbeResult = probeResult
 
         override suspend fun render(
@@ -566,7 +568,7 @@ class PdfImporterTest {
             widthPx: Int,
             heightPx: Int,
             sourceRect: RenderSourceRect,
-        ): RenderResult = renderResult
+        ): RenderResult = renderResult.also { renderRequests += Triple(page, widthPx, heightPx) }
     }
 
     private class RecordingTelemetry : DocumentTelemetryGuard {

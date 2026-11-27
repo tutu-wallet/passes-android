@@ -74,32 +74,24 @@ internal fun decodeBoundedRaster(
     maxWidthPx: Int,
     maxHeightPx: Int,
     config: ImageDecodeConfig,
-): ImageDecodeResult {
-    var header: DecodeSize? = null
-    val decoded = decodeBounded(rawBytes, rasterPolicy(maxWidthPx, maxHeightPx, config) { header = it })
-    return when (decoded) {
+): ImageDecodeResult =
+    when (val decoded = decodeBounded(rawBytes, rasterPolicy(maxWidthPx, maxHeightPx, config))) {
         is BoundedBitmap.Rejected -> ImageDecodeResult.Rejected(decoded.reason)
-        is BoundedBitmap.Decoded -> packScaledRaster(decoded.bitmap, checkNotNull(header), maxWidthPx, maxHeightPx)
+        is BoundedBitmap.Decoded -> packScaledRaster(decoded.bitmap, decoded.header, maxWidthPx, maxHeightPx)
     }
-}
 
 /**
  * The sandbox's decode posture: a software allocator so the pixels can be copied out, the
- * [headerRejection] caps, and OOM folded as a decompression bomb. [onHeader] gets an accepted image's size.
+ * [headerRejection] caps, and OOM folded as a decompression bomb.
  */
 internal fun rasterPolicy(
     maxWidthPx: Int,
     maxHeightPx: Int,
     config: ImageDecodeConfig,
-    onHeader: (DecodeSize) -> Unit,
 ): BoundedDecodePolicy<ImageDecodeRejectedKind> =
     BoundedDecodePolicy(
         allocator = ImageDecoder.ALLOCATOR_SOFTWARE,
-        gate = { mimeType, width, height ->
-            val rejection = headerRejection(mimeType, width, height, config)
-            if (rejection == null) onHeader(DecodeSize(width, height))
-            rejection
-        },
+        gate = { mimeType, width, height -> headerRejection(mimeType, width, height, config) },
         // Twice the output, so the whole-number division still covers it and only a downscale follows.
         maxSize = DecodeSize(maxWidthPx * 2, maxHeightPx * 2),
         onMalformed = { ImageDecodeRejectedKind.NotAnImage },

@@ -168,7 +168,7 @@ class ComposableSurfaceLockTest {
     @Test
     fun compactCodeViewHasExactlyFourUserVisibleParameters() {
         // (payload, format, modifier, contentDescription). Mechanism only: no label, eyebrow,
-        // caption or signature affordance; the list-level distinction is the consumer's item.
+        // caption or signature affordance can compose inside it.
         assertUserVisibleParamCount("CompactCodeViewKt", "CompactCodeView", expected = 4)
     }
 

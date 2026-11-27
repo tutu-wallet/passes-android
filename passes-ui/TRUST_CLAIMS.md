@@ -194,7 +194,8 @@ image the decoder refuses draws nothing. In a list that keeps a cache, an image
 already decoded draws at once when its row comes back into view. A document's row in
 the list shows its stored thumbnail the same way (`SCANNABLE_CARD_THREAT_MODEL.md`,
 consumer list concession, condition 4); everything below holds for it as for a pass
-image.
+image. The host passes any `ImageRole`, which the decode does not read, and a refusal
+reaches `onImageDecodeRejected` as a pass image's does.
 
 **Trust claim.** Four limits apply to every pass image, whatever configuration its
 bytes were imported or stored under. No parameter loosens the first three.
@@ -315,7 +316,8 @@ platform's, and was measured only for the cases named here:
   the pixels and colour space the platform gives the same file; the fixture must
   decode as Display P3 on API 34 and up. A PNG with a gain map decodes without one;
   the platform's own decode must read one on API 36 and up, and the test skips on API
-  34 where it does not.
+  34 where it does not. PNGs encoded as the document importers encode them, at 600 x
+  800, 600 x 450 and 2048 x 1536, decode inside tile bounds.
 - `PassImageCacheTest` pins, under Robolectric: a cached image is not decoded again and
   the same bytes at other bounds are another entry; without a cache every load
   decodes; two loads of one image at once share one result; a decode that started is

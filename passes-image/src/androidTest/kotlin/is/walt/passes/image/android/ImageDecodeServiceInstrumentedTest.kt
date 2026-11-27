@@ -82,14 +82,27 @@ class ImageDecodeServiceInstrumentedTest {
 
     @Test
     fun largeSourceComesBackAtTheFullRequestedOutput() {
-        // Decoded at half size into the doubled box, then scaled: the output and aspect follow the header.
-        val pfd = pngFd("large", solidBitmap(3000, 2000, Color.GREEN))
+        // Decoded at 1500 x 1000; sized from that bitmap the output would be 1000 x 667 at aspect 1.5.
+        val pfd = pngFd("large", solidBitmap(3001, 2000, Color.GREEN))
         val result = pfd.use { decode(it, maxWidthPx = 1000, maxHeightPx = 1000) }
 
         val ok = result as ImageDecodeResult.Ok
         assertThat(ok.widthPx).isEqualTo(1000)
-        assertThat(ok.heightPx).isEqualTo(667)
-        assertThat(ok.sourceAspect).isEqualTo(1.5f)
+        assertThat(ok.heightPx).isEqualTo(666)
+        assertThat(ok.sourceAspect).isEqualTo(3001f / 2000f)
+        ok.sharedMemory.close()
+    }
+
+    @Test
+    fun exifRotatedJpegComesBackInItsDisplayedOrientation() {
+        // Stored 400 x 300 with Orientation 6 (rotate 90): displayed, and decoded, as 300 x 400.
+        val pfd = jpegFd("rotated", solidBitmap(400, 300, Color.BLUE), exifOrientation = 6)
+        val result = pfd.use { decode(it, maxWidthPx = 150, maxHeightPx = 150) }
+
+        val ok = result as ImageDecodeResult.Ok
+        assertThat(ok.widthPx).isEqualTo(113)
+        assertThat(ok.heightPx).isEqualTo(150)
+        assertThat(ok.sourceAspect).isEqualTo(300f / 400f)
         ok.sharedMemory.close()
     }
 
@@ -294,6 +307,28 @@ class ImageDecodeServiceInstrumentedTest {
         val file = File.createTempFile(name, ".png", context.cacheDir)
         file.outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
         bitmap.recycle()
+        return ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
+    }
+
+    /** A JPEG of [bitmap] with an EXIF APP1 segment carrying only [exifOrientation], inserted after SOI. */
+    private fun jpegFd(name: String, bitmap: Bitmap, exifOrientation: Int): ParcelFileDescriptor {
+        val jpeg = ByteArrayOutputStream().also { bitmap.compress(Bitmap.CompressFormat.JPEG, 90, it) }.toByteArray()
+        bitmap.recycle()
+        val tiff =
+            ByteArrayOutputStream().apply {
+                write("MM".toByteArray(Charsets.US_ASCII))
+                write(byteArrayOf(0, 42))
+                writeIntBe(8) // offset of IFD0
+                write(byteArrayOf(0, 1)) // one entry
+                write(byteArrayOf(0x01, 0x12, 0, 3)) // Orientation, SHORT
+                writeIntBe(1)
+                write(byteArrayOf(0, exifOrientation.toByte(), 0, 0))
+                writeIntBe(0) // no next IFD
+            }.toByteArray()
+        val payload = "Exif".toByteArray(Charsets.US_ASCII) + byteArrayOf(0, 0) + tiff
+        val app1 = byteArrayOf(0xFF.toByte(), 0xE1.toByte(), ((payload.size + 2) shr 8).toByte(), (payload.size + 2).toByte())
+        val file = File.createTempFile(name, ".jpg", context.cacheDir)
+        file.writeBytes(jpeg.copyOfRange(0, 2) + app1 + payload + jpeg.copyOfRange(2, jpeg.size))
         return ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
     }
 

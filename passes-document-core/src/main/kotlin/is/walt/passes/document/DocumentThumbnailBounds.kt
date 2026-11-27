@@ -1,8 +1,8 @@
 package `is`.walt.passes.document
 
 /**
- * The box every stored document thumbnail fits, aspect kept: page 0 of a PDF rendered to fit it, or
- * an imported image's raster scaled down into it. Changing it is a deliberate, test-breaking edit.
+ * The box the importers fit a stored thumbnail to: a PDF's page 0 centred on white in exactly this size, or an
+ * image's raster scaled down into it, aspect kept. Changing it is a deliberate, test-breaking edit.
  */
 public object DocumentThumbnailBounds {
     public const val MAX_WIDTH_PX: Int = 600

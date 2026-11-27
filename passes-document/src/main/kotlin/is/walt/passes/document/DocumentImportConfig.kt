@@ -1,21 +1,8 @@
 package `is`.walt.passes.document
 
 /**
- * Configuration for [DocumentImporter]. Bundles the shared sniff-stage byte cap, the PDF
- * backend's existing [PdfImportConfig] (which carries the PDF caps and PDF telemetry guard),
- * the image arm's telemetry guard, and the bound the image arm requests from the decode
- * sandbox.
- *
- * [maxBytes] caps the bounded read the importer performs once, before sniffing — so a
- * MIME-spoofed multi-gigabyte file is refused before either backend is touched. It defaults to
- * the same 25 MB ceiling the PDF path uses ([PdfImportConfig.DEFAULT_MAX_BYTES]); the per-kind
- * caps in [pdfConfig] / the `passes-image` sandbox still apply on top.
- *
- * [maxImageDecodePx] is the per-side bound the image arm asks the sandbox to decode within
- * (aspect-preserving, never upscaled, and additionally capped by the sandbox's own 4 MP
- * output ceiling). The returned raster gives the [ImageDocument][`is`.walt.passes.document
- * .ImageDocument] dimensions; the stored thumbnail is that raster scaled into
- * [DocumentThumbnailBounds].
+ * [DocumentImporter]'s caps: [maxBytes] bounds the read before sniffing; [maxImageDecodePx] bounds the image
+ * sandbox's raster per side, which gives the dimensions and is scaled into [DocumentThumbnailBounds] as the thumbnail.
  */
 public data class DocumentImportConfig(
     public val maxBytes: Long = PdfImportConfig.DEFAULT_MAX_BYTES,

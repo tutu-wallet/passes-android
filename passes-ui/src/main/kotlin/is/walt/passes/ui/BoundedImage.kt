@@ -25,8 +25,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /**
- * The only path from pass image bytes, or a document's stored thumbnail, to pixels: a bounded PNG decode to at
- * most [bounds], kept in [cache] if given. A refusal draws nothing and reports to [telemetry]; an OOM propagates.
+ * The only path from pass image bytes to pixels, and a list's for a document's stored thumbnail: a bounded PNG decode
+ * to at most [bounds], kept in [cache] if given. A refusal draws nothing and reports to [telemetry]; an OOM propagates.
  */
 @Composable
 @Suppress("LongParameterList")

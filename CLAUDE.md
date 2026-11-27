@@ -15,7 +15,7 @@ Thirteen Gradle modules. `docs/module-map.md` holds the full contract of each (w
 | Module | Kind | Owns |
 |---|---|---|
 | `passes-core` | pure JVM | Parser, model, signature verifier, `.strings` parser, `TelemetryGuard`, `PassBundleReader`, `PassEncoder`, `PngHeader`, `PngPicture` |
-| `passes-document-core` | pure JVM | Sealed `Document` model (PDF, image), `DocumentRejectedKind`, PDF header sniff, import config, `DocumentTelemetryGuard` |
+| `passes-document-core` | pure JVM | Sealed `Document` model (PDF, image), `DocumentRejectedKind`, PDF header sniff, import config, `DocumentThumbnailBounds`, `DocumentTelemetryGuard` |
 | `passes-barcode-core` | pure JVM | The one ZXing symbol decode and the symbology allowlist |
 | `passes-isolation` | Android, mechanism only | memfd `PfdFactory`, isolated-worker bind/teardown session, bounded fd read, `rasterReplyFits` |
 | `passes-image-decode` | Android, mechanism only | The single bounded `ImageDecoder` primitive |
@@ -25,7 +25,7 @@ Thirteen Gradle modules. `docs/module-map.md` holds the full contract of each (w
 | `passes-document` | Android | Import orchestrator: sniffs PDF vs image, branches to the backend, unified `DocumentImportResult` |
 | `passes-storage` | Android | SQLCipher store, Keystore key, backup exclusion, irreversible deletion, `pass_archives` sidecar |
 | `passes-ui-core` | Compose | Shared substrate: `ArgbColor`, `isolated()` BiDi helper, `faceIsTinted` |
-| `passes-ui` | Compose | PKPASS surfaces, B3 URL confirmation sheet, `PassesTheme` / `PassesSemantics` |
+| `passes-ui` | Compose | PKPASS surfaces, B3 URL confirmation sheet, `BoundedImage` (pass images and stored document thumbnails), `PassesTheme` / `PassesSemantics` |
 | `passes-document-ui` | Compose | Document surfaces (`DocumentView`, `FullScreenDocumentView`), `DocumentTheme` / `DocumentSemantics` |
 
 Dependency rules:

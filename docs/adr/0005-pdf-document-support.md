@@ -198,7 +198,7 @@ The same trust posture (user-supplied file, never signature-verified, provenance
 
 ### I1. `Document` is sealed: `PdfDocument | ImageDocument` (plus the composite arm, C1)
 
-`PdfDocument` keeps `pageCount`; `ImageDocument` carries `widthPx` / `heightPx` instead (the kind-specific field lives on its arm, never on the supertype). `ImageDocument` shares no superclass with `Pass` and has no `SignatureStatus`. The dimensions are the bounded raster decoded inside the sandbox, never derived from an in-process decode of untrusted bytes, never upscaled beyond source. The model carries no container format; that is a persistence detail.
+`PdfDocument` keeps `pageCount`; `ImageDocument` carries `widthPx` / `heightPx` instead (the kind-specific field lives on its arm, never on the supertype). `ImageDocument` shares no superclass with `Pass` and has no `SignatureStatus`. The dimensions are the bounded raster decoded inside the sandbox, never derived from an in-process decode of untrusted bytes, never upscaled beyond source. The stored thumbnail is that raster scaled down in the app process and PNG-encoded there; no codec reads the imported bytes in the app process (List-surface presentation). The model carries no container format; that is a persistence detail.
 
 ### I2. The image reject taxonomy is not merged into `DocumentRejectedKind`
 
@@ -228,7 +228,7 @@ It carries every `ImageDocument` field plus `barcodePayload: String` and `barcod
 
 ### C2. Barcode extraction runs in the isolated worker
 
-The user-imported image is the hostile-input surface (the `CVE-2023-4863` libwebp / codec-RCE class D3 exists to contain). Decoding it and running a symbol reader over the pixels both happen in the permissionless sandbox, never the host process. The list tile's stored thumbnail is not those bytes but a PNG the kernel encodes from the sandbox raster (List-surface presentation). The importer reuses `passes-barcode`'s isolated `BarcodeImageDecoder`: the bytes are decoded in-sandbox and only `{payload, ScannableFormat}` (`BarcodeDecodeResult`) crosses the binder, never a `Bitmap` or the source bytes. No `BitmapFactory` / `ImageDecoder` / ZXing call touches user-image bytes in the host process.
+The user-imported image is the hostile-input surface (the `CVE-2023-4863` libwebp / codec-RCE class D3 exists to contain). Decoding it and running a symbol reader over the pixels both happen in the permissionless sandbox, never the host process. The importer reuses `passes-barcode`'s isolated `BarcodeImageDecoder`: the bytes are decoded in-sandbox and only `{payload, ScannableFormat}` (`BarcodeDecodeResult`) crosses the binder, never a `Bitmap` or the source bytes. No `BitmapFactory` / `ImageDecoder` / ZXing call touches user-image bytes in the host process.
 
 A composite import runs two isolated decodes of the same bytes, the image sandbox (display raster, thumbnail, dimensions) and the barcode sandbox (symbol), each on its own memfd PFD from the single bounded read. The source fd is still read once; holding compressed bytes in a host `ByteArray` is not a decode.
 
@@ -255,8 +255,8 @@ Document items in a consumer's own list (in whatever shape it draws them) take a
 
 A document item may show its stored thumbnail in a document tile of host-fixed size and position, clipped to the tile and cropped to fill it if the host chooses, with the item's class tint while it loads or if it fails. A composite shows its photo there and renders no code from its payload. The bounds are condition 4 of the consumer list concession; what this ADR adds is where the pixels come from:
 
-- The thumbnail is the PNG the importer handed the persist callback and storage keeps in `document_thumbnails`, encrypted with the document and deleted with it. It fits 600 x 800 (`DocumentThumbnailBounds`) for every kind: page 0 rendered by the isolated renderer at import (D3, D7), or the image sandbox's raster scaled down in the app process, where no codec runs (I1, C2). Nothing renders a page or decodes an original for the list.
-- It decodes in the app process only through `passes-ui`'s `BoundedImage`, under the limits pass images meet: PNG only, picture chunks only, a source ceiling, at most two decodes at a time. Those limits hold whatever the stored bytes are. The original bytes still decode only in the isolated processes.
+- The thumbnail is the PNG the importer handed the persist callback and storage keeps in `document_thumbnails`, encrypted with the document and deleted with it. The importer fits it to 600 x 800 (`DocumentThumbnailBounds`): page 0 rendered by the isolated renderer at import (D3, D7), centred on white in exactly that box, or the image sandbox's raster scaled down in the app process, keeping its aspect, where no codec reads the imported bytes (I1, C2). An image document stored by an earlier kernel can hold its whole raster, up to 2048 px a side. Nothing renders a page or decodes an original for the list.
+- In the list it decodes in the app process only through `passes-ui`'s `BoundedImage`, under the limits pass images meet: PNG only, picture chunks only, a source ceiling, at most two decodes at a time. Those limits hold whatever the stored bytes are. The original bytes still decode only in the isolated processes.
 - The live render facades (`rememberPdfThumbnail`, `rememberDocumentImage`) serve the detail and full-screen surfaces, not list rows.
 
 ## Out of scope
@@ -272,7 +272,7 @@ A document item may show its stored thumbnail in a document tile of host-fixed s
 |---|---|
 | D1, I1, C1 | `PublicApiSurfaceTest` in `passes-document-core` (arm set; no shared superclass with `Pass`) |
 | D1.C | `DocumentFaceTintTest` (tint cannot change the render request; transparent tint falls back); `DocumentSurfaceLockTest.documentViewHasExactlyTenUserVisibleParameters` (`faceTint` is the one colour parameter) |
-| D1.L | Consumer-side: the kernel cannot verify a host's list at runtime |
+| D1.L | Consumer-side: the kernel cannot verify a host's list at runtime. Kernel side of the document tile: `ImageThumbnailInstrumentedTest`, `PdfImporterTest` and `PublicApiSurfaceTest.storedThumbnailsFitTheSameBoxForEveryKind` (the stored thumbnail fits 600 x 800); `BoundedImageDecodeInstrumentedTest.aStoredDocumentThumbnailDecodesAtTileBounds` |
 | D2 | No test (no classpath scan for `pdfbox-android` / `mupdf`) |
 | D3 | `@Ignore`d stub, not run: malformed PDF crashes the renderer, the main process survives, rebind succeeds (`PdfRendererServiceInstrumentedTest`) |
 | D4 | reflection: binder has exactly `probe` and `render`; `PdfThumbnailSurfaceTest` |
