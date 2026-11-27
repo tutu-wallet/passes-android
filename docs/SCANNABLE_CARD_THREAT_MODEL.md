@@ -12,7 +12,7 @@ handling guarantees "every `Pass` you see has been cryptographically verified ag
 the issuer's chain." A ScannableCard has no issuer and no signature; its bytes were
 typed by the user. Inheriting `Pass`'s shape would mean inheriting its trust language
 and would degrade the verified-PKPASS signal. ScannableCard is therefore a sibling at
-every layer (data model, storage table, UI lane, trust caption).
+every kernel layer (data model, storage table, UI lane, trust caption).
 
 ## Vocabulary
 
@@ -45,49 +45,66 @@ dimension flat cannot collapse the distinction.
 The C1 / C2 concessions below are recorded in the order they bear on the list and
 detail surfaces. A *list item* is one entry in a consumer's list, in whatever shape the
 consumer draws it. A *class label* is the host-written name of an item's artifact class
-("PDF", "QR CODE"), distinct from the item's user- or file-supplied `label`.
+("PDF", "QR CODE"), distinct from the item's user- or file-supplied label (`label`,
+`displayLabel`).
 
 ### C1 / C2 concession: consumer list that interleaves classes
 
-A consumer may present every artifact class in one list of its own making instead of
-the kernel's per-class lanes. Such a list gives up the lane, the tile shape and the
-in-item "Created by you" caption; `ScannableCardTile` remains the kernel's surface for
-hosts that keep scannable cards in their own lane. It is permitted strictly when all
-four hold:
+A consumer may present every artifact class in one list of its own making, built from
+its own item composables, instead of the kernel's per-class lanes. Such a list gives up
+the lane, the tile shape and the in-item "Created by you" caption; `ScannableCardTile`
+remains the kernel's surface for hosts that keep scannable cards in their own lane. A
+kernel surface for an interleaved list amends this document. The consumer's list is
+permitted strictly when all four hold:
 
 1. No list item of any class carries a signature or verified affordance. The trust
    ladder (signature badge, trust captions) lives exclusively on detail surfaces, so
-   there is no host-drawn verified visual for a user-created card to imitate.
+   there is no host-drawn verified visual for a user-created or document item to
+   imitate.
 2. Every user-created and document item (scannable cards, documents, composites)
    carries its class label. The label is visible on the item without interaction, is
    never truncated or displaced by user, file or issuer text, and the item's accessible
    description names the class. Its position is otherwise the consumer's layout choice.
-3. No list item draws artifact content: no issuer artwork, document page, image or
-   code. Those pixels are the issuer's or the user's and can imitate any mark the host
-   draws. A code may render only under the list-face code render concession below.
-4. Detail-surface provenance is the bottom-docked caption, or the audited
-   `HostedTypeRow` carrier below.
+3. No list item draws artifact imagery: no issuer artwork (logo, strip, thumbnail),
+   document page, image or code. Those pixels are the issuer's or the user's and can
+   imitate any mark the host draws. A code may render only under the list-face code
+   render concession below. Supplied text is covered by the residual risk below.
+4. Detail-surface provenance holds. A user-created or document item opens a detail
+   surface carrying the bottom-docked caption or the audited `HostedTypeRow` carrier
+   below (ADR 0005 D5.T for documents). A pkpass item opens the pkpass detail surface,
+   which states its signature status in words, not behind a foldout, tap or other
+   disclosure.
 
-Conditions 1 and 2 are the *C1 list-level distinction* that the rest of this document
-cites. Under `HostedTypeRow` they carry the load alone: the verbatim caption then
-renders on neither the list nor the detail surface, and bound (b) of that concession
-requires the list-level distinction in return.
+On the kernel's surfaces the *C1 list-level distinction* is the separate lane and the
+C2 tile; in a consumer list that interleaves classes it is conditions 1 to 3. The rest
+of this document cites it in that sense. Under `HostedTypeRow` in such a list it
+carries almost all of the load: the verbatim caption renders on neither the list nor
+the detail surface, only a host type row that may sit collapsed, and bound (b) of that
+concession requires the list-level distinction in return.
 
 **Accepted residual risk.** The class label marks every user-created and document item;
 it does not prove one. A pkpass item need not carry a class label, and it shows issuer
 text, which can print a class word, host-looking metadata or verification wording. A
-document's file name can print the same in its title. None of it is the host's voice,
-and it is bounded. Posing as a user-created or document class gains nothing: a pkpass
-item opens the pkpass detail surface and never renders its code in the list. Posing as
-verified is bounded by premise 2 of the colour section: signature status is stated only
-in the detail surface's in-words line, which issuer text cannot suppress or restyle.
-Under `HostedTypeRow`, a user who never expands the detail foldout meets a user-created
-item's provenance only as its class label.
+document's file name or a user's label can print the same in a title. None of it is the
+host's voice, and it is bounded:
+
+- Posing as a user-created or document class gains little past the list. By condition
+  4 a pkpass item opens the pkpass detail surface, and it never renders its code in the
+  list.
+- Posing as verified through issuer text is bounded by condition 4: the pkpass detail
+  surface states signature status in host words that issuer text cannot suppress,
+  restyle or fold away.
+- Posing as verified through a file name or user label is bounded only by the class
+  label, which names a class that is never verified, and by the detail caption where it
+  is docked. Under `HostedTypeRow` the provenance row may sit collapsed, so a user who
+  never expands it meets a user-created or document item's provenance only as its class
+  label, whatever its title or content claims.
 
 Dropping or weakening any of the four conditions amends this document. The kernel
 cannot verify them at runtime, so the obligation is the consumer's: its wallet-list
 tests are expected to pin that a verified pass and an unsigned one render the same
-item, and that every user-created and document item shows its class label.
+item, that every user-created and document item shows and speaks its class label, and
+that no item draws artifact imagery.
 
 ### C1 / C2 concession: list-face code render
 
@@ -101,11 +118,10 @@ three hold:
    affordance can be composed inside `CompactCodeView`; pinned by
    `ComposableSurfaceLockTest.compactCodeViewHasExactlyFourUserVisibleParameters`
    (`payload`, `format`, `modifier`, `contentDescription`) and its no-overload lock.
-2. The item that shows the code carries the C1 list-level distinction (conditions 1
-   and 2 of the consumer list concession), with its class label ("QR CODE" / "CODE 128"
-   / "IMAGE, QR CODE") in view beside the code. Only user-created codes render at list
-   scale; signed pkpass barcodes stay detail-surface-only, and a pass never renders its
-   code in the list.
+2. The item that shows the code meets every other condition of the consumer list
+   concession, with its class label ("QR CODE" / "CODE 128" / "IMAGE, QR CODE") in view
+   whenever the code is. Only user-created codes render at list scale; signed pkpass
+   barcodes stay detail-surface-only, and a pass never renders its code in the list.
 3. Detail-surface provenance is unchanged: the bottom-docked caption by default, or the
    audited `HostedTypeRow` carrier below.
 
@@ -211,8 +227,9 @@ things the docked-caption contract forbade:
 
 **Why this is bounded.** The load-bearing mitigation for Threat 1 is C1 + C2 combined,
 and C1 is untouched in the direction it must hold: every user-created and document
-item names its class in the host's voice, so none can read as a pkpass, and no list
-item carries a verified affordance (premise 1 above). The detail surface is reached
+item names its class in the host's voice and cannot shed it, and no list item carries a
+verified affordance (premise 1 above), so passing for a pkpass gains nothing at list
+scale. The detail surface is reached
 only after the user has seen the list-level distinction, on a card they created and can
 delete. The row, even collapsed, is a labelled, consistent location for provenance. Walt
 remains a display device (Threat 9). The residual risk is that a user who relies solely
@@ -221,7 +238,7 @@ loses the in-words reminder; judged acceptable for a user viewing their own card
 
 **Bound of the concession.** `HostedTypeRow` is permitted strictly for a host that (a)
 renders a "Pass type" row enumerating the artifact class on its detail surface and (b)
-preserves the C1 list-level distinctions. The kernel cannot verify either at runtime, so
+preserves the C1 list-level distinction. The kernel cannot verify either at runtime, so
 the obligation is the consumer's, pinned consumer-side by a test that the details section
 renders a "Pass type" row. `Docked` remains the default and the recommended surface for
 hosts without a details section. Dropping **both** the detail-surface caption **and** the
@@ -340,8 +357,8 @@ under the consumer list concession, and `HostedTypeRow` reduces the detail-surfa
 layer to a host type row, shifting the load almost entirely onto C1's list-level
 distinction. Both reductions in defense-in-depth are accepted deliberately.
 
-**Status.** Mitigated structurally. Where a consumer takes both concessions, the C1
-list-level distinction carries the load: a class label on every user-created and
+**Status.** Mitigated structurally. Where a consumer takes both the consumer list and
+`HostedTypeRow` concessions, the C1 list-level distinction carries the load: a class label on every user-created and
 document item, and no verified affordance on any item of any class. Colour
 distinguishes nothing on its own and is not relied on to, and the class label marks a
 class without proving one (residual risk of the consumer list concession). This is the
@@ -597,7 +614,7 @@ mandatory confirmation.
 |-------------------------------------------------|-----------------------------------------------------------------------------------------|
 | `ParserConfig.maxArchiveBytes` (10 MB)          | Per-format payload caps in `passes-core` (Code128 80, QR ~2000, etc.); enforced again at storage |
 | Manifest hash + PKCS#7 signature                | Not applicable; provenance is "user-typed", structurally a sibling class                |
-| `SignatureStatus` four-band badge               | "Created by you" caption + visually distinct tile in its own lane (C1 + C2)             |
+| `SignatureStatus` four-band badge               | "Created by you" caption + visually distinct tile in its own lane (C1 + C2, kernel surfaces) |
 | `FieldLinkScanner` Cf/Cc rejection              | Stricter (LF and tab rejected too); applied to `payload` and `label` at the create boundary (C3) |
 | `B3UrlConfirmSheet`                             | Create-time URI-scheme preview on the byte-capable formats (C4); same dialog pattern    |
 | `ExpiredOverlayState`                           | Not applicable (no expiration metadata; user can delete)                                |
@@ -649,7 +666,7 @@ v2"; each is deliberately absent because it re-opens a threat row above.
 
 | Control | Pinned by |
 |---------|-----------|
-| C1      | `ScannableCardSurfaceTest.scannableCardDoesNotShareSupertypeWithPass`; storage `PublicApiSurfaceTest` `SCANNABLE_CARDS` assertion (separate table). No separate-lane composable test. Consumer list concession: consumer-side, tests that a verified and an unsigned pass render the same list item and that every user-created and document item shows its class label |
+| C1      | `ScannableCardSurfaceTest.scannableCardDoesNotShareSupertypeWithPass`; storage `PublicApiSurfaceTest` `SCANNABLE_CARDS` assertion (separate table). No separate-lane composable test. Consumer list concession: consumer-side, tests that a verified and an unsigned pass render the same list item, that every user-created and document item shows and speaks its class label, and that no item draws artifact imagery |
 | C2      | Non-suppressible caption test; no snapshot test of the at-least-two-distinct-elements rule; `scannableCardScreenHasExactlyFiveUserVisibleParameters`; `scannableCardScreenTrustCaptionParamIsThePlacementType` (placement is the audited choice, not a Boolean); `fullScreenHostedTypeRowOmitsKernelCaption` and `hostedTypeRowStillRendersBarcodeAndPayloadCaption` (the "Pass type" concession); consumer-side, a test that the details section renders a "Pass type" row. Colour row: `ScannableCardTrustSurfaceTest.faceTintDoesNotSuppressBarcodeLabelPayloadOrTrustCaption` (and its dark-tint twin), `codePanelIsLiterallyWhiteNotAThemeTokenOrTheFaceTint`, `inkOnClearsWcagAaAgainstEveryTintIncludingTheWorstCase`, `DocumentFaceTintTest.faceTintDoesNotSuppressTheTrustCaptionOnEitherArm` and `faceTintLeavesThePageRenderRequestUnchanged`; the shared tint gate by `passes-ui-core`'s `FaceTintTest` |
 | C3      | Length-cap, charset and Cf/Cc rejection unit tests; `theTwoDimensionalFormatsEncodeAtTheirValidatorCap`, `theTwoDimensionalFormatsRoundTripAtTheirValidatorCap`, `BarcodeEncoderRoundTripTest.nonAsciiPayloadsSurviveOnTheCharsetPinnedFormats`, `BarcodeEncoderCharsetTest`; `noFormatIsDecodeOnly` and `isCreatableAgreesWithWhatTheValidatorAccepts`; byte-capable charset rules in `ScannableFormatConstraintsTest` |
 | C4      | `QrPayloadClassifierTest`, `BarcodeCreateConfirmSheetTest` |

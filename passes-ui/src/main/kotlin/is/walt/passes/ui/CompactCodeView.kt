@@ -72,11 +72,7 @@ public fun CompactCodeView(
     }
 }
 
-/**
- * Row-scale floors, deliberately below [ScannableCardView]'s gate-distance minimums:
- * they only prevent a degenerate collapsed render when the caller forgets to size
- * the tile, they are not a scannability promise at arbitrary sizes.
- */
+/** Floors that only stop a collapsed render when the caller forgets to size the tile; not a scannability promise. */
 private fun ScannableFormat.compactMinSizeDp(): Pair<Int, Int> = when (this) {
     ScannableFormat.Qr, ScannableFormat.Aztec -> 48 to 48
     ScannableFormat.Pdf417 -> 96 to 40
@@ -89,9 +85,5 @@ private fun ScannableFormat.compactMinSizeDp(): Pair<Int, Int> = when (this) {
 
 private val QUIET_ZONE_PADDING = 8.dp
 
-/**
- * Literally white, never a theme surface token — the dark-mode scannability guarantee.
- * Internal (not private) so the smoke test pins the value; rerouting the backing off
- * this constant is amending the blessed-path contract, not a refactor.
- */
+/** Literally white, never a theme token, so the code scans in dark mode. Internal so the smoke test pins it. */
 internal val COMPACT_CODE_BACKING: Color = Color.White

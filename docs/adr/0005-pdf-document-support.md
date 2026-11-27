@@ -36,7 +36,7 @@ A consumer may render documents inline in a unified wallet list, or in a separat
 1. **The sibling data-model contract holds.** The merge is render-time only. A row is built from `DocumentRow` / `PdfDocument` (or the image and composite arms), never by widening it into a `Pass` or a shared supertype with one.
 2. **The row carries no signature or verified affordance**, and none can be themed onto it. The unified list is where a document sits closest to a pkpass.
 3. **Detail-surface provenance is unchanged**: the docked caption, or the host "Pass type" row under D5.T. A consumer that renders documents inline and drops the detail-surface provenance signal without a "Pass type" row is amending D5.T, not filing a PR.
-4. **The row names its class** in a host-written class label (List-surface presentation), visible without interaction and never truncated or displaced by the file name. Dropping it amends this ADR and the consumer list concession in `SCANNABLE_CARD_THREAT_MODEL.md`, which states the same conditions for every class.
+4. **Inline, the row names its class and draws no page or image.** The class label is host-written (List-surface presentation), visible without interaction, never truncated or displaced by the display label, and spoken in the row's accessible description. `DocumentsLane`, a documents-only surface under its own header and caption, is outside this condition. Dropping either part inline amends this ADR and the consumer list concession in `SCANNABLE_CARD_THREAT_MODEL.md`, which holds the full condition list for every class.
 
 ### D2. System renderer only: `android.graphics.pdf.PdfRenderer`
 
@@ -255,7 +255,7 @@ Nullable `barcode_payload TEXT` / `barcode_format TEXT` columns on `documents`. 
 
 ## List-surface presentation
 
-Document list items (a consumer concern, in whatever shape the consumer draws them) take a class tint (D1.C), name the artifact class in a host-written class label ("PDF" / "IMAGE" / "IMAGE, QR CODE"), carry no verified affordance of any kind and no content preview (no page or image thumbnail). The label's position is the consumer's layout choice, provided it is visible without interaction and never truncated or displaced by the file name. Detail-surface provenance (D5, Z.8, D5.T) is where the in-words signal lives. The composite list-face code posture is a C1/C2 concession recorded as "list-face code render" in `SCANNABLE_CARD_THREAT_MODEL.md`; issuer color never reaches a list item (ADR 0003 D4 addendum).
+Document items in a consumer's own list (in whatever shape it draws them) take a class tint (D1.C), name the artifact class in a host-written class label ("PDF" / "IMAGE" / "IMAGE, QR CODE"), carry no verified affordance of any kind and no content preview (no page or image thumbnail). The label's position is the consumer's layout choice, provided it is visible without interaction and never truncated or displaced by the display label. Detail-surface provenance (D5, Z.8, D5.T) is where the in-words signal lives. The composite list-face code posture is a C1/C2 concession recorded as "list-face code render" in `SCANNABLE_CARD_THREAT_MODEL.md`; issuer color never reaches a list item (ADR 0003 D4 addendum).
 
 ## Out of scope
 
