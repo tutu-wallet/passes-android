@@ -110,9 +110,13 @@ class PassImageCacheTest {
             refused()
         }
 
-        val first = launch(start = CoroutineStart.UNDISPATCHED) { loadPassImage(image(1), bounds, cache, decodeThread, decode) }
+        val first = launch(start = CoroutineStart.UNDISPATCHED) {
+            loadPassImage(image(1), bounds, cache, decodeThread, decode)
+        }
         running.await(5, TimeUnit.SECONDS)
-        val queued = launch(start = CoroutineStart.UNDISPATCHED) { loadPassImage(image(2), bounds, cache, decodeThread, decode) }
+        val queued = launch(start = CoroutineStart.UNDISPATCHED) {
+            loadPassImage(image(2), bounds, cache, decodeThread, decode)
+        }
         queued.cancel()
         release.countDown()
         joinAll(first, queued)

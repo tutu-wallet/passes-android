@@ -30,6 +30,7 @@ import kotlinx.coroutines.withContext
  * With a [cache], an image it holds draws at once and is neither decoded nor reported again.
  */
 @Composable
+@Suppress("LongParameterList")
 public fun BoundedImage(
     bytes: ImageBytes,
     @Suppress("UNUSED_PARAMETER") role: ImageRole,
