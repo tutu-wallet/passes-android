@@ -35,6 +35,8 @@ import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 
+private typealias Decode = (ByteArray, ImageRenderBounds) -> PassImage
+
 @RunWith(AndroidJUnit4::class)
 @Config(sdk = [34])
 class PassImageCacheTest {
@@ -289,7 +291,7 @@ class PassImageCacheTest {
     private suspend fun load(
         seed: Int,
         cache: PassImageCache?,
-        decode: (ByteArray, ImageRenderBounds) -> PassImage,
+        decode: Decode,
         dispatcher: CoroutineDispatcher = decodeThread,
         bounds: ImageRenderBounds = this.bounds,
     ): PassImage = loadPassImage(image(seed), bounds, cache?.lookup(image(seed), bounds), dispatcher, decode)
@@ -307,7 +309,7 @@ class PassImageCacheTest {
     }
 
     /** A decode that signals its start and waits for release. */
-    private fun blockingDecode(): Triple<CountDownLatch, CountDownLatch, (ByteArray, ImageRenderBounds) -> PassImage> {
+    private fun blockingDecode(): Triple<CountDownLatch, CountDownLatch, Decode> {
         val started = CountDownLatch(1)
         val release = CountDownLatch(1)
         return Triple(started, release) { _, _ ->
@@ -317,7 +319,8 @@ class PassImageCacheTest {
         }
     }
 
-    private fun threads(count: Int) = Executors.newFixedThreadPool(count).asCoroutineDispatcher().also { executors += it }
+    private fun threads(count: Int) =
+        Executors.newFixedThreadPool(count).asCoroutineDispatcher().also { executors += it }
 
     private companion object {
         const val DESCRIPTION = "logo"

@@ -31,17 +31,9 @@ internal class ByteBoundedLru<K : Any, V : Any>(
     /** Returns the value already held for [key], else keeps [value] unless [clear] ran since [generation]. */
     @Synchronized
     fun putIfAbsent(key: K, value: V, generation: Long): V? {
-        entries[key]?.let { return it.value }
-        val weight = weigh(key, value)
-        if (generation != this.generation || weight > maxBytes) return null
-        entries[key] = Weighted(value, weight)
-        bytes += weight
-        val eldest = entries.values.iterator()
-        while (bytes > maxBytes) {
-            bytes -= eldest.next().weight
-            eldest.remove()
-        }
-        return null
+        val held = entries[key]?.value
+        if (held == null && generation == this.generation) keep(key, value)
+        return held
     }
 
     @Synchronized
@@ -49,6 +41,19 @@ internal class ByteBoundedLru<K : Any, V : Any>(
         entries.clear()
         bytes = 0L
         generation++
+    }
+
+    // Called with the lock held.
+    private fun keep(key: K, value: V) {
+        val weight = weigh(key, value)
+        if (weight > maxBytes) return
+        entries[key] = Weighted(value, weight)
+        bytes += weight
+        val eldest = entries.values.iterator()
+        while (bytes > maxBytes) {
+            bytes -= eldest.next().weight
+            eldest.remove()
+        }
     }
 
     private companion object {
