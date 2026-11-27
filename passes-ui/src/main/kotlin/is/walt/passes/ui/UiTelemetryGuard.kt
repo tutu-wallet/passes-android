@@ -61,8 +61,8 @@ public interface UiTelemetryGuard {
     public fun onSecuritySheetDismissed(intentKind: SecurityIntentKind, type: PassType)
 
     /**
-     * A pass image was refused and drew nothing. Fires once per decode attempt, so an image a
-     * list recomposes reports again; an image that is only larger than its bounds never does.
+     * A pass image was refused and drew nothing. Fires once per decode attempt, so again when the
+     * image re-enters composition; an image that is only larger than its bounds never fires.
      */
     public fun onImageDecodeRejected(reason: ImageDecodeRejection)
 

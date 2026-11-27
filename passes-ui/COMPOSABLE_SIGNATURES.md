@@ -278,7 +278,8 @@ public fun ExpiredOverlay(
  * Decodes [bytes] using Android `ImageDecoder`, with the source ceiling and the
  * [bounds] applied via `setOnHeaderDecodedListener`. An image larger than [bounds] is
  * downsampled to fit. A refused image (over the source ceiling, or undecodable) draws
- * nothing and fires `telemetry.onImageDecodeRejected`; the composable never throws.
+ * nothing and fires `telemetry.onImageDecodeRejected`. An `OutOfMemoryError` from the
+ * decode propagates.
  *
  * Coil's default decoder must NOT be used for these images:
  * the bounds enforcement is the trust claim, and a third-party loader would have

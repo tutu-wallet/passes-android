@@ -1,8 +1,8 @@
 package `is`.walt.passes.ui
 
 /**
- * The largest bitmap `BoundedImage` produces. A larger image is downsampled at decode time to fit
- * the box, aspect ratio kept; a smaller one is never upscaled. A list passes its tile size here.
+ * The largest bitmap `BoundedImage` produces. A larger image is decoded at its size divided by the
+ * smallest whole number that fits the box, so it comes back between half the box and the box.
  */
 public data class ImageRenderBounds(
     public val maxWidthPx: Int,

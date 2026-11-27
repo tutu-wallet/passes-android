@@ -7,7 +7,7 @@ import java.nio.ByteBuffer
 
 /**
  * The one audited decode of untrusted compressed image bytes to a [Bitmap], shared by every
- * consumer. Mechanism only: the caller's [policy] carries the caps, the target size and the folds.
+ * consumer. Mechanism only: the caller's [policy] carries the caps, the output box and the folds.
  */
 public fun <R : Any> decodeBounded(
     rawBytes: ByteArray,
@@ -22,7 +22,7 @@ public fun <R : Any> decodeBounded(
                 val header = DecodeSize(info.size.width, info.size.height)
                 rejection = policy.gate.evaluate(info.mimeType, header.width, header.height)
                 // An image already at its target keeps the platform's unscaled decode.
-                val target = decodeSize(header, rejected = rejection != null, policy.target)
+                val target = decodeSize(header, rejected = rejection != null, policy.maxSize)
                 if (target != header) decoder.setTargetSize(target.width, target.height)
             }
         rejection?.let {
@@ -33,6 +33,7 @@ public fun <R : Any> decodeBounded(
         // A gate rejection already in flight wins over every fold below.
         BoundedBitmap.Rejected(rejection ?: policy.onMalformed())
     } catch (_: IllegalArgumentException) {
+        // setTargetSize, or a header with a non-positive side.
         BoundedBitmap.Rejected(rejection ?: policy.onMalformed())
     } catch (oom: OutOfMemoryError) {
         containOutOfMemory(rejection, policy) ?: throw oom
@@ -42,13 +43,18 @@ public fun <R : Any> decodeBounded(
 }
 
 /**
- * The size to decode at: 1x1 for a rejected image, else the caller's target kept inside
- * 1..[header], so the bitmap is never larger than the size the gate accepted.
+ * The size to decode at: 1x1 for a rejected image, else [header] divided by the smallest whole
+ * number that fits it inside [maxSize]. A whole-number sample needs no full-size intermediate.
  */
-internal fun decodeSize(header: DecodeSize, rejected: Boolean, target: DecodeTarget?): DecodeSize {
-    val wanted = if (rejected) DecodeSize(1, 1) else target?.of(header.width, header.height) ?: header
-    return DecodeSize(wanted.width.coerceIn(1, header.width), wanted.height.coerceIn(1, header.height))
+internal fun decodeSize(header: DecodeSize, rejected: Boolean, maxSize: DecodeSize?): DecodeSize {
+    if (rejected) return DecodeSize(1, 1)
+    val box = maxSize ?: header
+    val divisor = maxOf(ceilDiv(header.width, box.width), ceilDiv(header.height, box.height))
+    return DecodeSize(maxOf(1, header.width / divisor), maxOf(1, header.height / divisor))
 }
+
+// Both operands are positive, as DecodeSize requires.
+private fun ceilDiv(dividend: Int, divisor: Int): Int = (dividend - 1) / divisor + 1
 
 /**
  * The contained rejection when [policy] folds an OOM (a [pendingRejection] from the gate wins),
@@ -60,13 +66,13 @@ internal fun <R : Any> containOutOfMemory(
 ): BoundedBitmap<R>? = policy.onOutOfMemory?.let { BoundedBitmap.Rejected(pendingRejection ?: it()) }
 
 /**
- * One call site's decode posture. [target] null decodes at source size; [onOutOfMemory] null lets
+ * One call site's decode posture. [maxSize] null decodes at source size; [onOutOfMemory] null lets
  * an OOM propagate, which is the in-process display posture.
  */
 public class BoundedDecodePolicy<R : Any>(
     public val allocator: Int,
     public val gate: ImageHeaderGate<R>,
-    public val target: DecodeTarget?,
+    public val maxSize: DecodeSize?,
     public val onMalformed: () -> R,
     public val onRuntimeFailure: () -> R,
     public val onOutOfMemory: (() -> R)?,
@@ -80,15 +86,12 @@ public fun interface ImageHeaderGate<out R> {
     public fun evaluate(mimeType: String?, width: Int, height: Int): R?
 }
 
-/**
- * The size to decode an accepted image at, from its header size. A null or source-size answer
- * decodes unscaled; the mechanism clamps the answer so a target can only shrink the bitmap.
- */
-public fun interface DecodeTarget {
-    public fun of(width: Int, height: Int): DecodeSize?
+/** A bitmap size in pixels, both sides positive. */
+public data class DecodeSize(val width: Int, val height: Int) {
+    init {
+        require(width > 0 && height > 0) { "size must be positive, was $width x $height" }
+    }
 }
-
-public data class DecodeSize(val width: Int, val height: Int)
 
 /** Outcome of [decodeBounded]. The caller owns and must release a decoded [Bitmap]. */
 public sealed interface BoundedBitmap<out R> {

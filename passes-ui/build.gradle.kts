@@ -12,12 +12,8 @@ android {
         unitTests.all {
             it.systemProperty("walt.passes.ui.moduleDir", projectDir.absolutePath)
         }
-        // Managed-device matrix for ScannableCardFaceTintInstrumentedTest (wpass-80y.5),
-        // mirroring passes-barcode / passes-storage. The face-tint pin has to read painted
-        // pixels, which Robolectric cannot do, so it only protects the seam if a real device
-        // runs it. Same API span as the sibling modules: 28 is the repo minSdk, 31/34/36
-        // track S, the LTS image, and head. The CI connected-tests job runs the matching
-        // apiNNgoogleDebugAndroidTest tasks.
+        // The device tests read painted pixels and run the platform image decoder, which
+        // Robolectric cannot do. Same API span as the sibling modules; CI runs every arm.
         managedDevices {
             localDevices {
                 create("api28google") {

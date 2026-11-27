@@ -1,6 +1,7 @@
 package `is`.walt.passes.ui
 
 import androidx.compose.foundation.layout.size
+import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithContentDescription
@@ -30,8 +31,8 @@ class BoundedImageDecodeInstrumentedTest {
         val (bitmap, rejection) = decodeBoundedBitmap(pngOf(width = 2000, height = 100), ImageRenderBounds.Default)
 
         assertThat(rejection).isNull()
-        assertThat(bitmap!!.width).isEqualTo(1920)
-        assertThat(bitmap.height).isEqualTo(96)
+        assertThat(bitmap!!.width).isEqualTo(1000)
+        assertThat(bitmap.height).isEqualTo(50)
     }
 
     @Test
@@ -59,7 +60,7 @@ class BoundedImageDecodeInstrumentedTest {
         val (bitmap, rejection) = decodeBoundedBitmap(pngOf(width = 4000, height = 1), ImageRenderBounds.Default)
 
         assertThat(rejection).isNull()
-        assertThat(bitmap!!.width).isEqualTo(1920)
+        assertThat(bitmap!!.width).isEqualTo(1333)
         assertThat(bitmap.height).isEqualTo(1)
     }
 
@@ -68,18 +69,26 @@ class BoundedImageDecodeInstrumentedTest {
         val (bitmap, rejection) = decodeBoundedBitmap(pngOf(width = 4096, height = 4096), ImageRenderBounds.Default)
 
         assertThat(rejection).isNull()
-        assertThat(bitmap!!.width).isEqualTo(1920)
-        assertThat(bitmap.height).isEqualTo(1920)
+        assertThat(bitmap!!.width).isEqualTo(1365)
+        assertThat(bitmap.height).isEqualTo(1365)
     }
 
     @Test
     fun sourceOverTheCeilingIsRejectedWhateverTheBounds() {
-        val tile = ImageRenderBounds(maxWidthPx = 200, maxHeightPx = 300)
+        val png = pngOf(width = 4097, height = 4096)
+        val bounds =
+            listOf(
+                ImageRenderBounds(maxWidthPx = 200, maxHeightPx = 300),
+                ImageRenderBounds.Default,
+                ImageRenderBounds(maxWidthPx = 8192, maxHeightPx = 8192),
+            )
 
-        val (bitmap, rejection) = decodeBoundedBitmap(pngOf(width = 4097, height = 4096), tile)
+        for (each in bounds) {
+            val (bitmap, rejection) = decodeBoundedBitmap(png, each)
 
-        assertThat(bitmap).isNull()
-        assertThat(rejection).isEqualTo(ImageDecodeRejection.ExceedsArea)
+            assertThat(bitmap).isNull()
+            assertThat(rejection).isEqualTo(ImageDecodeRejection.ExceedsArea)
+        }
     }
 
     @Test
@@ -95,7 +104,8 @@ class BoundedImageDecodeInstrumentedTest {
     @Test
     fun oversizedImageDrawsAndReportsNothing() {
         val rejections = CopyOnWriteArrayList<ImageDecodeRejection>()
-        composeRule.setContent { TestImage(pngOf(width = 2000, height = 100), rejections) }
+        val png = pngOf(width = 2000, height = 100)
+        composeRule.setContent { TestImage(png, rejections) }
 
         composeRule.waitUntil(DECODE_TIMEOUT_MS) {
             composeRule.onAllNodesWithContentDescription(DESCRIPTION).fetchSemanticsNodes().isNotEmpty()
@@ -106,7 +116,8 @@ class BoundedImageDecodeInstrumentedTest {
     @Test
     fun refusedImageDrawsNothingAndReportsOnce() {
         val rejections = CopyOnWriteArrayList<ImageDecodeRejection>()
-        composeRule.setContent { TestImage(pngOf(width = 4097, height = 4096), rejections) }
+        val png = pngOf(width = 4097, height = 4096)
+        composeRule.setContent { TestImage(png, rejections) }
 
         composeRule.waitUntil(DECODE_TIMEOUT_MS) { rejections.isNotEmpty() }
         composeRule.waitForIdle()
@@ -116,7 +127,7 @@ class BoundedImageDecodeInstrumentedTest {
         }
     }
 
-    @androidx.compose.runtime.Composable
+    @Composable
     private fun TestImage(png: ByteArray, rejections: MutableList<ImageDecodeRejection>) {
         BoundedImage(
             bytes = ImageBytes(png),

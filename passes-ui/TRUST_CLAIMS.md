@@ -200,26 +200,36 @@ header, before the bitmap is allocated:
   applies the ceiling itself, whatever configuration the bytes were imported under, and
   no parameter raises it.
 - **Output bound.** The bitmap handed to the UI never exceeds the caller's
-  `ImageRenderBounds` (default 1920 x 1920). A larger source is downsampled at decode
-  time with its aspect ratio kept, and a smaller one is never upscaled. A list passes
-  its tile's pixel size, so each item decodes a tile-sized bitmap.
+  `ImageRenderBounds` (default 1920 x 1920). A larger source is decoded at its size
+  divided by the smallest whole number that fits the bounds, so it comes back between
+  half the bounds and the bounds with its aspect ratio kept. A smaller source is never
+  upscaled. A host that draws a small tile can pass a small box and decode a small
+  bitmap; a box of twice the drawn size keeps the result at least as large as the tile.
 
 **Residual risk.** A downsampled decode still feeds the whole compressed image through
-the platform codec in the app process. The memory the codec uses while it parses the
-header and reads the image is the platform's and is not measured here; the source
-ceiling bounds the image it is asked to read, not that memory.
+the platform codec in the app process, and what the codec buffers is the platform's:
+
+- Measured on API 34, a non-interlaced PNG decodes without a full-size intermediate
+  (the device test below pins that), and an interlaced PNG is buffered whole whatever
+  the output size, refused images included: up to 64 MB at the ceiling, 128 MB for a
+  16-bit image.
+- The number of decodes is not limited. Each `BoundedImage` in composition decodes its
+  own image, and an `OutOfMemoryError` from a decode propagates to the host.
 
 **How tested.**
 
-- `BoundedImageDecodeTest` pins the ceiling's value and its parity with the parser
-  default, the ceiling decision and the fit arithmetic, on the JVM.
+- `BoundedImageDecodeTest` pins the ceiling's value, its parity with the parser default
+  and the ceiling decision, on the JVM. `passes-image-decode`'s `BoundedBitmapDecodeTest`
+  pins the division arithmetic.
 - `BoundedImageDecodeInstrumentedTest` runs the platform decoder (CI on API 28, 31, 34
   and 36): an image over the bounds comes back inside them and reports nothing, an
-  image inside them keeps its size, a 4096 x 4096 image decodes to 1920 x 1920, and an
-  image one column over the ceiling is refused at any bounds.
+  image inside them keeps its size, a 4096 x 4096 image decodes to 1365 x 1365, and an
+  image one column over the ceiling is refused at bounds below, at and above the
+  default.
 - `passes-image-decode`'s `BoundedBitmapDecodeInstrumentedTest` pins the shared
-  mechanism: a target size is honoured, never enlarges the source, and never rescues an
-  image the header gate refused.
+  mechanism: a box larger than the source never enlarges it, a box never rescues an
+  image the header gate refused, and decoding a 3839 x 3839 image into a 1920 x 1920
+  box peaks below half the memory of the full-size bitmap.
 - `PublicApiSurfaceTest` pins `ImageRenderBounds.Default` to 1920 x 1920 and rejects
   non-positive dimensions at construction.
 - Coil's default decoder is not used for pass images; only the

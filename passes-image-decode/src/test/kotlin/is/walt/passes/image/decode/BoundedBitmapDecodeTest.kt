@@ -25,7 +25,7 @@ class BoundedBitmapDecodeTest {
     ) = BoundedDecodePolicy(
         allocator = ImageDecoder.ALLOCATOR_SOFTWARE,
         gate = { _, w, h -> if (w > maxSide || h > maxSide) Reason.TooLarge else null },
-        target = null,
+        maxSize = null,
         onMalformed = { Reason.Malformed },
         onRuntimeFailure = { Reason.RuntimeFailure },
         onOutOfMemory = onOutOfMemory,
@@ -52,35 +52,57 @@ class BoundedBitmapDecodeTest {
         assertThat(contained).isEqualTo(BoundedBitmap.Rejected(Reason.TooLarge))
     }
 
-    private val header = DecodeSize(64, 32)
+    private val box = DecodeSize(1920, 1920)
+
+    private fun decodeSize(width: Int, height: Int, maxSize: DecodeSize? = box) =
+        decodeSize(DecodeSize(width, height), rejected = false, maxSize = maxSize)
 
     @Test
-    fun noTargetDecodesAtTheHeaderSize() {
-        assertThat(decodeSize(header, rejected = false, target = null)).isEqualTo(header)
-        assertThat(decodeSize(header, rejected = false, target = { _, _ -> null })).isEqualTo(header)
+    fun noBoxDecodesAtTheHeaderSize() {
+        assertThat(decodeSize(4096, 4096, maxSize = null)).isEqualTo(DecodeSize(4096, 4096))
     }
 
     @Test
-    fun targetInsideTheSourceIsKept() {
-        assertThat(decodeSize(header, rejected = false, target = { w, h -> DecodeSize(w / 2, h / 2) }))
-            .isEqualTo(DecodeSize(32, 16))
+    fun headerInsideTheBoxKeepsItsSize() {
+        assertThat(decodeSize(360, 220)).isEqualTo(DecodeSize(360, 220))
+        assertThat(decodeSize(1920, 1920)).isEqualTo(DecodeSize(1920, 1920))
     }
 
     @Test
-    fun targetLargerThanTheSourceIsClampedToIt() {
-        assertThat(decodeSize(header, rejected = false, target = { _, _ -> DecodeSize(4096, 4096) })).isEqualTo(header)
+    fun headerOverTheBoxIsDividedByTheSmallestWholeNumberThatFits() {
+        assertThat(decodeSize(1921, 1921)).isEqualTo(DecodeSize(960, 960))
+        assertThat(decodeSize(3839, 3839)).isEqualTo(DecodeSize(1919, 1919))
+        assertThat(decodeSize(3840, 3840)).isEqualTo(DecodeSize(1920, 1920))
+        assertThat(decodeSize(4096, 4096)).isEqualTo(DecodeSize(1365, 1365))
     }
 
     @Test
-    fun nonPositiveTargetIsClampedToOnePixel() {
-        assertThat(decodeSize(header, rejected = false, target = { _, _ -> DecodeSize(0, -5) }))
-            .isEqualTo(DecodeSize(1, 1))
+    fun theTighterAxisPicksTheDivisor() {
+        assertThat(decodeSize(2000, 100)).isEqualTo(DecodeSize(1000, 50))
+        assertThat(decodeSize(100, 3840)).isEqualTo(DecodeSize(50, 1920))
+        val tile = DecodeSize(200, 300)
+        assertThat(decodeSize(1000, 500, maxSize = tile)).isEqualTo(DecodeSize(200, 100))
+        assertThat(decodeSize(500, 1500, maxSize = tile)).isEqualTo(DecodeSize(100, 300))
     }
 
     @Test
-    fun rejectedImageDecodesAtOnePixelWhateverTheTarget() {
-        assertThat(decodeSize(header, rejected = true, target = { w, h -> DecodeSize(w, h) }))
-            .isEqualTo(DecodeSize(1, 1))
+    fun extremeAspectKeepsAtLeastOnePixel() {
+        assertThat(decodeSize(16_777_216, 1)).isEqualTo(DecodeSize(1919, 1))
+        assertThat(decodeSize(1, 16_777_216)).isEqualTo(DecodeSize(1, 1919))
+        assertThat(decodeSize(Int.MAX_VALUE, Int.MAX_VALUE, maxSize = DecodeSize(1, 1))).isEqualTo(DecodeSize(1, 1))
+    }
+
+    @Test
+    fun rejectedImageDecodesAtOnePixelWhateverTheBox() {
+        val header = DecodeSize(64, 32)
+        assertThat(decodeSize(header, rejected = true, maxSize = null)).isEqualTo(DecodeSize(1, 1))
+        assertThat(decodeSize(header, rejected = true, maxSize = box)).isEqualTo(DecodeSize(1, 1))
+    }
+
+    @Test
+    fun decodeSizeRefusesANonPositiveSide() {
+        val thrown = runCatching { DecodeSize(0, 16) }.exceptionOrNull()
+        assertThat(thrown).isInstanceOf(IllegalArgumentException::class.java)
     }
 
     @Test
@@ -104,7 +126,7 @@ class BoundedBitmapDecodeTest {
             BoundedDecodePolicy<String>(
                 allocator = ImageDecoder.ALLOCATOR_DEFAULT,
                 gate = { _, _, _ -> "too-big" },
-                target = null,
+                maxSize = null,
                 onMalformed = { "malformed" },
                 onRuntimeFailure = { "runtime" },
                 onOutOfMemory = null,

@@ -21,11 +21,10 @@ import `is`.walt.passes.image.decode.DecodeSize
 import `is`.walt.passes.image.decode.decodeBounded
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import kotlin.math.roundToInt
 
 /**
- * The only path from pass image bytes to pixels: a bounded, off-main-thread `ImageDecoder` decode
- * to at most [bounds]. A refused image draws nothing and reports its reason to [telemetry].
+ * The only path from pass image bytes to pixels: a bounded `ImageDecoder` decode to at most [bounds].
+ * A refused image draws nothing and reports to [telemetry]; an [OutOfMemoryError] propagates.
  */
 @Composable
 public fun BoundedImage(
@@ -67,15 +66,6 @@ internal const val MAX_SOURCE_PIXELS: Long = 4096L * 4096L
 internal fun sourceRejection(width: Int, height: Int): ImageDecodeRejection? =
     if (width.toLong() * height.toLong() > MAX_SOURCE_PIXELS) ImageDecodeRejection.ExceedsArea else null
 
-/** The aspect-preserving fit of a [width] x [height] source into [bounds], never upscaled. */
-internal fun fitWithin(width: Int, height: Int, bounds: ImageRenderBounds): DecodeSize {
-    val scale = minOf(bounds.maxWidthPx.toDouble() / width, bounds.maxHeightPx.toDouble() / height, 1.0)
-    return DecodeSize(
-        width = (width * scale).roundToInt().coerceIn(1, bounds.maxWidthPx),
-        height = (height * scale).roundToInt().coerceIn(1, bounds.maxHeightPx),
-    )
-}
-
 /** The decode behind [BoundedImage], split out so tests can drive it without a composition. */
 internal fun decodeBoundedBitmap(
     rawBytes: ByteArray,
@@ -90,7 +80,7 @@ internal fun decodeBoundedBitmap(
                         // Display only, so a hardware bitmap is fine.
                         allocator = ImageDecoder.ALLOCATOR_DEFAULT,
                         gate = { _, width, height -> sourceRejection(width, height) },
-                        target = { width, height -> fitWithin(width, height, bounds) },
+                        maxSize = DecodeSize(bounds.maxWidthPx, bounds.maxHeightPx),
                         onMalformed = { ImageDecodeRejection.Malformed },
                         onRuntimeFailure = { ImageDecodeRejection.Other },
                         // The host has no rejection bucket for an OOM, so it propagates.
