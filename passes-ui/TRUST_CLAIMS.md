@@ -214,8 +214,6 @@ was measured only for the cases named here:
 - On API 34, a non-interlaced PNG decodes without a full-size intermediate (the device
   test below pins that). An interlaced PNG is buffered whole whatever the output size:
   up to 64 MB for an accepted image at the ceiling, 128 MB for a 16-bit one.
-- A refused image is still read, at one pixel, so the codec's own buffers for it follow
-  the size its header declares and the ceiling does not bound them.
 - The number of decodes is not limited: each `BoundedImage` in composition decodes its
   own image. A decode that exhausts memory can take the host process down; an
   `OutOfMemoryError` from it propagates to the host.

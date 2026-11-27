@@ -42,9 +42,7 @@ class BoundedBitmapDecodeInstrumentedTest {
     }
 
     @Test
-    fun rejectsOverCapImageByGateWithoutFullAllocation() {
-        // A 16x16 image under a 1px cap trips the gate; the listener forces a 1x1 decode so the
-        // rejected path allocates nothing of size.
+    fun rejectsOverCapImageByGate() {
         val result = decodeBounded(rawBytes = pngOf(width = 16, height = 16), policy = policy(maxSide = 1))
         assertThat(result).isEqualTo(BoundedBitmap.Rejected(Reason.TooLarge))
     }
