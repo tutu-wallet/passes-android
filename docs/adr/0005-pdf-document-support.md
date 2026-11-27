@@ -27,7 +27,7 @@ Color is a per-class default the user can reassign, so it cannot encode provenan
 2. Provenance is stated in words on the detail surface: the non-suppressible `DocumentTrustCaption` (D5, Z.8) or the host "Pass type" row under the audited D5.T concession. Text, not chrome.
 3. A user-assigned color on a PDF is a preference, not a violation.
 
-`DocumentView(faceTint = ...)` lets the consumer tint the detail surface instead of reimplementing it. The tint reaches the frame only: the rasterised page and decoded image render identically tinted or not, and identically in light and dark, and the tint cannot suppress the trust caption or change the render request. No `Document` arm carries a color field and none may be added; the color an item carries is consumer state. Deriving a color from signature status, verification outcome or issuer identity anywhere in the kernel is an amendment to this row, not a PR. The mirror row for scannable cards is "colour carries no trust meaning" in `SCANNABLE_CARD_THREAT_MODEL.md`.
+`DocumentView(faceTint = ...)` lets the consumer tint the detail surface instead of reimplementing it. The tint reaches the frame only: the rasterised page and decoded image render identically tinted or not, and identically in light and dark, and the tint cannot suppress the trust caption or change the render request. No `Document` arm carries a color field and none may be added; the color an item carries is consumer state. Choosing or varying a document's color by signature status, verification outcome, signing identity or a claimed issuer identity anywhere in the kernel is an amendment to this row, not a PR. The mirror row for scannable cards is "colour carries no trust meaning" in `SCANNABLE_CARD_THREAT_MODEL.md`.
 
 #### D1.L Consumers may render documents inline in a unified wallet list
 
@@ -255,7 +255,7 @@ Nullable `barcode_payload TEXT` / `barcode_format TEXT` columns on `documents`. 
 
 ## List-surface presentation
 
-Document items in a consumer's own list (in whatever shape it draws them) take a class tint (D1.C), name the artifact class in a host-written class label ("PDF" / "IMAGE" / "IMAGE, QR CODE"), carry no verified affordance of any kind and no content preview (no page or image thumbnail). The label's position is the consumer's layout choice, provided it is visible without interaction and never truncated or displaced by the display label. Detail-surface provenance (D5, Z.8, D5.T) is where the in-words signal lives. The composite list-face code posture is a C1/C2 concession recorded as "list-face code render" in `SCANNABLE_CARD_THREAT_MODEL.md`; issuer color never reaches a list item (ADR 0003 D4 addendum).
+Document items in a consumer's own list (in whatever shape it draws them) take a class tint (D1.C), name the artifact class in a host-written class label ("PDF" / "IMAGE" / "IMAGE, QR CODE"), carry no verified affordance of any kind and no content preview (no page or image thumbnail). The label's position is the consumer's layout choice, provided it is visible without interaction and never truncated or displaced by the display label. Detail-surface provenance (D5, Z.8, D5.T) is where the in-words signal lives. The composite list-face code posture is a C1/C2 concession recorded as "list-face code render" in `SCANNABLE_CARD_THREAT_MODEL.md`. Issuer color and imagery reach only a pkpass item's pass tile, never a document item, and no document item draws the pass mark (ADR 0003 D4 addendum; consumer list concession, conditions 3 and 4).
 
 ## Out of scope
 

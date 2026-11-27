@@ -8,10 +8,10 @@ risks the rationale for accepting the residual exposure. This document records w
 each piece of the feature has to exist.
 
 The structural posture is **new artifact class, not new subtype of `Pass`**. PKPASS
-handling guarantees "every `Pass` you see has been cryptographically verified against
-the issuer's chain." A ScannableCard has no issuer and no signature; its bytes were
-typed by the user. Inheriting `Pass`'s shape would mean inheriting its trust language
-and would degrade the verified-PKPASS signal. ScannableCard is therefore a sibling at
+handling guarantees that every `Pass` carries a signature status computed against the
+issuer's chain. A ScannableCard has no issuer and no signature; its bytes were typed by
+the user. Inheriting `Pass`'s shape would mean inheriting its trust language and would
+degrade the verified-PKPASS signal. ScannableCard is therefore a sibling at
 every kernel layer (data model, storage table, UI lane, trust caption).
 
 ## Vocabulary
@@ -46,7 +46,10 @@ The C1 / C2 concessions below are recorded in the order they bear on the list an
 detail surfaces. A *list item* is one entry in a consumer's list, in whatever shape the
 consumer draws it. A *class label* is the host-written name of an item's artifact class
 ("PDF", "QR CODE"), distinct from the item's user- or file-supplied label (`label`,
-`displayLabel`).
+`displayLabel`). A *pass tile* is the one bounded, clipped region of a pkpass list item
+that may show an image and a colour from the pass file; the kernel's tile composables
+and the C2 tile are other things. The *pass mark* is the host-drawn mark of condition 3
+below.
 
 ### C1 / C2 concession: consumer list that interleaves classes
 
@@ -55,7 +58,7 @@ its own item composables, instead of the kernel's per-class lanes. Such a list g
 the lane, the tile shape and the in-item "Created by you" caption; `ScannableCardTile`
 remains the kernel's surface for hosts that keep scannable cards in their own lane. A
 kernel surface for an interleaved list amends this document. The consumer's list is
-permitted strictly when all four hold:
+permitted strictly when all five hold:
 
 1. No list item of any class carries a signature or verified affordance. The trust
    ladder (signature badge, trust captions) lives exclusively on detail surfaces, so
@@ -63,54 +66,146 @@ permitted strictly when all four hold:
    imitate.
 2. Every user-created and document item (scannable cards, documents, composites)
    carries its class label. The label is visible on the item without interaction, is
-   never truncated or displaced by user, file or issuer text, and the item's accessible
-   description names the class. Its position is otherwise the consumer's layout choice.
-3. No list item draws artifact imagery: no issuer artwork (logo, strip, thumbnail),
-   document page, image or code. Those pixels are the issuer's or the user's and can
-   imitate any mark the host draws. A code may render only under the list-face code
-   render concession below. Supplied text is covered by the residual risk below.
-4. Detail-surface provenance holds. A user-created or document item opens a detail
+   never truncated, displaced or covered by user, file or issuer text, and the item's
+   accessible description names the class. Its position is otherwise the consumer's
+   layout choice.
+3. Every pkpass item carries the pass mark, and no item of another class draws it
+   anywhere, as a mark, a class glyph or otherwise.
+   - Its form is the host's: one glyph or word, the same on every pkpass item whatever
+     the pass file or the user supplies.
+   - It depicts the class, never approval: no tick, shield, seal or other sign of
+     endorsement, and nothing that varies with signature status (condition 1).
+   - It is visible without interaction, at 3:1 contrast or better against whatever
+     surface it sits on, in every theme.
+   - It is drawn in host colours on the host's surface, separated from any pass tile
+     by host surface on every side, at a position that holds only host-drawn content
+     on every item of every class. No user, file or issuer text displaces or covers
+     it.
+   - It may be silent to assistive technology. The item's accessible description names
+     its `PassType` in host words the host uses for no other class.
+4. No list item draws artifact imagery (issuer artwork, document page, image or code),
+   with one exception: a pkpass item's pass tile may show one image from the pass file,
+   on the pass file's `backgroundColor` or on the item's class or user colour. Those
+   pixels and the file's colour are the issuer's and can imitate any mark the host
+   draws, so the exception is bound:
+   - The image, and the colour when it is the file's, are taken from the pass file
+     alone and are the same for every signature status. Showing or withholding them by
+     verification outcome would make them a verified affordance (condition 1).
+   - The pass tile has a host-fixed size and position, the same on every pkpass item.
+     No pixel or colour from the pass file, or derived from it, reaches outside it.
+   - The pass mark, the item's text (issuer text included) and its controls sit on the
+     host's surface in host colours. Anything else the host draws on a pass tile is
+     decoration: no class, identity or state, expiry included, is carried there alone.
+   - The host renders no barcode from the pass in the list, at any size, on the pass
+     tile or off it.
+   - The image decodes in the app process through the kernel's `BoundedImage`, at
+     `ImageRenderBounds.Default` or tighter, which caps the dimensions of each decoded
+     bitmap. That is the path the kernel provides for pass images, not the isolated
+     process that images a user imports decode in (C5; ADR 0005 D3 and section I).
+
+   Every other pixel source stays out of the list: a document page or image, a
+   user-chosen image on any item, and a code outside the list-face code render
+   concession below. Supplied text is covered by the residual risk below.
+5. Detail-surface provenance holds. A user-created or document item opens a detail
    surface carrying the kernel's docked caption or the audited `HostedTypeRow` carrier
    below (ADR 0005 D5.T for documents). A pkpass item opens the pkpass detail surface,
    which states its signature status in words, not behind a foldout, tap or other
    disclosure.
 
 On the kernel's surfaces the *C1 list-level distinction* is the separate lane and the
-C2 tile; in a consumer list that interleaves classes it is conditions 1 to 3. The rest
+C2 tile; in a consumer list that interleaves classes it is conditions 1 to 4. The rest
 of this document cites it in that sense. Under `HostedTypeRow` in such a list it
 carries almost all of the load: the verbatim caption renders on neither the list nor
 the detail surface, only a host type row that may sit collapsed, and bound (b) of that
 concession requires the list-level distinction in return.
 
-**Accepted residual risk.** The class label marks every user-created and document item;
-it does not prove one. A pkpass item need not carry a class label, and it shows issuer
-text, which can print a class word, host-looking metadata or verification wording. A
-document's file name or a user's label can print the same in a title. None of it is the
-host's voice, and it is bounded:
+**Why the pass mark is required.** A pass tile gives the issuer a region of the list
+it paints freely, beside text it already writes. Without the mark, a pkpass item is
+told apart only by what it lacks, and issuer content can supply that: a class word in
+its text, a class glyph or a document page in its pass tile. The mark is the one part
+of a pkpass item nothing in the pass file can draw, move or remove, and it holds in
+both directions:
 
-- Posing as a user-created or document class gains little past the list. By condition
-  4 a pkpass item opens the pkpass detail surface, and it never renders its code in the
-  list.
-- Posing as verified through issuer text is bounded by condition 4: the pkpass detail
-  surface states signature status in host words that issuer text cannot suppress,
-  restyle or fold away.
+- A pass posing as a code or a document still carries the mark, whatever its text
+  prints and its pass tile depicts.
+- A user-created or document item cannot carry it. The host draws it on pkpass items
+  only, the item draws no imagery beyond a code under the list-face code render
+  concession, and supplied text never reaches the mark's position. An image document
+  that is a photograph of a pass shows its class label and no mark (Threat 1).
+
+What supplied content cannot reach is the mark's position, not its shape. A title can
+carry a glyph or emoji that resembles the mark, and a pass tile can depict a copy of
+it; neither sits at the mark's position, and a copy inside a pass tile sits on an item
+that carries the real one.
+
+**Accepted residual risk.** The class label and the pass mark each name a class;
+neither proves what an item's content claims. A pkpass item shows issuer text and, in
+its pass tile, issuer pixels on an issuer-chosen colour. Between them they can print a
+class word, host-looking metadata or verification wording, and depict a seal, a tick, a
+code, or another organisation's logo and colour. A document's file name or a user's
+label can print the same words in a title. None of it is the host's voice, and it is
+bounded:
+
+- Posing as a user-created or document class gains little past the list. The item
+  keeps the pass mark, by condition 5 it opens the pkpass detail surface, and the host
+  renders no code for it in the list.
+- Posing as verified, or as a known issuer, through issuer text or pass tile artwork is
+  bounded by conditions 1 and 5. The host draws no verified mark at list scale for
+  artwork to copy, a signed pass and an unsigned one render the same item, and the
+  pkpass detail surface states signature status in host words that issuer text and
+  artwork cannot suppress, restyle or fold away. The list does not tell an unsigned
+  pass in a known brand's logo and colour from the signed original; only the detail
+  surface does.
+- An issuer colour equal to the list's surface hides the pass tile's edge, so its
+  artwork can read as drawn on the host's surface. What bounds it is the pass tile's
+  fixed size and position: the artwork cannot leave that frame, and host surface
+  separates the pass mark and the item's text from it.
+- Artwork can depict a scannable code. A user can then present an unsigned pass's code
+  straight from the list without meeting the in-words signature status, which is the
+  reach the list-face code render concession guards for user-created codes. Accepted:
+  the host cannot tell a depicted code from any other picture, the picture is the
+  issuer's on the list as on the detail surface, and what a scanner does with it is
+  the scanner's call (Threats 2 and 9).
 - Posing as verified through a file name or user label is bounded only by the class
   label, which names a class that is never verified, and by the detail caption where it
   is docked. Under `HostedTypeRow` the provenance row may sit collapsed, so on the
   inline detail surface a user who never expands it meets a user-created or document
   item's provenance only as its class label, whatever its title or content claims.
+- The spoken path reserves no position, so it is weaker than the visual one. An
+  accessible description reads supplied text beside the host's class words: a user's
+  label or a document's file name can speak the host's words for a `PassType`, and
+  issuer text those for a class. What holds is that the host's own words are always
+  among those spoken, the class for a user-created or document item (condition 2) and
+  the `PassType` for a pkpass item (condition 3). Two items of different classes can
+  still be made to speak alike.
 
-Dropping or weakening any of the four conditions amends this document. The kernel
-cannot verify them at runtime, so the obligation is the consumer's: its wallet-list
-tests are expected to pin that a verified pass and an unsigned one render the same
-item, that every user-created and document item shows its class label and speaks its
-class, and that no item draws artifact imagery.
+**Decode exposure.** A list that draws pass tiles decodes one image per pkpass item
+whenever those items are displayed, where a detail surface decodes only the pass the
+user opened. The decode is in-process and bounded per image (condition 4), so the list
+adds reach to an exposure pass images already carry and no new decode path.
+
+Dropping or weakening any of the five conditions amends this document. The kernel
+cannot verify them at runtime, so the obligation is the consumer's. Its wallet-list
+tests are expected to pin that:
+
+- one pass file, carrying an image and a background colour, renders the same item at
+  every signature status;
+- every user-created and document item shows its class label and speaks its class,
+  and supplied text of any length or glyph height neither moves nor covers the label;
+- every pkpass item shows the pass mark with host surface between it and any pass
+  tile and speaks its `PassType`, and supplied text of any length or glyph height
+  neither moves nor covers the mark;
+- no item of another class draws the mark, and the mark's position holds only
+  host-drawn content on every class;
+- no item draws artifact imagery outside a pass tile or a list-face code render, no
+  pass colour paints outside a pass tile, pass images decode only through
+  `BoundedImage`, and no pass barcode renders.
 
 ### C1 / C2 concession: list-face code render
 
 A scannable card's (and a composite artifact's extracted) actual code may render on a
 list item through the kernel's `CompactCodeView` (`(payload, format)` only). This goes
-past condition 3 of the consumer list concession: a code usable straight from the list
+past condition 4 of the consumer list concession: a code usable straight from the list
 means the user may never open the detail surface. It is permitted strictly when all
 three hold:
 
@@ -120,8 +215,8 @@ three hold:
    (`payload`, `format`, `modifier`, `contentDescription`) and its no-overload lock.
 2. The item that shows the code meets every other condition of the consumer list
    concession, with its class label ("QR CODE" / "CODE 128" / "IMAGE, QR CODE") in view
-   whenever the code is. Only user-created codes render at list scale; signed pkpass
-   barcodes stay detail-surface-only, and a pass never renders its code in the list.
+   whenever the code is. Only user-created codes render at list scale; the host renders
+   no pkpass barcode in the list, whatever the pass's signature status.
 3. Detail-surface provenance is unchanged: the bottom-docked caption by default, or the
    audited `HostedTypeRow` carrier below.
 
@@ -130,47 +225,40 @@ in-words provenance signal for that use. Bounded because the artifact is the use
 creation, the list-level class distinction is in view at scan time, and Walt is a
 display device, not an issuer: the POS / recipient is the authority on whether the code
 is credit-worthy (Threat 9). Rendering a list-face code without the condition-2 class
-label, or pkpass barcodes at list scale, amends this row.
-
-The concession is currently unexercised: the consumer's list items carry no code
-tile, barcode band, image badge or photo thumbnail ("No previews on list cards"). All
-three conditions govern any host that exercises it, and the accepted residual risk
-applies only while it is exercised.
+label, or pkpass barcodes at list scale, amends this row. Issuer artwork that depicts a
+code is not a render; condition 4 of the consumer list concession governs it.
 
 ### C1 / C2 concession: colour carries no trust meaning, for any class
 
-The consumer's rules block, verbatim:
+The colour of an item's face or pass tile has one of two sources, and neither depends
+on signature status:
 
-> Colour means class. Nothing else. The pass file's backgroundColor is read,
-> never rendered.
-> Card stock is identical in light and dark. No previews on list cards.
-> Expired washes out (#EFEAE3) instead of tinting. Any item is reassignable:
-> Details > Color.
-> No card presents as verified - signature is stated in words, on detail.
-
-Colour is (a) decoupled from the issuer, so every pkpass renders the same class tint
-regardless of `pass.json` `backgroundColor`, (b) applied to every artifact class, and
-(c) user-reassignable per item from a picker on the detail surface, so any artifact can
-carry any of the seven palette colours.
+- **Class colour.** A consumer may colour any item by artifact class and let the user
+  reassign it.
+- **Issuer colour.** A pkpass item's pass tile may instead take the pass file's
+  `backgroundColor` (condition 4 of the consumer list concession), as `PassFront`
+  takes `Pass.colors` on the kernel pass surface (ADR 0003 D4). It is content the pass
+  file declares, read from the file alone and the same for a signed pass and an
+  unsigned one. On a list item it stays inside the pass tile, so a pass file cannot
+  recolour the pass mark into its background or restyle host text (the attack ADR 0003
+  D4 names).
 
 **The verified-band confusion class is closed on these premises.** It does not rest on
-"a user-created artifact cannot wear the chrome a signed pass wears," since per-item
-reassignment means no chrome is exclusive to a signed pass.
+"a user-created artifact cannot wear the chrome a signed pass wears," since no item
+colour is exclusive to a signed pass.
 
-1. **No surface presents as verified.** In the consumer's design, no card of any
-   class renders a signature affordance, verified band or pill at list or detail
-   scale; the kernel's `PassFront` pill is on by default and is suppressed only
-   through the bounded `showSignatureBadge` opt-out. There is no verified visual to
-   imitate.
+1. **No item colour presents as verified.** No list item of any class carries a
+   signature affordance (condition 1 of the consumer list concession). On a detail
+   surface the only status-keyed colour is the `PassFront` pill's, which renders on a
+   pkpass alone and comes from the status (ADR 0003 D2), never from an item colour. It
+   stays on the pill.
 2. **Signature status is stated in words, on the detail surface only.** "Verified -
    signed by issuer" / "Unverified - unsigned by issuer" / "User provided pass, issuer
-   cannot be verified". Text, not chrome, so a colour choice cannot imitate it; the
-   consumer's no-false-forensic-claims rule holds verbatim.
-3. **Colour is uniform per class by default and overridable by the user.** A Bronze PDF
-   or a Teal pkpass is a user preference, not a violation, spoof or something a
-   consumer should guard against. Colour any user can reassign cannot encode provenance
-   even accidentally, which is why it is safe to grant and why nothing may be inferred
-   from it.
+   cannot be verified". Text, not chrome, so a colour choice cannot imitate it.
+3. **No item colour attests a provenance.** A class colour is a default the user can
+   override, so a recoloured PDF is a preference, not a spoof. An issuer colour may
+   suggest an issuer, but any pass file can declare it, so an unsigned pass can wear
+   the colour a signed one uses. Nothing may be inferred from either.
 
 **Kernel surface.** `ScannableCardScreen(faceTint = ...)` and `DocumentView(faceTint = ...)`
 let the consumer tint the card face. Both are presentation-only and bound by four rules:
@@ -185,10 +273,10 @@ let the consumer tint the card face. Both are presentation-only and bound by fou
 - Ink on a tinted face is derived from the tint's luminance (`inkOn`), pinned at
   >= 4.5:1, so a hostile or careless tint cannot make the in-words provenance signal
   illegible.
-- The kernel stores no colour. `ScannableCard.color`, `ScannableColor` and the storage
-  column are removed and stay removed; no `Document` arm carries one. Which colour an
-  item carries is consumer state, so the kernel never learns why a colour was chosen
-  and has nothing to leak in Threats 7 / 8.
+- The kernel stores no colour for a scannable card or a document: neither model nor
+  storage table carries a colour field. Which colour such an item carries is consumer
+  state, so the kernel never learns why a colour was chosen and has nothing to leak in
+  Threats 7 / 8.
 
 Both surfaces decide what counts as a tint with one predicate, `passes-ui-core`'s
 `faceIsTinted` (`isSpecified && alpha > 0f`), so a fully transparent tint falls back to
@@ -200,11 +288,14 @@ observes (its test checks only that the surface composes intact). The predicate 
 legibility, not provenance: neither surface can lose its trust caption either way.
 
 **Bound of this row.** Granted: a consumer-chosen face tint on the two detail surfaces,
-plus the consumer's freedom to colour its own list items. Not granted (each amends this
-document): deriving a colour from signature status, verification outcome or issuer
-identity anywhere in the kernel; re-adding a colour field to a kernel artifact model or
-storage table; a `faceTint` reaching the code panel or page render. The document-side
-mirror is ADR 0005 D1.C.
+the consumer's freedom to colour its own list items by class or user choice, and the
+pass file's `backgroundColor` on that pass's pass tile. Not granted (each amends this
+document): an item colour, face tint or pass tile colour chosen or varied by signature
+status, verification outcome, signing identity or an identity the pass file claims, in
+the kernel or on a consumer's list; a colour from a pass file, or derived from one,
+outside `PassFront` and that pass's pass tile; a colour field on the scannable card or
+document models or their storage tables; a `faceTint` reaching the code panel or page
+render. The document-side mirror is ADR 0005 D1.C.
 
 ### C2 concession: host "Pass type" row (detail surface)
 
@@ -227,14 +318,15 @@ things the docked-caption contract forbade:
 
 **Why this is bounded.** The load-bearing mitigation for Threat 1 is C1 + C2 combined,
 and C1 is untouched in the direction it must hold: every user-created and document
-item names its class in the host's voice and cannot shed it, and no list item carries a
-verified affordance (condition 1 of the consumer list concession), so passing for a
-pkpass gains nothing at list scale. The detail surface is reached only after the user
-has seen the list-level distinction, on a card they created and can delete. The row,
-even collapsed, is a labelled, consistent location for provenance. Walt remains a
-display device (Threat 9). The residual risk is that a user who relies solely on the
-detail surface, never expands the foldout and ignores the list-level distinction loses
-the in-words reminder; judged acceptable for a user viewing their own card.
+item names its class in the host's voice and cannot shed it, none can carry the pass
+mark (condition 3 of the consumer list concession), and no list item carries a verified
+affordance (condition 1), so passing for a pkpass gains nothing at list scale. The
+detail surface is reached only after the user has seen the list-level distinction, on a
+card they created and can delete. The row, even collapsed, is a labelled, consistent
+location for provenance. Walt remains a display device (Threat 9). The residual risk is
+that a user who relies solely on the detail surface, never expands the foldout and
+ignores the list-level distinction loses the in-words reminder; judged acceptable for a
+user viewing their own card.
 
 **Bound of the concession.** `HostedTypeRow` is permitted strictly for a host that (a)
 renders a "Pass type" row enumerating the artifact class on its detail surface and (b)
@@ -353,17 +445,19 @@ tagged `NoSignature`.
 caption with at least two visual distinguishing elements): on the kernel's surfaces, a
 different-shaped tile in a different-titled lane with a different caption. A consumer
 list that interleaves classes gives up the lane, the tile shape and the in-item caption
-under the consumer list concession, and `HostedTypeRow` reduces the detail-surface
-layer to a host type row, shifting the load almost entirely onto C1's list-level
-distinction. Both reductions in defense-in-depth are accepted deliberately.
+under the consumer list concession, and where it draws pass tiles it admits issuer
+artwork and colour to the list. `HostedTypeRow` reduces the detail-surface layer to a
+host type row, shifting the load almost entirely onto C1's list-level distinction. Each
+reduction in defense-in-depth is accepted deliberately.
 
 **Status.** Mitigated structurally. Where a consumer takes both the consumer list and
 `HostedTypeRow` concessions, the C1 list-level distinction carries the load: a class
-label on every user-created and document item, no verified affordance and no artifact
-imagery on any item of any class. Colour distinguishes nothing on its own and is not
-relied on to, and the class label marks a class without proving one (residual risk of
-the consumer list concession). This is the load-bearing concern of the feature; every
-control traces back to this row.
+label on every user-created and document item, the pass mark on every pkpass item, no
+verified affordance on any item of any class, and artifact imagery nowhere but a pass
+tile or a list-face code render. Colour distinguishes nothing on its own and is not
+relied on to, and the class label and the pass mark name a class without proving what
+an item claims (residual risk of the consumer list concession). This is the
+load-bearing concern of the feature; every control traces back to this row.
 
 ### 2. Hostile URI payload encoded into a QR that another device auto-acts on - Spoofing / Elevation of privilege
 
@@ -500,17 +594,19 @@ this row.
 SVG parsers (named-color injection, `var(--...)` escapes). A naive "type a hex code"
 picker could allow inputs that round-trip as something unexpected.
 
-**Mitigation.** The kernel has no per-card colour field and no colour parsing or storage
-surface. A consumer-side picker exists: the consumer persists per-item overrides itself and
-passes `ScannableCardScreen(faceTint)` / `DocumentView(faceTint)` an already-constructed
-Compose `Color`. The kernel parses no colour string, stores no colour and validates none; a
-`Color` is an opaque packed value with no parse step, and nothing the kernel does with it
-(paint the face, derive ink from luminance) branches on its value beyond contrast. Picker
-input hygiene is the consumer's; a hostile value can at worst produce an ugly card, since
-ink contrast is derived and pinned.
+**Mitigation.** The kernel has no colour field on a scannable card or a document and
+parses no colour a user enters. A consumer-side picker exists: the consumer persists
+per-item overrides itself and passes `ScannableCardScreen(faceTint)` /
+`DocumentView(faceTint)` an already-constructed Compose `Color`. For those two classes
+the kernel parses no colour string, stores no colour and validates none; a `Color` is an
+opaque packed value with no parse step, and nothing the kernel does with it (paint the
+face, derive ink from luminance) branches on its value beyond contrast. Picker input
+hygiene is the consumer's; a hostile value can at worst produce an ugly card, since ink
+contrast is derived and pinned. The colours a pass file declares are a separate input:
+`passes-core` parses them with the rest of `pass.json`.
 
-**Status.** No parsing or storage surface at the kernel; picker and persistence are
-consumer-side.
+**Status.** No parsing or storage surface for user-chosen colour at the kernel; picker
+and persistence are consumer-side.
 
 ### 11. Future TOTP / HMAC-OATH secret leakage - Explicit non-feature
 
@@ -639,11 +735,13 @@ v2"; each is deliberately absent because it re-opens a threat row above.
   recognition re-opens a parser surface this document does not cover.
 - **No "Verified" or "Trusted" badge on any ScannableCardTile** under any combination of
   consumer theming. C2 forbids it.
-- **No colour-derived trust signal anywhere in the kernel.** No surface may pick or vary a
-  colour from signature status, verification outcome or issuer identity, and no kernel
-  artifact model or storage table may carry a colour field. Colour enters the kernel only
-  as a consumer-supplied `faceTint` on the two detail surfaces, and nothing may be inferred
-  from it. Re-opens the colour row.
+- **No colour-derived trust signal anywhere in the kernel.** No item colour, face tint or
+  pass tile colour may be picked or varied by signature status, verification outcome,
+  signing identity or an identity the pass file claims; the `PassFront` pill is the one
+  status-keyed colour. Neither the scannable card nor the document model or storage table
+  may carry a colour field. Colour reaches the scannable card and document surfaces only
+  as a consumer-supplied `faceTint`, a pass file's colours reach only `PassFront` and
+  that pass's pass tile, and nothing may be inferred from either. Re-opens the colour row.
 - **No server-side validation of payloads against merchant APIs.** Re-opens row 9 and adds
   a key-custody / network surface.
 - **No TOTP / HMAC-OATH / rotating-secret support.** Re-opens row 11.
@@ -667,7 +765,7 @@ v2"; each is deliberately absent because it re-opens a threat row above.
 
 | Control | Pinned by |
 |---------|-----------|
-| C1      | `ScannableCardSurfaceTest.scannableCardDoesNotShareSupertypeWithPass`; storage `PublicApiSurfaceTest` `SCANNABLE_CARDS` assertion (separate table). No separate-lane composable test. Consumer list concession: consumer-side, tests that a verified and an unsigned pass render the same list item, that every user-created and document item shows its class label and speaks its class, and that no item draws artifact imagery |
+| C1      | `ScannableCardSurfaceTest.scannableCardDoesNotShareSupertypeWithPass`; storage `PublicApiSurfaceTest` `SCANNABLE_CARDS` assertion (separate table). No separate-lane composable test. Consumer list concession: expected consumer-side tests, listed at the end of that concession |
 | C2      | Non-suppressible caption test; no snapshot test of the at-least-two-distinct-elements rule; `scannableCardScreenHasExactlyFiveUserVisibleParameters`; `scannableCardScreenTrustCaptionParamIsThePlacementType` (placement is the audited choice, not a Boolean); `fullScreenHostedTypeRowOmitsKernelCaption` and `hostedTypeRowStillRendersBarcodeAndPayloadCaption` (the "Pass type" concession); consumer-side, a test that the details section renders a "Pass type" row. Colour row: `ScannableCardTrustSurfaceTest.faceTintDoesNotSuppressBarcodeLabelPayloadOrTrustCaption` (and its dark-tint twin), `codePanelIsLiterallyWhiteNotAThemeTokenOrTheFaceTint`, `inkOnClearsWcagAaAgainstEveryTintIncludingTheWorstCase`, `DocumentFaceTintTest.faceTintDoesNotSuppressTheTrustCaptionOnEitherArm` and `faceTintLeavesThePageRenderRequestUnchanged`; the shared tint gate by `passes-ui-core`'s `FaceTintTest` |
 | C3      | Length-cap, charset and Cf/Cc rejection unit tests; `theTwoDimensionalFormatsEncodeAtTheirValidatorCap`, `theTwoDimensionalFormatsRoundTripAtTheirValidatorCap`, `BarcodeEncoderRoundTripTest.nonAsciiPayloadsSurviveOnTheCharsetPinnedFormats`, `BarcodeEncoderCharsetTest`; `noFormatIsDecodeOnly` and `isCreatableAgreesWithWhatTheValidatorAccepts`; byte-capable charset rules in `ScannableFormatConstraintsTest` |
 | C4      | `QrPayloadClassifierTest`, `BarcodeCreateConfirmSheetTest` |

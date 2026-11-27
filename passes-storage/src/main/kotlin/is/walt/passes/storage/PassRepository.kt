@@ -68,9 +68,8 @@ public interface PassRepository {
     ): StorageResult<PassRecordId>
 
     /**
-     * Load a stored pass with all images and locales materialized. Use [summaryOf] for the
-     * list view; [load] is the detail-view path. The retained archive is NOT loaded here;
-     * see [loadArchiveBytes].
+     * Load a stored pass with all images and locales materialized; list queries use
+     * [summaryOf]. The retained archive is NOT loaded here; see [loadArchiveBytes].
      */
     public suspend fun load(id: PassRecordId): StorageResult<StoredPass>
 
@@ -305,7 +304,7 @@ public interface PassRepository {
 
 /**
  * The list-view projection of a stored pass. Mirrors the indexed columns of the `passes`
- * table so the wallet list does not pay for image or locale I/O.
+ * table so the list query pays for no image or locale I/O.
  */
 public data class PassSummary(
     public val id: PassRecordId,

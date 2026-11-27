@@ -47,7 +47,9 @@ The PKPASS spec lets each pass declare its own `foregroundColor`,
 `passes-core`). On the pass surface itself, those colors override the host's
 `MaterialTheme.colorScheme.surface` / `onSurface`. Off the pass, wallet list
 chrome, bottom sheets, expired overlay, security confirmation sheets, the host
-theme is authoritative.
+theme is authoritative. In a consumer's own list only the pass tile takes a
+pass color, and only `backgroundColor` (addendum below); the rest of the item
+is list chrome.
 
 Why scoped: a pass-supplied color does not get to recolor a security confirmation sheet; letting the pass influence them opens an "adversarial pass darkens cancel button into invisibility" attack.
 
@@ -135,12 +137,13 @@ Theming data classes, security intents, image bounds, the expired-state ADT and 
 
 - Accessibility: every composable takes a `contentDescription: String?` where applicable, and the trust badge, expired pill and barcode altText must pass non-null descriptions. Accessibility-test coverage is incomplete.
 
-## Addendum: card color is class-based and user-assigned, not issuer-derived (D4)
+## Addendum: class color on any item, issuer color on `PassFront` and the pass tile (D4)
 
-Colour means class and nothing else. The pass file's `backgroundColor` is read, never rendered, on a consumer's list item: every pkpass renders the same class tint regardless of `pass.json`, every other artifact class gets its own class tint, and the user can reassign any item's color from a picker on the detail surface.
+An item's color has two sources and neither depends on signature status. A consumer may color any item by artifact class and let the user reassign it; `PassFront` and a pass tile may instead take colors the pass file declares.
 
-- **D4 itself is unchanged.** `Pass.colors` overrides the theme on the kernel pass surface (`PassFront`) and nowhere else. A consumer that renders its own card faces ignores `PassColors`; one that composes `PassFront` gets D4's behavior.
-- **Colors reach kernel surfaces as consumer-supplied tints.** `ScannableCardScreen(faceTint)` and `DocumentView(faceTint)` take an already-constructed `Color`; the kernel stores none, parses none and infers nothing from one. Ink on a tinted face is derived from the tint's luminance (`inkOn`), pinned at 4.5:1 or better, so an arbitrary consumer color cannot render the in-words trust text illegible. This is the theming analogue of D5's "no off switch."
+- **D4's scope rule covers a consumer's list.** `Pass.colors` overrides the theme on `PassFront`. In a consumer's list, the pass tile of a pkpass item may show one image from the pass file on `Pass.colors.background`, and no other pass color reaches the item (`SCANNABLE_CARD_THREAT_MODEL.md`, consumer list concession, condition 4). The pass mark, the item's text and its controls sit outside the pass tile in the host theme, so a pass-supplied color cannot hide the mark or restyle host text. A consumer that renders its own pass faces applies no pass color outside a pass tile; one that composes `PassFront` gets D4's behavior.
+- **Pass colors are the same for every signature status.** They are read from the pass file alone. No item color, face tint or pass tile color is chosen or varied by signature status, verification outcome, signing identity or an identity the pass file claims. The trust badge's `signatureBadge` colors (D2) are the one status-keyed color and stay on the badge.
+- **Class colors reach kernel surfaces as consumer-supplied tints.** `ScannableCardScreen(faceTint)` and `DocumentView(faceTint)` take an already-constructed `Color`; the kernel stores none, parses none and infers nothing from one. Ink on a tinted face is derived from the tint's luminance (`inkOn`), pinned at 4.5:1 or better, so an arbitrary consumer color cannot render the in-words trust text illegible. This is the theming analogue of D5's "no off switch."
 - **The security-sheet family is untouched.** `B3UrlConfirmSheet`, `PhoneConfirmSheet` and `EmailConfirmSheet` read `MaterialTheme.colorScheme` and `LocalPassesSemantics` only. They take no tint parameter and must not: the attack D4 names applies verbatim to a user- or consumer-chosen color.
 - **Color carries no trust meaning.** See `SCANNABLE_CARD_THREAT_MODEL.md` ("colour carries no trust meaning") and ADR 0005 D1.C.
 

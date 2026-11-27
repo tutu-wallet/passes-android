@@ -49,7 +49,7 @@ StrongBox is requested via `KeyGenParameterSpec.Builder.setIsStrongBoxBacked(tru
 
 The same database also holds the document and scannable-card tables; see `Schema.kt`.
 
-Why split: the wallet list view needs only the query columns for tens to low hundreds of passes. Separating images and locales keeps the list query to the `passes` row, and the detail view fetches images and locales lazily by `pass_id`.
+Why split: the wallet list query needs only the query columns for tens to low hundreds of passes. Separating images and locales keeps that query to the `passes` row. `load(id)` materializes a pass's images and locales; the detail view calls it, and so does a list that draws pass tiles, once per pkpass item.
 
 `pass_json` carries the structured `Pass` body so the renderer reconstructs the parser's object without re-running PKCS#7 verification. `signature_status_kind` captures the trust band at import time so the badge stays visible without re-parsing.
 
