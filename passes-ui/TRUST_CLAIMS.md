@@ -191,7 +191,10 @@ code review.
 footer, plus their @2x and @3x variants) are decoded and displayed at the size the
 layout calls for. An image larger than the caller's bounds is scaled down to fit. An
 image the decoder refuses draws nothing. In a list that keeps a cache, an image
-already decoded draws at once when its row comes back into view.
+already decoded draws at once when its row comes back into view. A document's row in
+the list shows its stored thumbnail the same way (`SCANNABLE_CARD_THREAT_MODEL.md`,
+consumer list concession, condition 4); everything below holds for it as for a pass
+image.
 
 **Trust claim.** Four limits apply to every pass image, whatever configuration its
 bytes were imported or stored under. No parameter loosens the first three.
@@ -249,12 +252,12 @@ unless the cache was cleared since the row asked for it; one still waiting for a
 decode slot then never runs.
 
 **What a host that keeps a cache must do.** Clear it after the composition that drops a
-deleted pass's row, for example from an effect keyed on the list's items. A
-`PassImageCache` keeps a deleted pass's image bytes and decoded pixels in memory until
-then, and the kernel cannot see a deletion. A row that composes after the clear but
-before that composition decodes and keeps the image again, so clearing as soon as the
-list's data drops the pass is too early. The host's test: once a deleted pass's row has
-left composition, the list's cache has been cleared.
+deleted pass's or document's row, for example from an effect keyed on the list's
+items. A `PassImageCache` keeps a deleted item's image bytes and decoded pixels in
+memory until then, and the kernel cannot see a deletion. A row that composes after the
+clear but before that composition decodes and keeps the image again, so clearing as
+soon as the list's data drops the item is too early. The host's test: once a deleted
+item's row has left composition, the list's cache has been cleared.
 
 **Residual risk.** The picture chunks of an accepted PNG are fed through the platform's
 PNG codec in the app process, not in an isolated one. What the codec buffers is the

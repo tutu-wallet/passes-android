@@ -36,7 +36,7 @@ The kernel draws no document list item. A consumer renders documents in a list o
 1. **The sibling data-model contract holds.** The merge is render-time only. A row is built from `DocumentRow` / `PdfDocument` (or the image and composite arms), never by widening it into a `Pass` or a shared supertype with one.
 2. **The row carries no signature or verified affordance**, and none can be themed onto it. The list is where a document sits closest to a pkpass.
 3. **Detail-surface provenance holds**: the host "Pass type" row on the detail surface, which is the only way into the full-screen view (D5.T). A consumer that drops the row is amending D5.T, not filing a PR.
-4. **The row names its class and draws no page or image.** The class label is host-written (List-surface presentation), visible without interaction, and never truncated or displaced by the display label; the row's accessible description names the class. Dropping either part amends this ADR and the consumer list concession in `SCANNABLE_CARD_THREAT_MODEL.md`, which holds the full condition list for every class.
+4. **The row names its class and draws no page or image outside its document tile.** The class label is host-written (List-surface presentation), visible without interaction, never truncated or displaced by the display label, and sits outside the tile; the row's accessible description names the class. The tile shows only the thumbnail stored at import, under condition 4 of the consumer list concession in `SCANNABLE_CARD_THREAT_MODEL.md`, which holds the full condition list for every class. Dropping any part amends this ADR and that concession.
 
 ### D2. System renderer only: `android.graphics.pdf.PdfRenderer`
 
@@ -228,7 +228,7 @@ It carries every `ImageDocument` field plus `barcodePayload: String` and `barcod
 
 ### C2. Barcode extraction runs in the isolated worker
 
-The user-imported image is the hostile-input surface (the `CVE-2023-4863` libwebp / codec-RCE class D3 exists to contain). Decoding it and running a symbol reader over the pixels both happen in the permissionless sandbox, never the host process. The importer reuses `passes-barcode`'s isolated `BarcodeImageDecoder`: the bytes are decoded in-sandbox and only `{payload, ScannableFormat}` (`BarcodeDecodeResult`) crosses the binder, never a `Bitmap` or the source bytes. No `BitmapFactory` / `ImageDecoder` / ZXing call touches user-image bytes in the host process.
+The user-imported image is the hostile-input surface (the `CVE-2023-4863` libwebp / codec-RCE class D3 exists to contain). Decoding it and running a symbol reader over the pixels both happen in the permissionless sandbox, never the host process. The list tile's stored thumbnail is not those bytes but a PNG the kernel encodes from the sandbox raster (List-surface presentation). The importer reuses `passes-barcode`'s isolated `BarcodeImageDecoder`: the bytes are decoded in-sandbox and only `{payload, ScannableFormat}` (`BarcodeDecodeResult`) crosses the binder, never a `Bitmap` or the source bytes. No `BitmapFactory` / `ImageDecoder` / ZXing call touches user-image bytes in the host process.
 
 A composite import runs two isolated decodes of the same bytes, the image sandbox (display raster, thumbnail, dimensions) and the barcode sandbox (symbol), each on its own memfd PFD from the single bounded read. The source fd is still read once; holding compressed bytes in a host `ByteArray` is not a decode.
 
@@ -251,7 +251,13 @@ Nullable `barcode_payload TEXT` / `barcode_format TEXT` columns on `documents`. 
 
 ## List-surface presentation
 
-Document items in a consumer's own list (in whatever shape it draws them) take a class tint (D1.C), name the artifact class in a host-written class label ("PDF" / "IMAGE" / "IMAGE, QR CODE"), carry no verified affordance of any kind and no content preview (no page or image thumbnail). The label's position is the consumer's layout choice, provided it is visible without interaction and never truncated or displaced by the display label. Past the class label, the provenance signal is the host's "Pass type" row on the detail surface (D5.T). The composite list-face code posture is a C1/C2 concession recorded as "list-face code render" in `SCANNABLE_CARD_THREAT_MODEL.md`. Issuer color and imagery reach only a pkpass item's pass tile, never a document item, and no document item draws the pass mark (ADR 0003 D4 addendum; consumer list concession, conditions 3 and 4).
+Document items in a consumer's own list (in whatever shape it draws them) take a class tint (D1.C), name the artifact class in a host-written class label ("PDF" / "IMAGE" / "IMAGE, QR CODE") and carry no verified affordance of any kind. The label's position is the consumer's layout choice, provided it is visible without interaction, never truncated or displaced by the display label, and outside the item's document tile. Past the class label, the provenance signal is the host's "Pass type" row on the detail surface (D5.T). Issuer color and imagery reach only a pkpass item's pass tile, never a document item, and no document item draws the pass mark (ADR 0003 D4 addendum; consumer list concession, conditions 3 and 4).
+
+A document item may show its stored thumbnail in a document tile of host-fixed size and position, clipped to the tile and cropped to fill it if the host chooses, with the item's class tint while it loads or if it fails. A composite shows its photo there and renders no code from its payload. The bounds are condition 4 of the consumer list concession; what this ADR adds is where the pixels come from:
+
+- The thumbnail is the PNG the importer handed the persist callback and storage keeps in `document_thumbnails`, encrypted with the document and deleted with it. It fits 600 x 800 (`DocumentThumbnailBounds`) for every kind: page 0 rendered by the isolated renderer at import (D3, D7), or the image sandbox's raster scaled down in the app process, where no codec runs (I1, C2). Nothing renders a page or decodes an original for the list.
+- It decodes in the app process only through `passes-ui`'s `BoundedImage`, under the limits pass images meet: PNG only, picture chunks only, a source ceiling, at most two decodes at a time. Those limits hold whatever the stored bytes are. The original bytes still decode only in the isolated processes.
+- The live render facades (`rememberPdfThumbnail`, `rememberDocumentImage`) serve the detail and full-screen surfaces, not list rows.
 
 ## Out of scope
 
