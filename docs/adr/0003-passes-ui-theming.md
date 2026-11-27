@@ -106,8 +106,8 @@ to:
 
 `ComposableSurfaceLockTest` pins the user-visible parameter count of each
 surface's widest overload (`PassFront`'s is nine), so adding a parameter fails the
-lock. It does not forbid a second `PassFront` overload or an overload of
-`ExpiredOverlay` or `BoundedImage`; review enforces those.
+lock. It forbids a second overload of `BoundedImage`, but not of `PassFront` or
+`ExpiredOverlay`; review enforces those.
 
 ### D6. Telemetry follows the `TelemetryGuard` discipline
 
@@ -118,7 +118,7 @@ Events and the signal each carries:
 - `onPassRendered(type, signatureBand)`: baseline.
 - `onPassBackOpened(type)`: pass-back-tap rate.
 - `onSecuritySheetShown` / `Confirmed` / `Dismissed(intentKind, type)`: shown is the denominator, confirmed and dismissed the numerators. A spike in dismissals is the phishing signal: users open the sheet and bail.
-- `onImageDecodeRejected(reason)`: refused-image rate, one event per decode attempt, so again each time the image re-enters composition. An image that is only larger than its bounds is downsampled and fires nothing, so a spike means images in the wild that are not PNG, malformed or over their ceiling.
+- `onImageDecodeRejected(reason)`: refused-image rate, one event each time a `BoundedImage` showing a refused image starts or restarts its decode effect and gets the refusal, decoded or taken from a `PassImageCache`. An image that is only larger than its bounds is downsampled and fires nothing, so a spike means images in the wild that are not PNG, malformed or over their ceiling.
 - `onImportConfirmShown` / `Confirmed` / `Dismissed(type, band)`, `onImportRejected(kind)`, and `onBarcodeCreateGateShown` / `Confirmed` / `Dismissed(kind)`: the import-confirm and barcode-create gates.
 
 `NoopUiTelemetryGuard` is provided for hosts that have not wired a guard.
@@ -171,3 +171,13 @@ A filter was chosen over a refusal because design tools write text, XMP and EXIF
 Trade-offs. Nothing a left-out chunk says is applied: an EXIF orientation, a gain map, a `cICP` colour description. A file the PNG format calls invalid can draw: one cut at a chunk boundary is given its IEND, image data split by other chunks is joined, and a second header, an unknown critical chunk or a chunk left out for its length does not reach the codec to fail there. The pixels are the file's own either way. Each decode holds up to two more copies of the image's bytes while it builds the picture. A PNG that ends inside a chunk is `Malformed` from its bytes and never reaches the codec. The stored bytes stay as imported, since the manifest hashes cover them, so the filter runs at each display and not at import.
 
 The isolated decodes (`passes-barcode`, `passes-image`) do not apply it. They accept other containers as well, and what a file costs there is spent inside a sandbox whose exhaustion or death the host reads as a rejection.
+
+## Amendment to D5: `BoundedImage` reuses decodes through a cache the host holds
+
+A list that draws one pass image per row ran every image through a fresh decode each time its row came into view: the row was blank for the decode, nothing limited how many decodes ran together, and a refused image was decoded again on every bind. Measured on an API 34 emulator, twelve interlaced 16-bit images decoding together peaked at about 400 MB of codec buffers.
+
+`BoundedImage` takes an optional `PassImageCache`, which the host constructs, hoists to the list and can clear, and through its public API nothing else. `BoundedImage` reads it while composing, so a cached image draws in the first frame, and stores into it on the decode thread, so a decode that has started is kept when its row leaves; a clear since the row asked drops it instead. Entries are keyed by the image bytes and the bounds and evicted least recently used against a byte budget counting pixels and image bytes. The first result kept for a key wins, so rows decoding the same image at the same moment share one bitmap. A refusal is cached too, so it is not decoded again, but it is still reported each time a row shows it (D6): a host may draw its own fallback from that event, and deduplicates it if it wants a count per image. An evicted bitmap is not recycled, since a row on screen may still draw it. Separately, at most two pass image decodes run at once in the process, with or without a cache, which held that peak to 75 MB.
+
+The shape follows `PdfThumbnailCache` in `passes-document-ui`: the cache is the host's to scope and size, while every decode and every limit stays in the kernel. A cache inside `BoundedImage` alone would keep issuer pixels for the life of the process with no budget or clear the host controls. Handing the host a bitmap or painter to cache would let decoded pixels reach whatever the host draws with them. A kernel pass tile could own the cache later; it would still need one at list scope, so nothing here waits on it.
+
+Trade-offs. Image bytes and decoded pixels stay in memory while cached, also after their pass is deleted, so a host that keeps a cache clears it after the composition that drops a deleted pass's row (an app-held control in `SECURITY.md`); nothing is written to disk. The key is the content of the bytes, so each entry into composition hashes them once on the main thread, and a hit through another `ImageBytes` instance compares them there too. Rows that miss together each decode, and all but the first result are dropped. A refusal is not retried while cached, `Other` included. Two images decoding at once is a cap, not a queue order: a long decode delays the rows behind it.

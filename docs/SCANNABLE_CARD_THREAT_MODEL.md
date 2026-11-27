@@ -183,10 +183,11 @@ bounded:
   still be made to speak alike.
 
 **Decode exposure.** A list that draws pass tiles decodes one image per pkpass item
-whenever those items are displayed, where a detail surface decodes only the pass the
-user opened. The decode is in-process, PNG-only and bounded per image (condition 4),
-so the list adds reach to an exposure pass images already carry and no new decode
-path.
+it displays, where a detail surface decodes only the pass the user opened. With a
+`PassImageCache` an image the cache holds is not decoded again; without one, it is
+decoded each time its item is displayed. The decode is in-process, PNG-only,
+bounded per image (condition 4) and run at most two at a time in the process, so the
+list adds reach to an exposure pass images already carry and no new decode path.
 
 Dropping or weakening any of the five conditions amends this document. The kernel
 cannot verify them at runtime, so the obligation is the consumer's. Its wallet-list

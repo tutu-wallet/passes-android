@@ -263,6 +263,33 @@ class PublicApiSurfaceTest {
     }
 
     @Test
+    fun passImageCacheOffersTheHostOnlyABudgetAndClear() {
+        // Internal members compile to public JVM methods with a `$module` suffix.
+        fun Class<*>.hostMethods() =
+            declaredMethods
+                .filter { java.lang.reflect.Modifier.isPublic(it.modifiers) && !it.isSynthetic && '$' !in it.name }
+                .map { it.name }
+        // Kotlin adds a no-argument constructor when every parameter has a default.
+        val constructors =
+            PassImageCache::class.java.constructors.filter { !it.isSynthetic }.map { it.parameterTypes.toList() }
+
+        assertThat(PassImageCache::class.java.hostMethods()).containsExactly("clear")
+        assertThat(PassImageCache.Companion::class.java.hostMethods()).isEmpty()
+        assertThat(constructors).containsExactly(emptyList<Class<*>>(), listOf(Int::class.javaPrimitiveType))
+        assertThat(PassImageCache.DEFAULT_MAX_BYTES).isEqualTo(32 * 1024 * 1024)
+    }
+
+    @Test
+    fun passImageCacheRejectsANonPositiveBudget() {
+        try {
+            PassImageCache(maxBytes = 0)
+            error("expected IllegalArgumentException")
+        } catch (expected: IllegalArgumentException) {
+            assertThat(expected.message).contains("maxBytes")
+        }
+    }
+
+    @Test
     fun passIdentityBlockIsPublicAndIsTheCanonicalTrustCaptionRenderer() {
         // ADR 0007 D6: PassIdentityBlock is the kernel-owned Composable that enforces
         // the trust-caption rule (signed organizationName remains visible when a

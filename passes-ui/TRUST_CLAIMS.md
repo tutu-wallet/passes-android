@@ -190,7 +190,8 @@ code review.
 **What the user sees.** Pass images (logo, icon, strip, background, thumbnail,
 footer, plus their @2x and @3x variants) are decoded and displayed at the size the
 layout calls for. An image larger than the caller's bounds is scaled down to fit. An
-image the decoder refuses draws nothing.
+image the decoder refuses draws nothing. In a list that keeps a cache, an image
+already decoded draws at once when its row comes back into view.
 
 **Trust claim.** Four limits apply to every pass image, whatever configuration its
 bytes were imported or stored under. No parameter loosens the first three.
@@ -232,18 +233,48 @@ bytes were imported or stored under. No parameter loosens the first three.
 A refused image is never decoded. One refused from its bytes never reaches the platform
 decoder; one the platform's own reading refuses ends before its image data is read.
 
+**Reuse and concurrency.** At most two pass image decodes run at once in the process.
+A host may hoist a `PassImageCache` and pass it to every `BoundedImage` in a list. It
+keeps what `BoundedImage` decoded or refused, keyed by the image bytes and the bounds,
+and drops the least recently used entry once the decoded pixels and image bytes it
+holds pass a budget the host sets (32 MiB by default). An entry over the budget is not
+kept. Through its public API the host can construct the cache and clear it, nothing
+else: it cannot put a bitmap in, take one out or change the limits above, which every
+decode meets before its result is kept. A cached image is drawn without a decode. A cached refusal is not
+decoded again but is reported to telemetry each time a row shows it, as a fresh one
+is, so a host can draw its own fallback from the event and deduplicates if it wants a
+count per image. Two rows that decode the same image at the same moment share the
+first result kept. A decode that has started is kept when its row leaves composition,
+unless the cache was cleared since the row asked for it; one still waiting for a
+decode slot then never runs.
+
+**What a host that keeps a cache must do.** Clear it after the composition that drops a
+deleted pass's row, for example from an effect keyed on the list's items. A
+`PassImageCache` keeps a deleted pass's image bytes and decoded pixels in memory until
+then, and the kernel cannot see a deletion. A row that composes after the clear but
+before that composition decodes and keeps the image again, so clearing as soon as the
+list's data drops the pass is too early. The host's test: once a deleted pass's row has
+left composition, the list's cache has been cleared.
+
 **Residual risk.** The picture chunks of an accepted PNG are fed through the platform's
 PNG codec in the app process, not in an isolated one. What the codec buffers is the
 platform's, and was measured only for the cases named here:
 
 - On API 34, a non-interlaced PNG decodes without a full-size intermediate (the device
   test below pins that).
-- An interlaced PNG is held whole whatever the output size. On API 35 that measured
-  about 14 MB at the lower ceiling, or 28 MB for a 16-bit one, on top of the output
-  bitmap. No test pins those figures.
-- The number of decodes is not limited: each `BoundedImage` in composition decodes its
-  own image. A decode that exhausts memory can take the host process down; an
-  `OutOfMemoryError` from it propagates to the host.
+- An interlaced PNG is held whole whatever the output size. At the lower ceiling that
+  measured about 14 MB for an 8-bit image on API 35 and 39 MB for a 16-bit RGBA one on
+  API 34, on top of the output bitmap. No test pins those figures.
+- Two decodes at once hold two of those buffers. On an API 34 emulator, twelve
+  interlaced 16-bit RGBA images at the lower ceiling, started together and decoded
+  into a small tile, peaked at 75 MB two at a time, against about 400 MB with no
+  limit. No test pins those figures. A decode that exhausts memory can take the host
+  process down; an `OutOfMemoryError` from it propagates to the host.
+- A `PassImageCache` holds image bytes, every chunk included, and decoded pixels in
+  process memory, never on disk. After eviction or a clear they stay until nothing
+  references them: a row still on screen may be drawing the bitmap, and it is not
+  recycled. The kernel does not clear the cache on its own, on deletion or under
+  memory pressure.
 - A PNG whose chunks can be walked and whose image data is malformed still reaches the
   codec, which is where it is found to be malformed. No chunk's CRC is checked before
   the codec.
@@ -282,13 +313,29 @@ platform's, and was measured only for the cases named here:
   decode as Display P3 on API 34 and up. A PNG with a gain map decodes without one;
   the platform's own decode must read one on API 36 and up, and the test skips on API
   34 where it does not.
+- `PassImageCacheTest` pins, under Robolectric: a cached image is not decoded again and
+  the same bytes at other bounds are another entry; without a cache every load
+  decodes; two loads of one image at once share one result; a decode that started is
+  kept when its caller leaves, dropped when the cache is cleared during it, and never
+  run when cancelled while waiting; at most two decodes run at once; pixels, image
+  bytes and the per-entry overhead count against the budget; a cached image draws in
+  the first composition; a refusal is reported on each entry, with a cache or without
+  one, and by each of two rows showing the same cached refusal. `ByteBoundedLruTest` pins the
+  eviction order, the budget arithmetic, the first value winning and a value from
+  before a clear being dropped. Two tests in `BoundedImageDecodeInstrumentedTest` run
+  on the platform decoder: a decoded bitmap counts at least a byte a pixel against the
+  budget, whatever config the platform chose, and an image decoded once draws from the
+  cache in the first frame it is shown again.
 - `passes-image-decode`'s `BoundedBitmapDecodeInstrumentedTest` pins the shared
   mechanism: a box larger than the source never enlarges it, a box never rescues an
   image the header gate refused, decoding a 3839 x 3839 image into a 1920 x 1920
   box peaks below half the memory of the full-size bitmap, and refusing an interlaced
   image costs under 1 MB where decoding it costs its full size.
 - `PublicApiSurfaceTest` pins `ImageRenderBounds.Default` to 1920 x 1920 and rejects
-  non-positive dimensions at construction.
+  non-positive dimensions at construction. It pins `PassImageCache` to a budget-only
+  constructor and `clear()` with no companion methods, its 32 MiB default, and its
+  refusal of a non-positive budget. `ComposableSurfaceLockTest` pins `BoundedImage`
+  to seven parameters and one declared overload.
 - Coil's default decoder is not used for pass images; only the
   `ImageDecoder.setOnHeaderDecodedListener` path is.
 

@@ -81,10 +81,10 @@ class ComposableSurfaceLockTest {
     }
 
     @Test
-    fun boundedImageHasExactlySixUserVisibleParameters() {
-        // (bytes, role, contentDescription, bounds, telemetry, modifier). D5: no nullable
-        // `bounds` and no parameter that reaches the source ceiling.
-        assertUserVisibleParamCount("BoundedImageKt", "BoundedImage", expected = 6)
+    fun boundedImageHasExactlySevenUserVisibleParameters() {
+        // (bytes, role, contentDescription, telemetry, modifier, bounds, cache). D5: no nullable
+        // `bounds`, no parameter that reaches the source ceiling, and no way to hand in pixels.
+        assertUserVisibleParamCount("BoundedImageKt", "BoundedImage", expected = 7)
     }
 
     @Test
@@ -173,12 +173,13 @@ class ComposableSurfaceLockTest {
     }
 
     @Test
-    fun scannableCardSurfacesHaveNoOverloads() {
+    fun lockedSurfacesHaveNoOverloads() {
         // An overload could add a parameter that the count locks miss.
         listOf(
             "ScannableCardScreenKt" to "ScannableCardScreen",
             // An overload adding chrome would dilute the mechanism-only shape.
             "CompactCodeViewKt" to "CompactCodeView",
+            "BoundedImageKt" to "BoundedImage",
         ).forEach { (file, name) ->
             val klass = Class.forName("is.walt.passes.ui.$file")
             val matches = klass.declaredComposableOverloads(name)

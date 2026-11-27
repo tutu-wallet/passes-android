@@ -281,7 +281,9 @@ public fun ExpiredOverlay(
  * picture; text, metadata and unknown chunks are left out. A refused image (not a
  * PNG, over its source ceiling, or undecodable) is not decoded, draws nothing and
  * fires `telemetry.onImageDecodeRejected`. An `OutOfMemoryError` from the decode
- * propagates.
+ * propagates. With a [cache], an image it holds draws at once and is not decoded
+ * again; a refusal it holds is still reported. At most two pass image decodes run
+ * at once in the process.
  *
  * Coil's default decoder must NOT be used for these images:
  * the bounds enforcement is the trust claim, and a third-party loader would have
@@ -295,7 +297,20 @@ public fun BoundedImage(
     telemetry: UiTelemetryGuard,
     modifier: Modifier = Modifier,
     bounds: ImageRenderBounds = ImageRenderBounds.Default,
+    cache: PassImageCache? = null,
 )
+
+/**
+ * What [BoundedImage] decoded or refused, up to [maxBytes] of pixels and image bytes; only clearing is public.
+ * Hoist one per list with `remember { PassImageCache() }`; clear it after the composition that drops a deleted pass.
+ */
+public class PassImageCache(maxBytes: Int = DEFAULT_MAX_BYTES) {
+    public fun clear()
+
+    public companion object {
+        public const val DEFAULT_MAX_BYTES: Int = 32 * 1024 * 1024
+    }
+}
 ```
 
 ## What must not change
@@ -316,6 +331,9 @@ security-policy edit, not a refactor:
 4. `BoundedImage` has no nullable `bounds` and no parameter that reaches the source
    ceiling. `bounds` sets only the size of the bitmap produced: a larger
    `ImageRenderBounds(...)` yields a larger bitmap, never one larger than its source.
+   `cache` holds only what `BoundedImage` itself decoded or refused: `PassImageCache`
+   has no public API (its other members are Kotlin `internal`) to put a bitmap in,
+   take one out or change a limit, and no parameter hands `BoundedImage` pixels.
 5. The security confirmation sheets do not accept a "skip confirmation" parameter.
    The host's outbound `Intent` fires only on user confirm.
 6. `BarcodeCreateConfirmSheet` does not accept a `skipConfirmation`, per-arm

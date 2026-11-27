@@ -25,7 +25,7 @@ Pre-alpha. No releases yet.
 | Pass data is excluded from Android Auto Backup | `passes-storage` - backup rules / manifest config |
 | Pass content never appears in logs or telemetry | `passes-core` - `TelemetryGuard` interface; structurally PII-forbidden by API shape |
 | Back-field URLs go through a visible-confirmation flow before opening | `passes-ui` - `B3UrlConfirmSheet` composable |
-| Pass deletion is irreversible; caches are wiped | `passes-storage` - deletion logic |
+| Pass deletion is irreversible; stored caches are wiped | `passes-storage` - deletion logic |
 | Expired passes show an "Expired" badge but are not auto-deleted | `passes-ui` + `passes-storage` |
 | PDF document import is contained in an isolated renderer process; bytes are never extracted, parsed for fields, or shared back out | [`docs/PDF_THREAT_MODEL.md`](docs/PDF_THREAT_MODEL.md); [`docs/adr/0005-pdf-document-support.md`](docs/adr/0005-pdf-document-support.md); `passes-pdf` |
 
