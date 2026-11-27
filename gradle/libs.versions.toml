@@ -6,7 +6,7 @@ kotlinxCoroutines = "1.11.0"
 junit = "4.13.2"
 truth = "1.4.5"
 detekt = "1.23.8"
-ktlint = "12.1.1"
+ktlint = "14.2.0"
 bouncycastle = "1.86"
 
 # Android + Compose toolchain (matches walt-android consumer to avoid drift).
