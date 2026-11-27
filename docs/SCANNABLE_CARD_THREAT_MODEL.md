@@ -414,8 +414,11 @@ persists a card must let `requiresCreateConfirmation(format)` decide alone and m
 save a card it flags until the user confirms that code. That includes a card restored
 from a wallet file, whose payload the user did not type, and a format change to a
 format that flags the stored payload; the consumer is expected to pin both with tests.
-The sheet's copy says "this code", not "this QR", so a dialog about an Aztec boarding
-pass does not describe something other than what the user is saving.
+Where many codes arrive at once, as in a restore, one confirmation that lists every
+flagged code with its scheme and its bidi-isolated payload qualifies; codes the user
+does not confirm are not saved. The sheet's copy says "this code", not "this QR", so a
+dialog about an Aztec boarding pass does not describe something other than what the
+user is saving.
 
 **C5. Untrusted-byte barcode decoding is confined.** The kernel uses `com.google.zxing:core`
 (Apache 2.0, pure JVM) to encode a bit matrix from a user-typed payload and format, and
