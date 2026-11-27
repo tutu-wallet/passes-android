@@ -62,9 +62,9 @@ keeps each in its own section. A kernel list surface amends this document. The
 consumer's list is permitted strictly when all five hold:
 
 1. No list item of any class carries a signature or verified affordance. The trust
-   ladder (signature badge, trust captions) lives exclusively on detail surfaces, so
-   there is no host-drawn verified visual for a user-created or document item to
-   imitate.
+   ladder (signature badge, signature status in words) lives exclusively on pkpass
+   detail surfaces, so there is no host-drawn verified visual for a user-created or
+   document item to imitate.
 2. Every user-created and document item (scannable cards, documents, composites)
    carries its class label. The label is visible on the item without interaction, is
    never truncated, displaced or covered by user, file or issuer text, and the item's
@@ -111,15 +111,16 @@ consumer's list is permitted strictly when all five hold:
    user-chosen image on any item, and a code outside the list-face code render
    concession below. Supplied text is covered by the residual risk below.
 5. Detail-surface provenance holds. A user-created or document item opens a detail
-   surface carrying the host's "Pass type" row (below; ADR 0005 D5.T for documents). A
-   pkpass item opens the pkpass detail surface, which states its signature status in
-   words, not behind a foldout, tap or other
-   disclosure.
+   surface carrying the host's "Pass type" row (below; ADR 0005 D5.T for documents),
+   its only provenance signal past the class label: no kernel surface for a card or
+   document, the full-screen document view included, states provenance. A pkpass item
+   opens the pkpass detail surface, which states its signature status in words, not
+   behind a foldout, tap or other disclosure.
 
 The *C1 list-level distinction* is conditions 1 to 4, and the rest of this document
-cites it in that sense. It carries almost all of the load: neither the list nor a
-scannable card's detail surface shows a provenance caption, only the host's type row,
-which may sit collapsed, and bound (b) of the "Pass type" row requires the list-level
+cites it in that sense. It carries almost all of the load: neither the list nor any
+card or document surface shows a provenance caption, only the host's type row, which
+may sit collapsed, and bound (b) of the "Pass type" row requires the list-level
 distinction in return.
 
 **Why the pass mark is required.** A pass tile gives the issuer a region of the list
@@ -225,8 +226,9 @@ three hold:
 3. Detail-surface provenance holds: the host's "Pass type" row below.
 
 **Accepted residual risk.** A user who scans straight from the list never meets the
-"Pass type" row for that use. Bounded because the artifact is the user's own
-creation, the list-level class distinction is in view at scan time, and Walt is a
+"Pass type" row for that use. Bounded because the user typed the code or chose to
+restore it (a restored card's content is the sender's; see the "Pass type" row
+section), the list-level class distinction is in view at scan time, and Walt is a
 display device, not an issuer: the POS / recipient is the authority on whether the code
 is credit-worthy (Threat 9). Rendering a list-face code without the condition-2 class
 label, or pkpass barcodes at list scale, amends this row. Issuer artwork that depicts a
@@ -322,11 +324,18 @@ item names its class in the host's voice and cannot shed it, none can carry the 
 mark (condition 3 of the consumer list concession), and no list item carries a verified
 affordance (condition 1), so passing for a pkpass gains nothing at list scale. The
 detail surface is entered from the list, or straight after the user creates or imports
-the item (bound (c)), on a card they created and can delete. The row, even collapsed, is a labelled, consistent
-location for provenance. Walt remains a display device (Threat 9). The residual risk is
-that a user who relies solely on the detail surface, never expands the foldout and
-ignores the list-level distinction meets no provenance signal; judged acceptable for a
-user viewing their own card.
+the item (bound (c)), and the user can delete the card. The row, even collapsed, is a
+labelled, consistent location for provenance. Walt remains a display device (Threat 9).
+The residual risk is that a user who relies solely on the detail surface, never expands
+the foldout and ignores the list-level distinction meets no provenance signal; judged
+acceptable for a card the user typed.
+
+A card restored from a wallet file someone else exported was not authored by the user:
+its label and payload are the sender's. It passes the same create-boundary validation
+as a typed card (C3; `PassRepository.createScannableCard` validates and trial-encodes
+on every insert), so Threats 3 to 5 hold for it. Nothing on the card says who chose its
+content. Accepted residual risk: for such a card the class label and the row are the
+whole bound. What the restore flow tells the user is the consumer's.
 
 **Bound of this row.** A host that shows a card's code at scan size, through
 `ScannableCardScreen` or `ScannableCardView` outside a list item, (a) renders a "Pass
@@ -753,8 +762,9 @@ v2"; each is deliberately absent because it re-opens a threat row above.
 - **No payload-bytes telemetry.** `ScannableCardTelemetryGuard` may surface format counts
   and create/delete event counts; payload contents and payload length distributions are PII
   and never leave the device.
-- **No kernel-drawn provenance caption on a ScannableCard surface.** Provenance is the
-  host's, on the terms of the "Pass type" row section; a kernel caption amends C2.
+- **No kernel-drawn provenance caption on a ScannableCard or document surface.**
+  Provenance is the host's, on the terms of the "Pass type" row section and ADR 0005
+  D5.T; a kernel caption amends C2 or D5.T.
 
 ## How each control is tested
 

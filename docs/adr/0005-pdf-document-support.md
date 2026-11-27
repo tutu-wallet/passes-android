@@ -9,7 +9,7 @@ PDFs are an order of magnitude worse than PKPASS as a parser-side attack surface
 
 This ADR fixes the security posture, the renderer architecture and the deliberate non-features that stop a contributor re-introducing the surface this design strips out. Documents are a sibling concept to PKPASS passes. The image arm (I) and the composite arm (C) reuse every control below unchanged unless stated.
 
-Module names: `passes-document-core` (pure JVM model, config, reject taxonomy, telemetry guard), `passes-pdf` (isolated renderer service, binder, importer), `passes-isolation` (memfd and isolated-worker mechanism), `passes-document-ui` (`DocumentView`, `FullScreenDocumentView`, trust caption), `passes-document` (PDF-or-image importer), `passes-storage` (`documents` and `document_thumbnails` tables in the same SQLCipher database).
+Module names: `passes-document-core` (pure JVM model, config, reject taxonomy, telemetry guard), `passes-pdf` (isolated renderer service, binder, importer), `passes-isolation` (memfd and isolated-worker mechanism), `passes-document-ui` (`DocumentView`, `FullScreenDocumentView`), `passes-document` (PDF-or-image importer), `passes-storage` (`documents` and `document_thumbnails` tables in the same SQLCipher database).
 
 ## Decisions
 
@@ -24,7 +24,7 @@ Rationale: the trust contract differs structurally. Mixing PDFs into the `Pass` 
 Color is a per-class default the user can reassign, so it cannot encode provenance. A document cannot present as verified because:
 
 1. No document surface, at list or detail scale, renders a signature affordance or verified indicator (D5: PDF signatures are not verified and no signed indicator is surfaced), so there is no verified-vs-unverified ladder for a color to imitate.
-2. Provenance is stated on the detail surface: the host "Pass type" row inline (D5.T), and the non-suppressible `DocumentTrustCaption`, in words, on the full-screen view (D5, Z.8). Text, not chrome.
+2. Provenance is stated by the host, in text: the class label in its list (D1.L) and the "Pass type" row on the detail surface (D5.T). Not by colour or chrome.
 3. A user-assigned color on a PDF is a preference, not a violation.
 
 `DocumentView(faceTint = ...)` lets the consumer tint the detail surface instead of reimplementing it. The tint reaches the frame only: the rasterised page and decoded image render identically tinted or not, and identically in light and dark, and the tint cannot change the render request. No `Document` arm carries a color field and none may be added; the color an item carries is consumer state. Choosing or varying a document's color by signature status, verification outcome, signing identity or a claimed issuer identity anywhere in the kernel is an amendment to this row, not a PR. The mirror row for scannable cards is "colour carries no trust meaning" in `SCANNABLE_CARD_THREAT_MODEL.md`.
@@ -35,7 +35,7 @@ The kernel draws no document list item. A consumer renders documents in a list o
 
 1. **The sibling data-model contract holds.** The merge is render-time only. A row is built from `DocumentRow` / `PdfDocument` (or the image and composite arms), never by widening it into a `Pass` or a shared supertype with one.
 2. **The row carries no signature or verified affordance**, and none can be themed onto it. The list is where a document sits closest to a pkpass.
-3. **Detail-surface provenance holds**: the host "Pass type" row inline (D5.T) and the docked caption on the full-screen view (Z.8). A consumer that drops the "Pass type" row is amending D5.T, not filing a PR.
+3. **Detail-surface provenance holds**: the host "Pass type" row on the detail surface, which is the only way into the full-screen view (D5.T). A consumer that drops the row is amending D5.T, not filing a PR.
 4. **The row names its class and draws no page or image.** The class label is host-written (List-surface presentation), visible without interaction, and never truncated or displaced by the display label; the row's accessible description names the class. Dropping either part amends this ADR and the consumer list concession in `SCANNABLE_CARD_THREAT_MODEL.md`, which holds the full condition list for every class.
 
 ### D2. System renderer only: `android.graphics.pdf.PdfRenderer`
@@ -101,11 +101,11 @@ The renderer binder (`PdfRendererBinder`) exposes exactly two methods, `probe` a
 
 The kernel does not parse `/AcroForm/SigFlags`, validate PAdES/CMS signatures or surface a "signed" indicator. PDF signature semantics are inconsistent in the wild (whole vs partial, certification vs approval, MDP transforms) and there is no equivalent of Apple's WWDR root for tickets. A "verified" signal the kernel cannot honestly back would dilute the PKPASS signature trust signal. Accepting every PDF as `Provenance.UserProvided` is the honest position.
 
-Where the kernel draws the trust caption, on the full-screen view (Z.8), it is non-suppressible: `DocumentTrustCaption`, reading "User-provided document. This app has not verified the source." (`TRUST_CAPTION_TEXT`). The inline view carries provenance by D5.T.
+The kernel draws no provenance signal on any document surface, inline or full screen; provenance is the host's (D5.T). The kernel's part is structural: a sibling model and table (D1), no signature or verified affordance on any surface, isolated render and decode (D3) and no share-out (D8). A kernel-drawn provenance caption on a document surface amends D5.T.
 
 #### D5.N The actor in kernel copy is "this app"
 
-The kernel does not know what a host calls itself; a trust claim attributed to a name the user sees nowhere else in the app reads as someone else's claim. The same rule covers every kernel sentence that could name the host: the PKPASS import-confirm trust caption (`PassImportConfirm`), the import rejection sheet (`PassImportRejectionSheet`), the unknown-scheme barcode confirmation (`barcode_create_confirm_unknown`) and the `B3EmphasisStyle.DomainHero` URL eyebrow ("LEAVING THIS APP"). D5 and Z.8 apply to the sentence as worded now.
+The kernel does not know what a host calls itself; a trust claim attributed to a name the user sees nowhere else in the app reads as someone else's claim. So every kernel sentence that could name the host says "this app": the PKPASS import-confirm trust caption (`PassImportConfirm`), the import rejection sheet (`PassImportRejectionSheet`), the unknown-scheme barcode confirmation (`barcode_create_confirm_unknown`) and the `B3EmphasisStyle.DomainHero` URL eyebrow ("LEAVING THIS APP").
 
 "This app" relies on the host's window: a host renders kernel trust surfaces in its own opaque window, so the app in front is the app the sentence means. A translucent or dialog-themed window over another app would let it read as that app's claim.
 
@@ -113,16 +113,16 @@ Rejected: a host-supplied name (a host-controlled string inside sentences the ke
 
 Prose and identifiers in this repository that call the consumer Walt are not copy.
 
-#### D5.T Inline, the provenance signal is a host "Pass type" row
+#### D5.T The provenance signal is the host's "Pass type" row
 
-Inline `DocumentView` renders no kernel caption; the host carries the claim with its own type label in its details section. That is weaker than the verbatim sentence in two ways:
+Neither `DocumentView` nor `FullScreenDocumentView` states provenance. The host carries it with a "Pass type" row naming the artifact class in the details section of the document's detail surface. That is weaker than a sentence in words in two ways:
 
 - **Neutral type label.** A "Pass type: PDF" row names the artifact class rather than stating in words that the document is user-provided and unverified. The consumer accepts that to keep one provenance/type row across artifact classes.
-- **Collapsed-by-default placement.** A user who never expands the foldout does not see the provenance signal on the inline surface.
+- **Collapsed-by-default placement.** The row may sit in a foldout. A user who never expands it does not see it, on the detail surface or on the full-screen view entered from there.
 
-Why bounded: documents already carry `Provenance.UserProvided` and no "verified" signal (D5), so there is no ladder to conflate; the row is still a labelled, discoverable location; the kernel remains a display device (D4); and the full-screen view states provenance in words (Z.8). The residual risk is a user who never expands the foldout and never opens the full-screen view, judged acceptable for a document they imported themselves. A host that shows `DocumentView` must render the row; the kernel cannot verify that at runtime, so the host pins it with its own test.
+Why bounded: documents carry `Provenance.UserProvided` and no "verified" signal (D5), and no document surface draws a signature or verified affordance, so there is no ladder for a document to imitate. The list names the class without interaction (D1.L condition 4), the row is a labelled, consistent location, and the kernel remains a display device (D4). The residual risk is a user who ignores the list's class label, never expands the row and opens the full-screen view: they meet no provenance signal while looking at a document that can look exactly like a real ticket. A document's pages or image and its display label are chosen by whoever produced the file, including one restored from a wallet file someone else exported. Accepted: the app vouches for nothing in a document, and what a gate or scanner does with it is the scanner's call (`PDF_THREAT_MODEL.md` threat 12).
 
-Scope: inline `DocumentView` only. `FullScreenDocumentView` keeps its caption docked and non-suppressible (Z.8); a host's collapsible details have no place to fold into on the zoom surface.
+Bound: a host that shows a document (a) renders the "Pass type" row on its detail surface, (b) enters that detail surface only from its list or straight after import, and `FullScreenDocumentView` only from that detail surface, and (c) keeps the list's class label (D1.L). A deep link, shortcut, widget or exported intent that opens either surface directly skips the list and amends this decision. What the host draws on its own full-screen chrome is its choice and may add to the row, not replace it. The kernel cannot verify any of this at runtime, so the host pins it with its own tests: that the details section renders the row, and that no direct entry into either surface exists.
 
 ### D6. Encrypted PDFs are rejected at import
 
@@ -184,12 +184,9 @@ Inline `DocumentView` has no zoom, pan or double-tap toggle: single-touch horizo
 - Single-touch drag pans only when `scale > MIN_SCALE`; at fit it advances the in-surface pager (if more than one page) or does nothing.
 - Translation is clamped so the page cannot be panned entirely off the slot.
 - Zoom state is per page and resets on page change and on reopening the surface.
+- Zoomed content is clipped to its slot, so a page never draws over host content beside it.
 
 The banner is themed through `DocumentSemantics` / `DocumentTheme`; the consumer supplies the label and tokens, the kernel the structural slot. The full-screen surface takes the whole screen outside any host scroll container, so the host's integration is a navigation hop, not a gesture contract (Z.9).
-
-### Z.8 Trust caption (D5) stays non-suppressible in full-screen and docks to a screen edge
-
-The caption is not subject to the zoom transform. It docks to an edge of the full-screen root, outside the pannable and zoomable region, and stays visible at any pan position and zoom. The dock is a sibling of the arm dispatch, so no arm can scale it. Rejected: a caption that pans and zooms with the page plus a duplicate docked indicator, which makes the in-page caption suppressible by pan in practice and adds a second copy as a new audit surface. Inline `DocumentView` draws no caption (D5.T).
 
 ### Z.9 Consumer integration
 
@@ -197,7 +194,7 @@ Because the inline surface consumes no single-touch drags at any zoom level, the
 
 ## Documents generalize to PDF + image (I)
 
-The same trust posture (user-supplied file, never signature-verified, non-suppressible caption, isolated process, no share-out) applies verbatim to PNG / JPEG / WebP, which users receive as screenshots and photos at least as often as PDFs. D1 through D8 extend to the image arm unchanged; only what differs is recorded.
+The same trust posture (user-supplied file, never signature-verified, provenance in the host's row, isolated process, no share-out) applies verbatim to PNG / JPEG / WebP, which users receive as screenshots and photos at least as often as PDFs. D1 through D8 extend to the image arm unchanged; only what differs is recorded.
 
 ### I1. `Document` is sealed: `PdfDocument | ImageDocument` (plus the composite arm, C1)
 
@@ -217,13 +214,13 @@ The importer reads the source once into a bounded buffer, sniffs, then materiali
 
 The `documents` table has a `format` discriminator (`'pdf' / 'png' / 'jpeg' / 'webp'`, default `'pdf'` so existing rows migrate untouched) and nullable `width_px` / `height_px`. The `pdf_bytes` BLOB column holds the original bytes of either kind (renaming forces a table rewrite for no audit gain). `insertDocument` takes a sealed `DocumentInsert` (`Pdf(pageCount)`, `Image(format, widthPx, heightPx)`, `BarcodedImage`). The D7 size and label caps apply to both kinds; the page cap is PDF-only. Migrations are forward-only (ADR 0002).
 
-### I5. The image arm reuses `DocumentView` and the full-screen trust caption
+### I5. The image arm reuses `DocumentView` and `FullScreenDocumentView`
 
-`DocumentView` dispatches on the sealed `Document`: PDF is the swipeable pager; image is a single fixed-fit image decoded once in the sandbox. Neither arm draws a caption inline (D5.T). The dispatcher takes the kind-specific `imageFile` / `imageDecoder` pair alongside `pdfFile` / `renderer`; `passes-document-ui` depends on `passes-image` for this. `FullScreenDocumentView` serves all three arms; Z.7 and Z.8 (pinch-zoom, docked non-suppressible caption) apply to image and composite documents as to PDFs. D8 holds across all three arms.
+`DocumentView` dispatches on the sealed `Document`: PDF is the swipeable pager; image is a single fixed-fit image decoded once in the sandbox. Neither arm draws a caption (D5.T). The dispatcher takes the kind-specific `imageFile` / `imageDecoder` pair alongside `pdfFile` / `renderer`; `passes-document-ui` depends on `passes-image` for this. `FullScreenDocumentView` serves all three arms; Z.7 applies to image and composite documents as to PDFs. D8 holds across all three arms.
 
 ## Composite artifact: PDF | image | barcoded-image (C)
 
-A photographed or screenshotted membership card that carries a barcode wants both the picture (to recognise the card) and a crisp re-renderable native barcode (to scan). The image arm covers the barcode-less case and `ScannableCard` the barcode-only case; the composite is one artifact carrying an image and a barcode extracted from it. It is a strict superset of `ImageDocument`, reusing its isolation, storage, caption and display substrate, and degrades to a plain image when no code is found.
+A photographed or screenshotted membership card that carries a barcode wants both the picture (to recognise the card) and a crisp re-renderable native barcode (to scan). The image arm covers the barcode-less case and `ScannableCard` the barcode-only case; the composite is one artifact carrying an image and a barcode extracted from it. It is a strict superset of `ImageDocument`, reusing its isolation, storage and display substrate, and degrades to a plain image when no code is found.
 
 ### C1. `Document` gains a third arm: `BarcodedImageDocument`
 
@@ -254,7 +251,7 @@ Nullable `barcode_payload TEXT` / `barcode_format TEXT` columns on `documents`. 
 
 ## List-surface presentation
 
-Document items in a consumer's own list (in whatever shape it draws them) take a class tint (D1.C), name the artifact class in a host-written class label ("PDF" / "IMAGE" / "IMAGE, QR CODE"), carry no verified affordance of any kind and no content preview (no page or image thumbnail). The label's position is the consumer's layout choice, provided it is visible without interaction and never truncated or displaced by the display label. Detail-surface provenance (D5.T inline, Z.8 full screen) is where the provenance signal lives. The composite list-face code posture is a C1/C2 concession recorded as "list-face code render" in `SCANNABLE_CARD_THREAT_MODEL.md`. Issuer color and imagery reach only a pkpass item's pass tile, never a document item, and no document item draws the pass mark (ADR 0003 D4 addendum; consumer list concession, conditions 3 and 4).
+Document items in a consumer's own list (in whatever shape it draws them) take a class tint (D1.C), name the artifact class in a host-written class label ("PDF" / "IMAGE" / "IMAGE, QR CODE"), carry no verified affordance of any kind and no content preview (no page or image thumbnail). The label's position is the consumer's layout choice, provided it is visible without interaction and never truncated or displaced by the display label. Past the class label, the provenance signal is the host's "Pass type" row on the detail surface (D5.T). The composite list-face code posture is a C1/C2 concession recorded as "list-face code render" in `SCANNABLE_CARD_THREAT_MODEL.md`. Issuer color and imagery reach only a pkpass item's pass tile, never a document item, and no document item draws the pass mark (ADR 0003 D4 addendum; consumer list concession, conditions 3 and 4).
 
 ## Out of scope
 
@@ -273,15 +270,15 @@ Document items in a consumer's own list (in whatever shape it draws them) take a
 | D2 | No test (no classpath scan for `pdfbox-android` / `mupdf`) |
 | D3 | `@Ignore`d stub, not run: malformed PDF crashes the renderer, the main process survives, rebind succeeds (`PdfRendererServiceInstrumentedTest`) |
 | D4 | reflection: binder has exactly `probe` and `render`; `PdfThumbnailSurfaceTest` |
-| D5, D5.N, D5.T | `DocumentTrustSurfaceTest`, `DocumentViewInstrumentedTest`, `TrustClaimSurfaceTest`, `BarcodeCreateConfirmSheetTest`, `CopyNamesNoHostTest` (in `passes-ui` and `passes-document-ui`: no string in main sources names Walt); consumer-side, a test that the details section renders a "Pass type" row |
+| D5, D5.N, D5.T | `DocumentSurfaceLockTest` (parameter shape of both surfaces), `TrustClaimSurfaceTest`, `BarcodeCreateConfirmSheetTest`, `CopyNamesNoHostTest` (in `passes-ui` and `passes-document-ui`: no string in main sources names Walt); consumer-side, a test that the details section renders a "Pass type" row and one that no direct entry into the detail or full-screen surface exists |
 | D6 | `encryptedPdfRejectsAtProbe` is an `@Ignore`d stub, not run; `PdfImporterTest` checks the rejection mapping against a fake binder only |
 | D7 | unit tests at each cap boundary; watchdog test covers timeout-then-kill |
 | D8, Z.5 | bytecode scan for `Intent.ACTION_SEND` and `application/pdf` |
 | F.1 | `MemfdPfdFactoryInstrumentedTest` (CI, API 31/34/36): seal set present; write, writable shared mmap, resize and re-seal fail with `EPERM`; a sealed fd renders through the platform `PdfRenderer` (API 34+). `DocumentImporterTest`: the API 30 floor and sealing failures fold into rejections |
 | G.1 | unit: import below API 34 returns the rejection without invoking the renderer |
 | Z.3 | reflection: binder still exactly two methods |
-| Z.7, Z.8 | `DocumentSurfaceLockTest` (full-screen shape lock); Compose tests: banner navigates, caption visible at fit, after zoom and after pan; the inline-view-ignores-pinch test is `@Ignore`d, not run |
+| Z.7 | `DocumentSurfaceLockTest` (full-screen shape lock); `ZoomableImageClipTest` (zoomed content stays in its slot); Compose tests: banner navigates, a pinch on the image arm does not re-decode; the inline-view-ignores-pinch test is `@Ignore`d, not run |
 | I2, I3 | `DocumentImporterTest` (backend outcome to arm mapping; PDF magic routes to PDF backend, image to image backend, unrecognised touches neither; original bytes reach `persist`) |
 | I4, C4 | `SchemaMigrationTest`, `DocumentRepositoryTest` |
-| I5, C5 | `DocumentSurfaceLockTest` (dispatcher parameter lock; no new parameter for the composite) |
+| I5, C5 | `DocumentSurfaceLockTest` (dispatcher parameter lock; no new parameter for the composite); `DocumentArmCompositionTest` (image and composite arms compose on both surfaces) |
 | C2, C3 | `DocumentImporterTest` (`imageWithBarcodeRoutesToCompositeAndPersistsPayloadAndFormat`, `confirmHookSeesTheDecodedPayloadBeforePersist`, `pdfWithEmbeddedBytesNeverRunsBarcodeExtraction`, degrade-to-image cases) |
