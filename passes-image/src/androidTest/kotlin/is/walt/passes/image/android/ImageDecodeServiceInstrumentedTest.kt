@@ -326,7 +326,8 @@ class ImageDecodeServiceInstrumentedTest {
                 writeIntBe(0) // no next IFD
             }.toByteArray()
         val payload = "Exif".toByteArray(Charsets.US_ASCII) + byteArrayOf(0, 0) + tiff
-        val app1 = byteArrayOf(0xFF.toByte(), 0xE1.toByte(), ((payload.size + 2) shr 8).toByte(), (payload.size + 2).toByte())
+        val length = payload.size + 2
+        val app1 = byteArrayOf(0xFF.toByte(), 0xE1.toByte(), (length shr 8).toByte(), length.toByte())
         val file = File.createTempFile(name, ".jpg", context.cacheDir)
         file.writeBytes(jpeg.copyOfRange(0, 2) + app1 + payload + jpeg.copyOfRange(2, jpeg.size))
         return ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)

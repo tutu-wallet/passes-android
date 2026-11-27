@@ -119,13 +119,14 @@ consumer's list is permitted strictly when all five hold:
      same for the life of the item: page 0 rendered in the isolated renderer, or the
      isolated decoder's raster scaled down in the app process, where no codec reads
      untrusted bytes. The importer fits it to 600 x 800 (`DocumentThumbnailBounds`); an
-     image document stored by an earlier kernel can hold its whole raster, up to 2048 px
-     a side, which meets the same limits. The host stores no other thumbnail, on a
+     image or composite document stored by an earlier kernel can hold its whole raster,
+     up to 2048 px a side, which meets the same limits. The host stores no other thumbnail, on a
      wallet-file restore as on an import, and renders no page or image live for the
      list.
    - The document tile has a host-fixed size and position, the same on every document
-     item. The thumbnail is clipped to it and may be cropped to fill it; no pixel from
-     it, or derived from it, reaches outside. While it loads or if it fails, the tile
+     item. The thumbnail is clipped to it; to fill it, the host sizes `BoundedImage` to
+     cover the tile at the thumbnail's aspect and clips to the tile. No pixel from it,
+     or derived from it, reaches outside. While it loads or if it fails, the tile
      shows the item's class or user colour.
    - The class label, the item's text and its controls sit on the host's surface in
      host colours, outside the tile. Anything else the host draws on a document tile is
@@ -140,8 +141,8 @@ consumer's list is permitted strictly when all five hold:
 
    Every other pixel source stays out of the list: an image the user picks to decorate
    any item, and a code rendered on any item, from a card's or composite's payload or
-   from a pass's barcode. The kernel's `CompactCodeView` renders a code only off the
-   list, in previews such as a create or import-confirm sheet, and its parameter lock
+   from a pass's barcode. The kernel's `CompactCodeView` is for previews off the list,
+   such as a create or import-confirm sheet, and its parameter lock
    (`ComposableSurfaceLockTest.compactCodeViewHasExactlyFourUserVisibleParameters`)
    keeps it mechanism-only there. Supplied text is covered by the residual risk below.
 5. Detail-surface provenance holds. A user-created or document item opens a detail
@@ -233,9 +234,9 @@ in-process, PNG-only, bounded per image (condition 4) and run at most two at a t
 the process, so the list adds reach to an exposure pass images already carry and no
 new decode path. A document thumbnail meets those limits whatever its bytes are; the
 one the kernel's importer stores is a PNG it encoded itself, at most 600 x 800, or up
-to 2048 px a side for an image stored by an earlier kernel. Its bytes stay in
-the encrypted store and are deleted with the document. A host that keeps the cache
-clears it after the composition that drops a deleted pass's or document's row
+to 2048 px a side for an image or composite stored by an earlier kernel. Its bytes
+stay in the encrypted store and are deleted with the document. A host that keeps the
+cache clears it after the composition that drops a deleted pass's or document's row
 (`passes-ui/TRUST_CLAIMS.md` section 6).
 
 Dropping or weakening any of the five conditions amends this document. The kernel
