@@ -184,8 +184,8 @@ bounded:
 
 **Decode exposure.** A list that draws pass tiles decodes one image per pkpass item
 it displays, where a detail surface decodes only the pass the user opened. With a
-`PassImageCache` the image is decoded again only after its result has left the cache;
-without one, each time its item is displayed. The decode is in-process, PNG-only,
+`PassImageCache` an image the cache holds is not decoded again; without one, it is
+decoded each time its item is displayed. The decode is in-process, PNG-only,
 bounded per image (condition 4) and run at most two at a time in the process, so the
 list adds reach to an exposure pass images already carry and no new decode path.
 

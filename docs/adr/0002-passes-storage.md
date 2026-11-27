@@ -190,3 +190,7 @@ The kernel defines no wallet backup container, sidecar schema or file encryption
 ## Tests
 
 `PassRepositoryContractTest` (round trip, replace, delete cascade, cap, legacy null, hot path never reads the archive), `SqlCipherPassStoreQueryShapeTest` (list, detail and summary SQL name no `pass_archives`), `CipherCompatReopenTest` (real SQLCipher, instrumentation), `PassArchivesMigrationTest`.
+
+## Addendum: what the wipe at delete covers
+
+The wipe covers what `passes-storage` holds: the rows and the data the database caches beside them. A pass image the app keeps decoded in memory through `passes-ui`'s `PassImageCache` is outside it; the app clears that cache when a pass is deleted (`passes-ui/TRUST_CLAIMS.md` section 6).
