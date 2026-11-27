@@ -20,6 +20,7 @@ import org.bouncycastle.asn1.cms.SignerInfo
 import org.bouncycastle.asn1.x509.AlgorithmIdentifier
 import org.junit.BeforeClass
 import org.junit.Test
+import java.security.NoSuchAlgorithmException
 import java.security.cert.CertificateException
 import java.security.cert.TrustAnchor
 import java.security.cert.X509Certificate
@@ -61,6 +62,39 @@ class SignatureVerifierNeverThrowsTest {
 
         assertThat(first).isEqualTo(CRYPTO_FAILURE)
         assertThat(second).isEqualTo(SignatureVerifyResult.Ok(SignatureStatus.AppleVerified))
+    }
+
+    @Test
+    fun wireOrderFallbackFaultMapsToCryptoFailure() {
+        // The altered manifest makes the DER path report a mismatch, so the fallback runs. A
+        // fallback that cannot run has not shown tampering, so the verdict is the crypto arm.
+        val chain = signedChain()
+        val altered = chain.manifest.copyOf().also { it[1] = 0x20 }
+        val faults =
+            listOf(
+                IllegalStateException("fallback fault"),
+                NoSuchAlgorithmException("SHA256WITHRSA"),
+                NoClassDefFoundError("class removed by a shrinker"),
+            )
+        for (fault in faults) {
+            val result =
+                verifySignatureWithWireOrderCheckForTesting(chain.signature, altered, ParserConfig()) { _, _, _, _ ->
+                    throw fault
+                }
+            assertWithMessage(fault.toString()).that(result).isEqualTo(CRYPTO_FAILURE)
+        }
+    }
+
+    @Test
+    fun wireOrderFallbackIsNotConsultedWhenTheDerPathVerifies() {
+        val chain = signedChain()
+
+        val result =
+            verifySignatureWithWireOrderCheckForTesting(chain.signature, chain.manifest, ParserConfig()) { _, _, _, _ ->
+                error("fallback must not run")
+            }
+
+        assertThat(result).isInstanceOf(SignatureVerifyResult.Ok::class.java)
     }
 
     @Test
