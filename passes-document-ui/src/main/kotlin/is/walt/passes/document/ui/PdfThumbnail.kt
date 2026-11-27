@@ -80,7 +80,7 @@ internal data class CachedPage(val bitmap: Bitmap, val pageAspect: Float)
 
 /**
  * Compose-friendly facade over the isolated-process PDF renderer for **single-page
- * renders**. Use this from a list-row composable to drive an asynchronously
+ * renders**. Use this to drive an asynchronously
  * rendered page-N bitmap with correct lifetime, cancellation, and cache discipline.
  *
  * This is also the blessed paged-access path for pager surfaces (wpass-tjc.3;

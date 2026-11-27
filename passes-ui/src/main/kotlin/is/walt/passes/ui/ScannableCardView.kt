@@ -59,7 +59,7 @@ import `is`.walt.passes.ui.internal.toMonochromeBitmap
  * defense-in-depth on top of the create-boundary Cf/Cc rejection (C3 in
  * `docs/SCANNABLE_CARD_THREAT_MODEL.md`). Default false, and no kernel surface opts in:
  * [ScannableCardScreen] renders the same readback on its card face so the white code
- * panel stays a pure scan target, and the tile / row registers keep it off because their
+ * panel stays a pure scan target, and [ScannableCardTile] keeps it off because its
  * identification-sized preview leaves no room for a legible caption. It stays available
  * for hosts composing their own detail surface from this view.
  */
