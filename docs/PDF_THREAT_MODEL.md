@@ -246,8 +246,9 @@ no kernel surface draws the display label. A consumer that draws it wraps it wit
 `B3UrlConfirmSheet` discipline of `passes-ui/TRUST_CLAIMS.md` section 2);
 `BidiIsolationTest` pins the shape of the wrap.
 
-**Status.** Mitigated where the consumer applies the wrap. The kernel cannot verify
-that, so the consumer pins it with its own test.
+**Status.** Mitigated where the consumer applies the wrap. The kernel neither rejects
+Cf/Cc in a display label nor draws it, so the wrap is the only layer; the kernel cannot
+verify it, and the consumer pins it with its own test.
 
 ## Inventory: PKPASS controls and PDF equivalents
 

@@ -267,8 +267,9 @@ let the consumer tint the card face. Both are presentation-only and bound by fou
   and Threat 14 posture untouched).
 - Neither parameter can suppress the code or the payload readback.
 - Ink on a tinted face is derived from the tint's luminance (`inkOn`), pinned at
-  >= 4.5:1, so a hostile or careless tint cannot make the label or the payload readback
-  illegible.
+  >= 4.5:1, so an opaque tint cannot make the label or the payload readback illegible.
+  A translucent tint composites over host paint the kernel cannot see, and the ink is
+  derived from its nominal value: passing an opaque colour is the consumer's job.
 - The kernel stores no colour for a scannable card or a document: neither model nor
   storage table carries a colour field. Which colour such an item carries is consumer
   state, so the kernel never learns why a colour was chosen and has nothing to leak in
@@ -313,20 +314,24 @@ and C1 is untouched in the direction it must hold: every user-created and docume
 item names its class in the host's voice and cannot shed it, none can carry the pass
 mark (condition 3 of the consumer list concession), and no list item carries a verified
 affordance (condition 1), so passing for a pkpass gains nothing at list scale. The
-detail surface is reached only after the user has seen the list-level distinction, on a
-card they created and can delete. The row, even collapsed, is a labelled, consistent
+detail surface is entered from the list, or straight after the user creates or imports
+the item (bound (c)), on a card they created and can delete. The row, even collapsed, is a labelled, consistent
 location for provenance. Walt remains a display device (Threat 9). The residual risk is
 that a user who relies solely on the detail surface, never expands the foldout and
 ignores the list-level distinction meets no provenance signal; judged acceptable for a
 user viewing their own card.
 
-**Bound of this row.** A host that shows `ScannableCardScreen` (a) renders a "Pass type"
-row naming the artifact class on the item's detail surface, and reaches any other
-showing of the screen (a sheet over that surface, say) only through it, and (b)
-preserves the C1 list-level distinction. The kernel cannot verify either at runtime, so
-the obligation is the consumer's, pinned consumer-side by a test that the details
-section renders a "Pass type" row. Dropping the row or the C1 list-level distinction
-amends this document.
+**Bound of this row.** A host that shows a card's code at scan size, through
+`ScannableCardScreen` or `ScannableCardView` outside a list item, (a) renders a "Pass
+type" row naming the artifact class on the item's detail surface, and reaches any
+other showing of the code (a sheet over that surface, say) only through it, (b)
+preserves the C1 list-level distinction, and (c) enters the detail surface only from
+its list or straight after the user creates or imports the item. A deep link, shortcut,
+widget or exported intent that opens a detail or scan surface directly skips the list
+and amends this document. The kernel cannot verify any of this at runtime, so the
+obligation is the consumer's, pinned consumer-side by a test that the details section
+renders a "Pass type" row and by one that no such direct entry exists. Dropping the
+row or the C1 list-level distinction amends this document.
 
 **C3. Input hygiene at the create boundary.** `passes-core` validates
 `ScannableCardCreateInput` for per-format length caps (Code128 ~80 chars, EAN-13 / UPC-A
@@ -337,7 +342,8 @@ byte-capable and admit any character), and Unicode Cf (Format) / Cc (Control) co
 rejection in both `payload` and `label`. The Cf/Cc rejection runs before the per-format
 rules, so it covers the byte-capable formats too. It is stricter than `FieldLinkScanner`
 (which keeps Cf/Cc out of every link it surfaces but admits LF, tab and CRLF in the
-surrounding field text) and matches the PDF document-label path.
+surrounding field text). A document's display label has no such rejection
+(`docs/PDF_THREAT_MODEL.md`, threat 13).
 
 The PDF417 and Aztec caps hold at the pinned error-correction levels (PDF417 level 3,
 Aztec 33%). For single-byte payloads PDF417 holds 1,766 characters against the 800 the
@@ -749,7 +755,7 @@ v2"; each is deliberately absent because it re-opens a threat row above.
 | Control | Pinned by |
 |---------|-----------|
 | C1      | `ScannableCardSurfaceTest.scannableCardDoesNotShareSupertypeWithPass`; storage `PublicApiSurfaceTest` `SCANNABLE_CARDS` assertion (separate table). Consumer list concession: expected consumer-side tests, listed at the end of that concession |
-| C2      | Consumer-side: a test that the details section renders a "Pass type" row, and the list tests of the consumer list concession. Kernel: `scannableCardScreenHasExactlyFourUserVisibleParameters` (the surface's parameter shape). Colour row: `ScannableCardTrustSurfaceTest.faceTintDoesNotSuppressLabelOrPayload` (and its dark-tint twin), `codePanelIsLiterallyWhiteNotAThemeTokenOrTheFaceTint`, `inkOnClearsWcagAaAgainstEveryTintIncludingTheWorstCase`, `DocumentFaceTintTest.faceTintLeavesThePageRenderRequestUnchanged`; the shared tint gate by `passes-ui-core`'s `FaceTintTest` |
+| C2      | Consumer-side: a test that the details section renders a "Pass type" row, a test that no deep link, shortcut, widget or exported intent opens a detail or scan surface directly, and the list tests of the consumer list concession. Kernel: `scannableCardScreenHasExactlyFourUserVisibleParameters` (the surface's parameter shape). Colour row: `ScannableCardTrustSurfaceTest.faceTintDoesNotSuppressLabelOrPayload` (and its dark-tint twin), `codePanelIsLiterallyWhiteNotAThemeTokenOrTheFaceTint`, `inkOnClearsWcagAaAgainstEveryTintIncludingTheWorstCase`, `DocumentFaceTintTest.faceTintLeavesThePageRenderRequestUnchanged`; the shared tint gate by `passes-ui-core`'s `FaceTintTest` |
 | C3      | Length-cap, charset and Cf/Cc rejection unit tests; `theTwoDimensionalFormatsEncodeAtTheirValidatorCap`, `theTwoDimensionalFormatsRoundTripAtTheirValidatorCap`, `BarcodeEncoderRoundTripTest.nonAsciiPayloadsSurviveOnTheCharsetPinnedFormats`, `BarcodeEncoderCharsetTest`; `noFormatIsDecodeOnly` and `isCreatableAgreesWithWhatTheValidatorAccepts`; byte-capable charset rules in `ScannableFormatConstraintsTest` |
 | C4      | `QrPayloadClassifierTest`, `BarcodeCreateConfirmSheetTest` |
 | C5      | Encoder integration test; decode confinement by the isolated-decode tests (`BarcodeDecodeServiceInstrumentedTest`, `YPlaneFrameDecodeTest`) and, consumer-side, an instrumented composite-import test (no host-process decode of source bytes) and a guard test that no CameraX `ImageCapture` appears in the consumer's `src/main` |

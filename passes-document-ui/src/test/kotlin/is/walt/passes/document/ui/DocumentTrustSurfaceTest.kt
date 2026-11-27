@@ -9,6 +9,7 @@ import com.google.common.truth.Truth.assertThat
 import `is`.walt.passes.core.ScannableFormat
 import `is`.walt.passes.document.BarcodedImageDocument
 import `is`.walt.passes.document.BarcodedImageDocumentId
+import `is`.walt.passes.document.Document
 import `is`.walt.passes.document.ImageDocument
 import `is`.walt.passes.document.ImageDocumentId
 import `is`.walt.passes.document.PdfDocument
@@ -145,6 +146,52 @@ class DocumentTrustSurfaceTest {
             composeRule.onNodeWithText(
                 "User-provided document. This app has not verified the source.",
             ).assertIsDisplayed()
+        }
+    }
+
+    @Test
+    fun inlineImageArmComposesWithItsFullScreenEntry() {
+        assertInlineViewOffersFullScreen(
+            ImageDocument(
+                id = ImageDocumentId("img-inline"),
+                displayLabel = "boarding.png",
+                byteCount = 2048L,
+                widthPx = 1080,
+                heightPx = 2340,
+                importedAtEpochMs = 0L,
+            ),
+        )
+    }
+
+    @Test
+    fun inlineCompositeArmComposesWithItsFullScreenEntry() {
+        assertInlineViewOffersFullScreen(
+            BarcodedImageDocument(
+                id = BarcodedImageDocumentId("comp-inline"),
+                displayLabel = "boarding.png",
+                byteCount = 2048L,
+                widthPx = 1080,
+                heightPx = 2340,
+                barcodePayload = "TEST-PAYLOAD-000",
+                barcodeFormat = ScannableFormat.Aztec,
+                importedAtEpochMs = 0L,
+            ),
+        )
+    }
+
+    private fun assertInlineViewOffersFullScreen(doc: Document) {
+        withImagePfd { pfd ->
+            composeRule.setContent {
+                ThemedHost(semantics) {
+                    DocumentView(
+                        doc = doc,
+                        imageFile = pfd,
+                        imageDecoder = RejectingImageDecoder,
+                        onOpenFullScreen = {},
+                    )
+                }
+            }
+            composeRule.onNodeWithText(semantics.fullScreenBannerLabel).assertIsDisplayed()
         }
     }
 

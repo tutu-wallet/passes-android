@@ -4,7 +4,7 @@ import `is`.walt.passes.ui.core.ArgbColor
 
 /**
  * Semantic colour and copy slots a host supplies to `passes-document-ui`, read through
- * `LocalDocumentSemantics`. No slot can hide the trust caption; contrast is the host's job.
+ * `LocalDocumentSemantics`. No slot removes the trust caption; keeping it legible is the host's job.
  */
 public data class DocumentSemantics(
     public val captionBackground: ArgbColor,

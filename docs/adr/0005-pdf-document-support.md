@@ -268,7 +268,7 @@ Document items in a consumer's own list (in whatever shape it draws them) take a
 | Decision | Pinned by |
 |---|---|
 | D1, I1, C1 | `PublicApiSurfaceTest` in `passes-document-core` (arm set; no shared superclass with `Pass`) |
-| D1.C | `DocumentFaceTintTest` (tint cannot change the render request; transparent tint falls back); `DocumentSurfaceLockTest.documentViewHasExactlyTenUserVisibleParameters` (no color field on any arm) |
+| D1.C | `DocumentFaceTintTest` (tint cannot change the render request; transparent tint falls back); `DocumentSurfaceLockTest.documentViewHasExactlyTenUserVisibleParameters` (`faceTint` is the one colour parameter) |
 | D1.L | Consumer-side: the kernel cannot verify a host's list at runtime |
 | D2 | No test (no classpath scan for `pdfbox-android` / `mupdf`) |
 | D3 | `@Ignore`d stub, not run: malformed PDF crashes the renderer, the main process survives, rebind succeeds (`PdfRendererServiceInstrumentedTest`) |
