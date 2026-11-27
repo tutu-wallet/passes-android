@@ -79,6 +79,20 @@ class BoundedBitmapDecodeTest {
     }
 
     @Test
+    fun aBoxTwiceTheOutputDecodesAtLeastTheOutputFit() {
+        val outputs = listOf(DecodeSize(64, 64), DecodeSize(195, 252), DecodeSize(600, 800), DecodeSize(1080, 2048))
+        val headers = (1..40).flatMap { i -> listOf(DecodeSize(97 * i, 61 * i), DecodeSize(53 * i, 149 * i)) }
+        for (output in outputs) {
+            for (header in headers) {
+                val fit = minOf(output.width.toDouble() / header.width, output.height.toDouble() / header.height, 1.0)
+                val decoded = decodeSize(header, DecodeSize(output.width * 2, output.height * 2))
+                assertThat(decoded.width).isAtLeast((header.width * fit).toInt())
+                assertThat(decoded.height).isAtLeast((header.height * fit).toInt())
+            }
+        }
+    }
+
+    @Test
     fun extremeAspectKeepsAtLeastOnePixel() {
         assertThat(decodeSize(16_777_216, 1)).isEqualTo(DecodeSize(1919, 1))
         assertThat(decodeSize(1, 16_777_216)).isEqualTo(DecodeSize(1, 1919))

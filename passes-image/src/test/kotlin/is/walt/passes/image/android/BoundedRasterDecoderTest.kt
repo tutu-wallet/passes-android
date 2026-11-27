@@ -1,6 +1,7 @@
 package `is`.walt.passes.image.android
 
 import com.google.common.truth.Truth.assertThat
+import `is`.walt.passes.image.decode.DecodeSize
 import org.junit.Test
 
 /**
@@ -81,6 +82,22 @@ class BoundedRasterDecoderTest {
     }
 
     // ------------------------------------------------------------- downscale math
+
+    @Test
+    fun rasterPolicyDecodesIntoTwiceTheRequestedOutput() {
+        val policy = rasterPolicy(maxWidthPx = 600, maxHeightPx = 800, config = config) {}
+        assertThat(policy.maxSize).isEqualTo(DecodeSize(1200, 1600))
+    }
+
+    @Test
+    fun rasterPolicyHandsOnTheHeaderOfAnAcceptedImageOnly() {
+        val headers = mutableListOf<DecodeSize>()
+        val policy = rasterPolicy(maxWidthPx = 64, maxHeightPx = 64, config = config) { headers += it }
+
+        assertThat(policy.gate.evaluate("image/png", 300, 200)).isNull()
+        assertThat(policy.gate.evaluate("image/gif", 300, 200)).isEqualTo(ImageDecodeRejectedKind.NotAnImage)
+        assertThat(headers).containsExactly(DecodeSize(300, 200))
+    }
 
     @Test
     fun outputDimsNeverUpscalesASmallSource() {

@@ -81,6 +81,19 @@ class ImageDecodeServiceInstrumentedTest {
     }
 
     @Test
+    fun largeSourceComesBackAtTheFullRequestedOutput() {
+        // Decoded at half size into the doubled box, then scaled: the output and aspect follow the header.
+        val pfd = pngFd("large", solidBitmap(3000, 2000, Color.GREEN))
+        val result = pfd.use { decode(it, maxWidthPx = 1000, maxHeightPx = 1000) }
+
+        val ok = result as ImageDecodeResult.Ok
+        assertThat(ok.widthPx).isEqualTo(1000)
+        assertThat(ok.heightPx).isEqualTo(667)
+        assertThat(ok.sourceAspect).isEqualTo(1.5f)
+        ok.sharedMemory.close()
+    }
+
+    @Test
     fun overDimensionImageRejectsWithDimensionsTooLarge() {
         val overSide = ImageDecodeConfig.DEFAULT_MAX_DIMENSION_PX + 1
         val pfd = pngFd("over-dimension", solidBitmap(overSide, 8, Color.WHITE))
