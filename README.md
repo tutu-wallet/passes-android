@@ -40,7 +40,7 @@ Thirteen Gradle modules; [`docs/module-map.md`](docs/module-map.md) holds each o
 - PKPASS file import via OS-level intent filter and in-app file picker.
 - Front + back fields displayed; barcode/QR rendering; full localization (all locales retained, re-render on locale change); expired badge; visible-URL confirmation for back-field actionables.
 - Encrypted local storage; irreversible deletion.
-- PDF document import (e.g., concert tickets distributed as PDF) as a sibling concept to PKPASS, in a separate "Documents" lane. Rendering happens in an isolated process; PDF bytes are never extracted, parsed for fields, or shared back out. See [`docs/PDF_THREAT_MODEL.md`](docs/PDF_THREAT_MODEL.md) and [`docs/adr/0005-pdf-document-support.md`](docs/adr/0005-pdf-document-support.md).
+- PDF document import (e.g., concert tickets distributed as PDF) as a sibling concept to PKPASS. Rendering happens in an isolated process; PDF bytes are never extracted, parsed for fields, or shared back out. See [`docs/PDF_THREAT_MODEL.md`](docs/PDF_THREAT_MODEL.md) and [`docs/adr/0005-pdf-document-support.md`](docs/adr/0005-pdf-document-support.md).
 
 **Out:**
 - NFC / transit passes (HCE conflict with payment).

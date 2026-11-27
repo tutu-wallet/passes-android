@@ -36,6 +36,7 @@ A consumer may render documents inline in a unified wallet list, or in a separat
 1. **The sibling data-model contract holds.** The merge is render-time only. A row is built from `DocumentRow` / `PdfDocument` (or the image and composite arms), never by widening it into a `Pass` or a shared supertype with one.
 2. **The row carries no signature or verified affordance**, and none can be themed onto it. The unified list is where a document sits closest to a pkpass.
 3. **Detail-surface provenance is unchanged**: the docked caption, or the host "Pass type" row under D5.T. A consumer that renders documents inline and drops the detail-surface provenance signal without a "Pass type" row is amending D5.T, not filing a PR.
+4. **The row names its class** in a host-written class label (List-surface presentation), visible without interaction and never truncated or displaced by the file name. Dropping it amends this ADR and the consumer list concession in `SCANNABLE_CARD_THREAT_MODEL.md`, which states the same conditions for every class.
 
 ### D2. System renderer only: `android.graphics.pdf.PdfRenderer`
 
@@ -94,7 +95,7 @@ Every extraction codepath is an attack surface (`Launch`/`URI`/`SubmitForm` acti
 
 The renderer binder (`PdfRendererBinder`) exposes exactly two methods, `probe` and `render`. Adding an extraction method (`getText`, `getMetadata`, `getAnnotations`) is a security-policy change requiring an ADR amendment.
 
-`passes-document-ui` exposes a Compose facade, `rememberPdfThumbnail(...) -> PdfThumbnailState` (with `PdfThumbnailCache`), so a list row can show an asynchronously rendered page without touching binder primitives. It preserves D3 (it consumes a caller-supplied `PdfRendererBinder` and binds nothing itself) and D4 (its body only calls `render(...)`, and `PdfThumbnailState` exposes a single `ImageBitmap` plus an aspect float, with no metadata accessor). `PdfThumbnailSurfaceTest` reflection-locks the arm list, the per-arm fields and the absence of any `getText` / `getMetadata` / `getAnnotations` / `getAttachments` accessor. Adding a state arm or a non-trivial `PdfThumbnailCache` accessor is a security-policy change like adding a binder method.
+`passes-document-ui` exposes a Compose facade, `rememberPdfThumbnail(...) -> PdfThumbnailState` (with `PdfThumbnailCache`), so a consumer surface can show an asynchronously rendered page without touching binder primitives. It preserves D3 (it consumes a caller-supplied `PdfRendererBinder` and binds nothing itself) and D4 (its body only calls `render(...)`, and `PdfThumbnailState` exposes a single `ImageBitmap` plus an aspect float, with no metadata accessor). `PdfThumbnailSurfaceTest` reflection-locks the arm list, the per-arm fields and the absence of any `getText` / `getMetadata` / `getAnnotations` / `getAttachments` accessor. Adding a state arm or a non-trivial `PdfThumbnailCache` accessor is a security-policy change like adding a binder method.
 
 ### D5. PDF digital signatures are not verified
 
@@ -254,7 +255,7 @@ Nullable `barcode_payload TEXT` / `barcode_format TEXT` columns on `documents`. 
 
 ## List-surface presentation
 
-Document list cards (a consumer concern) take a class tint (D1.C), name the artifact class in the eyebrow ("PDF" / "IMAGE" / "IMAGE, QR CODE"), carry no verified affordance of any kind and no content preview. Detail-surface provenance (D5, Z.8, D5.T) is where the in-words signal lives. The composite code-on-card-face posture is a C1/C2 concession recorded as "list-face code render" in `SCANNABLE_CARD_THREAT_MODEL.md`; issuer color never reaches a list card (ADR 0003 D4 addendum).
+Document list items (a consumer concern, in whatever shape the consumer draws them) take a class tint (D1.C), name the artifact class in a host-written class label ("PDF" / "IMAGE" / "IMAGE, QR CODE"), carry no verified affordance of any kind and no content preview (no page or image thumbnail). The label's position is the consumer's layout choice, provided it is visible without interaction and never truncated or displaced by the file name. Detail-surface provenance (D5, Z.8, D5.T) is where the in-words signal lives. The composite list-face code posture is a C1/C2 concession recorded as "list-face code render" in `SCANNABLE_CARD_THREAT_MODEL.md`; issuer color never reaches a list item (ADR 0003 D4 addendum).
 
 ## Out of scope
 

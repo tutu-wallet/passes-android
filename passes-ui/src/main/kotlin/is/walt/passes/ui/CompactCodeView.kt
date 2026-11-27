@@ -13,7 +13,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.painter.BitmapPainter
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
@@ -25,47 +24,8 @@ import `is`.walt.passes.ui.internal.barcodeContentScale
 import `is`.walt.passes.ui.internal.toMonochromeBitmap
 
 /**
- * Row-scale code render for wallet-list card faces (wpass-tjc.2; consumer epic
- * wlt-mx2d). Where [ScannableCardView] enforces gate-distance minimum sizes for the
- * detail surface, this surface renders the same `(payload, format)` pair compactly —
- * the redesign's neutral list cards show a scannable's or composite's ACTUAL code on
- * the card face (a ~90 dp QR tile, or a full-width 1D band), so the code is usable at
- * a reader straight from the list.
- *
- * The blessed-path guarantees, so consumers do not hand-roll them per card face:
- *
- *  - **White backing, both themes.** The backing is literally [Color.White], never a
- *    theme surface token, so the code scans in dark mode (spec board: "barcode
- *    tiles/thumbnails stay light"). Consumers clip the outer shape via [modifier];
- *    the backing itself is not optional.
- *  - **Quiet zones.** The [BarcodeEncoder] matrix already carries each symbology's
- *    quiet-zone modules at natural size; the fixed white inner padding on top
- *    guarantees a visible quiet zone even when the consumer's tile hugs the code.
- *  - **Sharp modules.** Nearest-neighbor upscale ([FilterQuality.None]), matching
- *    [ScannableCardView]. The 2D symbologies paint [ContentScale.Fit] (data on both
- *    axes, so a non-uniform stretch corrupts the symbol); the 1D symbologies paint
- *    [ContentScale.FillBounds] because their matrices are one module tall and carry
- *    no data on the vertical axis.
- *
- * Sizing is the caller's: pass the tile size via [modifier] (the small
- * `defaultMinSize` floor only guards against a collapsed, unscannable render).
- * Encoder failures render as a same-sized white tile with a TalkBack-readable
- * "Barcode failed to render" description instead of throwing, mirroring
- * [ScannableCardView]. Encoding runs synchronously in composition (`remember`),
- * the same trade [ScannableCardView] makes: for validated list-scale payloads the
- * ZXing writers are sub-millisecond, and a card face renders one code. A consumer
- * observing jank on pathological lists owns the async wrapping.
- *
- * ## Trust posture
- *
- * This is mechanism, not chrome: no label, no eyebrow, no trust caption, no
- * signature affordance can be composed here. The C1/C2 list-surface distinctions
- * (class distinction at list scale — see `docs/SCANNABLE_CARD_THREAT_MODEL.md`) stay
- * on the consumer's card, and kernel trust captions stay on detail surfaces. C5 posture is
- * unchanged: this path only re-renders through the kernel's encoder-only
- * [BarcodeEncoder]; it adds no decode surface. [contentDescription] exists because
- * the code is usually the card face's dominant visual: the consumer passes its
- * merged card description (or null when a parent node already carries it).
+ * Compact `(payload, format)` render for sizes below [ScannableCardView]'s minimums; the caller sizes it.
+ * Mechanism only: no label, caption or signature affordance composes here (`SCANNABLE_CARD_THREAT_MODEL.md`).
  */
 @Composable
 public fun CompactCodeView(
