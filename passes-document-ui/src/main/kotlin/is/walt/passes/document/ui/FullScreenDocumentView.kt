@@ -44,7 +44,7 @@ import `is`.walt.passes.ui.core.toComposeColor
 
 /**
  * Full-screen, pinch-zoomable view of a [Document]: the document and the host's close control,
- * nothing else. Same arm dispatch and backend pairs as [DocumentView]; no share-out (ADR 0005 D8).
+ * nothing else. Pass the backend pair for the arm (PDF or image); a missing pair throws.
  *
  * @param initialPage Zero-based PDF page to open on, clamped to the page range; read on first
  *   composition only.

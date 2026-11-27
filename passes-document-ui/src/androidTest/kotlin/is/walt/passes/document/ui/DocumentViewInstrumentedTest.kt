@@ -462,8 +462,8 @@ class DocumentViewInstrumentedTest {
     }
 
     @Test
-    fun pinchOnFullScreenCompositeZoomsItsPhotoWithoutRedecoding() {
-        // A composite's photo takes the plain image's zoom surface. Synthetic, non-PII payload.
+    fun pinchOnFullScreenCompositeDoesNotRedecode() {
+        // A composite's photo takes the plain image's surface. Synthetic, non-PII payload.
         assertPinchKeepsOneDecode(
             BarcodedImageDocument(
                 id = BarcodedImageDocumentId("comp-instrumented"),

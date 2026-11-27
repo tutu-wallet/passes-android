@@ -13,7 +13,7 @@ class DocumentSurfaceLockTest {
     @Test
     fun documentViewHasExactlyTenUserVisibleParameters() {
         // (doc, pdfFile, renderer, imageFile, imageDecoder, modifier, telemetry, onOpenFullScreen,
-        // fullScreenAffordance, faceTint). One that hid the page or image, or added share-out, breaches D5/D8.
+        // fullScreenAffordance, faceTint). One that added a verified affordance or share-out breaches D5/D8.
         assertUserVisibleParamCount("DocumentViewKt", "DocumentView", expected = 10)
     }
 

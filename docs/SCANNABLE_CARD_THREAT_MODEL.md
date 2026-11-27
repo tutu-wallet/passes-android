@@ -62,9 +62,9 @@ keeps each in its own section. A kernel list surface amends this document. The
 consumer's list is permitted strictly when all five hold:
 
 1. No list item of any class carries a signature or verified affordance. The trust
-   ladder (signature badge, signature status in words) lives exclusively on pkpass
-   detail surfaces, so there is no host-drawn verified visual for a user-created or
-   document item to imitate.
+   ladder (signature badge, signature status in words) lives exclusively on detail
+   surfaces, so there is no host-drawn verified visual for a user-created or document
+   item to imitate.
 2. Every user-created and document item (scannable cards, documents, composites)
    carries its class label. The label is visible on the item without interaction, is
    never truncated, displaced or covered by user, file or issuer text, and the item's
@@ -112,15 +112,15 @@ consumer's list is permitted strictly when all five hold:
    concession below. Supplied text is covered by the residual risk below.
 5. Detail-surface provenance holds. A user-created or document item opens a detail
    surface carrying the host's "Pass type" row (below; ADR 0005 D5.T for documents),
-   its only provenance signal past the class label: no kernel surface for a card or
-   document, the full-screen document view included, states provenance. A pkpass item
+   the provenance signal this bound relies on past the class label: no kernel surface
+   for a card or document, the full-screen document view included, states provenance. A pkpass item
    opens the pkpass detail surface, which states its signature status in words, not
    behind a foldout, tap or other disclosure.
 
 The *C1 list-level distinction* is conditions 1 to 4, and the rest of this document
-cites it in that sense. It carries almost all of the load: neither the list nor any
-card or document surface shows a provenance caption, only the host's type row, which
-may sit collapsed, and bound (b) of the "Pass type" row requires the list-level
+cites it in that sense. It carries almost all of the load: no kernel card or document
+surface and no list item shows a provenance caption, and the bound relies only on the
+host's type row, which may sit collapsed, and bound (b) of the "Pass type" row requires the list-level
 distinction in return.
 
 **Why the pass mark is required.** A pass tile gives the issuer a region of the list
