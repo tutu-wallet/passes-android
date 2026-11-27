@@ -12,8 +12,8 @@ public object PngPicture {
     internal const val MAX_PROFILE_BYTES: Int = 256 * 1024
 
     /**
-     * A copy of [bytes] holding IHDR, then sRGB, gAMA, cHRM, iCCP, PLTE and tRNS where the first of
-     * each is well formed, every IDAT and an empty IEND. Null for bytes that are not a PNG or end inside a chunk.
+     * A copy of [bytes] holding IHDR, a well-formed first sRGB, gAMA, cHRM, iCCP, PLTE and tRNS ahead of
+     * the image data, every IDAT and an empty IEND. Null for bytes that are not a PNG or end inside a chunk.
      */
     public fun of(bytes: ByteArray): ByteArray? = if (PngHeader.read(bytes) == null) null else pictureOf(bytes)
 }
@@ -68,8 +68,9 @@ private fun Chunk.isPictureChunk(
     bytes: ByteArray,
     decided: MutableSet<Int>,
 ): Boolean {
-    val lengths = PICTURE_CHUNK_LENGTHS[type]?.takeIf { decided.add(type) } ?: return false
-    return dataLength in lengths && (type != ICCP || profileFits(bytes, dataStart, dataLength))
+    val lengths = PICTURE_CHUNK_LENGTHS[type]
+    val isFirstOfItsKind = lengths != null && decided.add(type)
+    return isFirstOfItsKind && dataLength in lengths && (type != ICCP || profileFits(bytes, dataStart, dataLength))
 }
 
 /** True for iCCP data that is a name, a terminator, method 0 and a whole profile within the cap. */
@@ -122,7 +123,7 @@ private val IDAT = chunkType("IDAT")
 private val IEND = chunkType("IEND")
 private val ICCP = chunkType("iCCP")
 
-/** The kinds kept once each ahead of the image data, with the data lengths the PNG format allows them. */
+/** The kinds kept once each ahead of the image data, with the range of data lengths the PNG format sets each. */
 private val PICTURE_CHUNK_LENGTHS: Map<Int, IntRange> =
     mapOf(
         chunkType("IHDR") to 13..13,

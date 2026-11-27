@@ -161,7 +161,7 @@ class BoundedImageDecodeInstrumentedTest {
         val (bitmap, rejection) = decodeBoundedBitmap(png, ImageRenderBounds.Default)
 
         val platform = platformDecode(png)
-        // Where the platform writes no profile into the fixture, only the pixels are compared.
+        // Below this level the fixture is not held to Display P3; the comparison below runs everywhere.
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             assertThat(platform.colorSpace).isEqualTo(ColorSpace.get(ColorSpace.Named.DISPLAY_P3))
         }
@@ -271,7 +271,7 @@ class BoundedImageDecodeInstrumentedTest {
         }
     }
 
-    /** A precondition measured from [apiLevel] up: it must hold there, and the test skips where it does not below. */
+    /** A precondition asserted from [apiLevel] up; below it, the test skips where it does not hold. */
     private fun expectFromApi(apiLevel: Int, holds: Boolean) {
         if (Build.VERSION.SDK_INT >= apiLevel) assertThat(holds).isTrue() else assumeTrue(holds)
     }

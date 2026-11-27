@@ -53,19 +53,17 @@ class PngPictureTest {
     }
 
     @Test
-    fun dropsAChunkWhoseLengthIsNotItsKinds() {
-        val wrong =
-            listOf(
-                "sRGB" to ByteArray(2),
-                "gAMA" to ByteArray(5),
-                "cHRM" to ByteArray(31),
-                "PLTE" to ByteArray(769),
-                "tRNS" to ByteArray(257),
-            )
+    fun dropsAChunkWhoseLengthIsOutsideItsKindsRange() {
+        val tooLong = listOf("sRGB" to 2, "gAMA" to 5, "cHRM" to 33, "PLTE" to 769, "tRNS" to 257)
+        val tooShort = listOf("sRGB" to 0, "gAMA" to 3, "cHRM" to 31, "PLTE" to 2, "tRNS" to 0)
 
-        val picture = PngPicture.of(png(listOf(IHDR) + wrong + ("IDAT" to byteArrayOf(1)) + IEND))
+        for (wrong in listOf(tooLong, tooShort)) {
+            val chunks = wrong.map { (type, length) -> type to ByteArray(length) }
 
-        assertThat(picture).isEqualTo(png(listOf(IHDR, "IDAT" to byteArrayOf(1), IEND)))
+            val picture = PngPicture.of(png(listOf(IHDR) + chunks + ("IDAT" to byteArrayOf(1)) + IEND))
+
+            assertThat(picture).isEqualTo(png(listOf(IHDR, "IDAT" to byteArrayOf(1), IEND)))
+        }
     }
 
     @Test
