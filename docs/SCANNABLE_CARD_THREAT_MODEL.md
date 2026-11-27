@@ -1,12 +1,13 @@
 # ScannableCard generator: threat model
 
 For the ScannableCard feature, the repository's trust claim ("every
-security-and-privacy-critical behavior Walt makes about pass handling lives in code
-you can read") decomposes into a per-threat enumeration plus six load-bearing
-controls. One of them, C2, and the list concessions under it are held by the consumer:
-the kernel documents them and cannot enforce them. Each threat lists what it is, the mitigating control, and for accepted
-risks the rationale for accepting the residual exposure. This document records why
-each piece of the feature has to exist.
+security-and-privacy-critical behavior Walt makes about pass handling lives in code you
+can read") decomposes into a per-threat enumeration plus six load-bearing controls. One
+of them, C2, and the list concessions under it are held by the consumer, as is running
+C4's gate on every path that saves a card: the kernel documents them and cannot enforce
+them. Each threat lists what it is, the mitigating control, and for accepted risks the
+rationale for accepting the residual exposure. This document records why each piece of
+the feature has to exist.
 
 The structural posture is **new artifact class, not new subtype of `Pass`**. PKPASS
 handling guarantees that every `Pass` carries a signature status computed against the
@@ -26,7 +27,8 @@ than parser corruption.
 ## Six load-bearing controls
 
 All mitigations reduce to six controls, referenced by label. Five are structural in the
-kernel; C2 is the consumer's.
+kernel; C2 is the consumer's, and so is running C4's gate on every path that saves a
+card.
 
 **C1. Distinct artifact class end-to-end.** `ScannableCard` is not a `Pass`, does not
 implement a `Pass` interface, shares no sealed parent with `Pass`, and is not
@@ -62,9 +64,9 @@ keeps each in its own section. A kernel list surface amends this document. The
 consumer's list is permitted strictly when all five hold:
 
 1. No list item of any class carries a signature or verified affordance. The trust
-   ladder (signature badge, trust captions) lives exclusively on detail surfaces, so
-   there is no host-drawn verified visual for a user-created or document item to
-   imitate.
+   ladder (a signature badge on pkpass detail surfaces, signature status in words on
+   detail surfaces) stays off the list, so there is no host-drawn verified visual for a
+   user-created or document item to imitate.
 2. Every user-created and document item (scannable cards, documents, composites)
    carries its class label. The label is visible on the item without interaction, is
    never truncated, displaced or covered by user, file or issuer text, and the item's
@@ -111,16 +113,17 @@ consumer's list is permitted strictly when all five hold:
    user-chosen image on any item, and a code outside the list-face code render
    concession below. Supplied text is covered by the residual risk below.
 5. Detail-surface provenance holds. A user-created or document item opens a detail
-   surface carrying the host's "Pass type" row (below; ADR 0005 D5.T for documents). A
-   pkpass item opens the pkpass detail surface, which states its signature status in
-   words, not behind a foldout, tap or other
-   disclosure.
+   surface carrying the host's "Pass type" row (below; ADR 0005 D5.T for documents), the
+   provenance signal this bound relies on past the class label: no kernel surface for a
+   card or document, the full-screen document view included, states provenance. A pkpass
+   item opens the pkpass detail surface, which states its signature status in words, not
+   behind a foldout, tap or other disclosure.
 
 The *C1 list-level distinction* is conditions 1 to 4, and the rest of this document
-cites it in that sense. It carries almost all of the load: neither the list nor a
-scannable card's detail surface shows a provenance caption, only the host's type row,
-which may sit collapsed, and bound (b) of the "Pass type" row requires the list-level
-distinction in return.
+cites it in that sense. It carries almost all of the load. No kernel card or document
+surface and no list item shows a provenance caption; past the list, the bound relies
+only on the host's type row, which may sit collapsed. Bound (b) of the "Pass type" row
+requires the list-level distinction in return.
 
 **Why the pass mark is required.** A pass tile gives the issuer a region of the list
 it paints freely, beside text it already writes. Without the mark, a pkpass item is
@@ -225,8 +228,10 @@ three hold:
 3. Detail-surface provenance holds: the host's "Pass type" row below.
 
 **Accepted residual risk.** A user who scans straight from the list never meets the
-"Pass type" row for that use. Bounded because the artifact is the user's own
-creation, the list-level class distinction is in view at scan time, and Walt is a
+"Pass type" row for that use. Bounded because the user typed the code, confirmed one
+decoded from their image, or chose to restore it and confirmed it under C4 where C4
+applies (a restored card's content is the sender's; see the "Pass type" row section),
+the list-level class distinction is in view at scan time, and Walt is a
 display device, not an issuer: the POS / recipient is the authority on whether the code
 is credit-worthy (Threat 9). Rendering a list-face code without the condition-2 class
 label, or pkpass barcodes at list scale, amends this row. Issuer artwork that depicts a
@@ -322,11 +327,19 @@ item names its class in the host's voice and cannot shed it, none can carry the 
 mark (condition 3 of the consumer list concession), and no list item carries a verified
 affordance (condition 1), so passing for a pkpass gains nothing at list scale. The
 detail surface is entered from the list, or straight after the user creates or imports
-the item (bound (c)), on a card they created and can delete. The row, even collapsed, is a labelled, consistent
-location for provenance. Walt remains a display device (Threat 9). The residual risk is
-that a user who relies solely on the detail surface, never expands the foldout and
-ignores the list-level distinction meets no provenance signal; judged acceptable for a
-user viewing their own card.
+the item (bound (c)), and the user can delete the card. The row, even collapsed, is a
+labelled, consistent location for provenance. Walt remains a display device (Threat 9).
+The residual risk is that a user who relies solely on the detail surface, never expands
+the foldout and ignores the list-level distinction meets no provenance signal; judged
+acceptable for a card the user typed.
+
+A card restored from a wallet file someone else exported was not authored by the user:
+its label and payload are the sender's. It passes the same create-boundary validation
+as a typed card (C3; `PassRepository.createScannableCard` validates and trial-encodes
+on every insert), so Threats 3 to 5 hold for it. Threat 2 holds for it only where the
+consumer runs C4 on a restored code as on a typed one. Nothing on the card says who
+chose its content. Accepted residual risk: for such a card the class label and the row
+are the whole provenance bound. What the restore flow tells the user is the consumer's.
 
 **Bound of this row.** A host that shows a card's code at scan size, through
 `ScannableCardScreen` or `ScannableCardView` outside a list item, (a) renders a "Pass
@@ -382,23 +395,30 @@ payloads keep one more byte of v40-M byte-mode capacity (2,331 against 2,330 for
 non-ASCII). Stored Aztec cards that fit ISO-8859-1, and byte-mode ASCII QR cards,
 re-render as different symbols with the same text.
 
-**C4. Create-time URI-scheme preview for the byte-capable symbologies.** When the user
-creates a ScannableCard in a format that can carry an actionable payload, `passes-core`'s
-URI-scheme classifier inspects the payload against a conservative allowlist (`http`,
-`https`, `tel`, `sms`, `mailto`, `geo`, `wifi`, `bitcoin`, `ethereum`, `magnet`,
-`market`, `intent`). A match, or a "looks URI-shaped but unrecognized scheme" fallback,
-raises the confirmation dialog before the row is persisted; the user must explicitly
-confirm "yes, this code is meant to encode an actionable URI." Pattern source:
-`B3UrlConfirmSheet` in `passes-ui` (`SecuritySheets.kt`).
+**C4. URI-scheme confirmation before a card is saved, for the byte-capable
+symbologies.** Before a ScannableCard is saved in a format that can carry an actionable
+payload, `passes-core`'s URI-scheme classifier inspects the payload against a
+conservative allowlist (`http`, `https`, `tel`, `sms`, `mailto`, `geo`, `wifi`,
+`bitcoin`, `ethereum`, `magnet`, `market`, `intent`). A match, or a "looks URI-shaped
+but unrecognized scheme" fallback, raises the confirmation dialog before the row is
+persisted; the user must explicitly confirm "yes, this code is meant to encode an
+actionable URI." Pattern source: `B3UrlConfirmSheet` in `passes-ui`
+(`SecuritySheets.kt`).
 
 The gate covers PDF417 and Aztec as well as QR: `QrPayloadKind.requiresCreateConfirmation(format)`
 consults `ScannableFormat.canCarryActionablePayload()`, an exhaustive `when` in
 `passes-core`. A future roster member is a compile error at one kernel site rather than
 a gate that quietly stops covering a format, and the kernel owns the predicate for which
-symbologies need confirming. The consumer carries no parallel predicate: both create-time
-call sites let `requiresCreateConfirmation(format)` decide alone. The sheet's copy says
-"this code", not "this QR", so a dialog about an Aztec boarding pass does not describe
-something other than what the user is saving.
+symbologies need confirming. The consumer carries no parallel predicate: every path that
+persists a card must let `requiresCreateConfirmation(format)` decide alone and must not
+save a card it flags until the user confirms that code. That includes a card restored
+from a wallet file, whose payload the user did not type, and a format change to a
+format that flags the stored payload; the consumer is expected to pin both with tests.
+Where many codes arrive at once, as in a restore, one confirmation that lists every
+flagged code with its scheme and its bidi-isolated payload qualifies; codes the user
+does not confirm are not saved. The sheet's copy says "this code", not "this QR", so a
+dialog about an Aztec boarding pass does not describe something other than what the
+user is saving.
 
 **C5. Untrusted-byte barcode decoding is confined.** The kernel uses `com.google.zxing:core`
 (Apache 2.0, pure JVM) to encode a bit matrix from a user-typed payload and format, and
@@ -469,14 +489,15 @@ the QR and may auto-open the URL, auto-join the Wi-Fi, auto-launch the intent or
 auto-prompt a payment. Walt becomes a delivery channel for URIs the recipient device
 trusts because the QR is in someone's wallet.
 
-**Mitigation.** C4: the create-time classifier raises a confirmation dialog naming the
-scheme and the rendered payload (wrapped in FSI/PDI bidi isolates). The user must accept
-"this code is meant to encode an actionable URI" before the row is persisted.
-Unrecognized-but-URI-shaped strings (`unknown-scheme://x`) take the fallback warning path
-rather than silent acceptance.
+**Mitigation.** C4: before the card is saved, the classifier raises a confirmation
+dialog naming the scheme and the rendered payload (wrapped in FSI/PDI bidi isolates).
+The user must accept "this code is meant to encode an actionable URI" before the row is
+persisted. Unrecognized-but-URI-shaped strings (`unknown-scheme://x`) take the fallback
+warning path rather than silent acceptance.
 
 **Status.** Mitigated, with the residual that a user who deliberately clicks through the
-preview is choosing to ship the URI. The mitigation is informed consent, not refusal.
+preview is choosing to ship the URI. The mitigation is informed consent, not refusal, and
+holds only where the consumer runs the C4 gate on every path that persists a card.
 
 ### 3. Bidi / control-character spoofing in display label - Spoofing
 
@@ -494,7 +515,7 @@ defense-in-depth, mirroring `B3UrlConfirmSheet`.
 
 ### 4. Bidi / control-character spoofing in payload preview - Spoofing
 
-**What.** The create-time URI preview (C4) renders the raw `payload`, and the detail
+**What.** The URI preview (C4) renders the raw `payload`, and the detail
 surface (`ScannableCardScreen`) renders it as a human-readable readback below the code
 panel (fallback for when a point-of-sale scanner cannot read the code). The same
 bidi/control-character attack applies to both.
@@ -713,7 +734,7 @@ mandatory confirmation.
 | Manifest hash + PKCS#7 signature                | Not applicable; provenance is "user-typed", structurally a sibling class                |
 | `SignatureStatus` four-band badge               | Host "Pass type" row on the detail surface (C2); class label at list scale (consumer list concession) |
 | `FieldLinkScanner` Cf/Cc rejection              | Stricter (LF and tab rejected too); applied to `payload` and `label` at the create boundary (C3) |
-| `B3UrlConfirmSheet`                             | Create-time URI-scheme preview on the byte-capable formats (C4); same dialog pattern    |
+| `B3UrlConfirmSheet`                             | URI-scheme preview before a card is saved, byte-capable formats (C4); same dialog pattern |
 | `ExpiredOverlayState`                           | Not applicable (no expiration metadata; user can delete)                                |
 | `TelemetryGuard` PII discipline                 | `ScannableCardTelemetryGuard` mirrors it (counts / formats only, no payload bytes)      |
 | Encrypted-at-rest (SQLCipher) + Auto Backup off | Same database, same XML rules apply automatically                                       |
@@ -753,8 +774,9 @@ v2"; each is deliberately absent because it re-opens a threat row above.
 - **No payload-bytes telemetry.** `ScannableCardTelemetryGuard` may surface format counts
   and create/delete event counts; payload contents and payload length distributions are PII
   and never leave the device.
-- **No kernel-drawn provenance caption on a ScannableCard surface.** Provenance is the
-  host's, on the terms of the "Pass type" row section; a kernel caption amends C2.
+- **No kernel-drawn provenance caption on a ScannableCard or document surface.**
+  Provenance is the host's, on the terms of the "Pass type" row section and ADR 0005
+  D5.T; a kernel caption amends C2 or D5.T.
 
 ## How each control is tested
 
@@ -763,7 +785,7 @@ v2"; each is deliberately absent because it re-opens a threat row above.
 | C1      | `ScannableCardSurfaceTest.scannableCardDoesNotShareSupertypeWithPass`; storage `PublicApiSurfaceTest` `SCANNABLE_CARDS` assertion (separate table). Consumer list concession: expected consumer-side tests, listed at the end of that concession |
 | C2      | Consumer-side: a test that the details section renders a "Pass type" row, a test that no deep link, shortcut, widget or exported intent opens a detail or scan surface directly, and the list tests of the consumer list concession. Kernel: `scannableCardScreenHasExactlyFourUserVisibleParameters` (the surface's parameter shape). Colour row: `ScannableCardTrustSurfaceTest.faceTintDoesNotSuppressLabelOrPayload` (and its dark-tint twin), `codePanelIsLiterallyWhiteNotAThemeTokenOrTheFaceTint`, `inkOnClearsWcagAaAgainstEveryTintIncludingTheWorstCase`, `DocumentFaceTintTest.faceTintLeavesThePageRenderRequestUnchanged`; the shared tint gate by `passes-ui-core`'s `FaceTintTest` |
 | C3      | Length-cap, charset and Cf/Cc rejection unit tests; `theTwoDimensionalFormatsEncodeAtTheirValidatorCap`, `theTwoDimensionalFormatsRoundTripAtTheirValidatorCap`, `BarcodeEncoderRoundTripTest.nonAsciiPayloadsSurviveOnTheCharsetPinnedFormats`, `BarcodeEncoderCharsetTest`; `noFormatIsDecodeOnly` and `isCreatableAgreesWithWhatTheValidatorAccepts`; byte-capable charset rules in `ScannableFormatConstraintsTest` |
-| C4      | `QrPayloadClassifierTest`, `BarcodeCreateConfirmSheetTest` |
+| C4      | `QrPayloadClassifierTest`, `BarcodeCreateConfirmSheetTest`; consumer-side (expected), tests that a code `requiresCreateConfirmation` flags is not saved unconfirmed on restore or on a format change |
 | C5      | Encoder integration test; decode confinement by the isolated-decode tests (`BarcodeDecodeServiceInstrumentedTest`, `YPlaneFrameDecodeTest`) and, consumer-side, an instrumented composite-import test (no host-process decode of source bytes) and a guard test that no CameraX `ImageCapture` appears in the consumer's `src/main` |
 | C6      | No test in this repo (no schema snapshot); closest is `ScannableCardSurfaceTest.scannableCardConstructorIsExercisedWithEveryShape` |
 

@@ -33,24 +33,8 @@ import kotlin.math.roundToInt
 import kotlinx.coroutines.flow.distinctUntilChanged
 
 /**
- * Pinch-zoom + pan surface for a single bitmap. Originally inline in `DocumentView`
- * (`wpass-1wq`); relocated by `wpass-ny4` so the full-screen surface (`wpass-jil`) is
- * the only call site. Translation is clamped to the slot bounds so the bitmap cannot
- * be panned entirely off-screen.
- *
- * When [pageAspect] is supplied, [visiblePageSubRect] math accounts for ContentScale.Fit
- * letterbox bars in the bitmap so the emitted [RenderSourceRect.SubRect] matches the
- * region of the actual page the user pinched (`wpass-6ag` review C3).
- *
- * When [zoomedReplacement] is non-null and the user is not actively transforming, it
- * overrides the displayed image — the sub-rect render that the caller fetched in
- * response to the previous settle. The replacement carries the visible region's own
- * aspect ratio (the renderer rasterises it uniformly, `wpass-fdh`), so it is placed at
- * the on-screen box that region currently occupies via [visiblePageBoxOnScreen] rather
- * than stretched to fill the slot: frameBackground shows around it where the viewport
- * extends past the page edge. Starting a new gesture (or any double-tap) clears the
- * override through the caller's [onTransformStarted] callback so a stale region is
- * never shown against a changed transform.
+ * Pinch-zoom and pan over one bitmap, translation clamped to the slot. While zoomed and idle, a
+ * non-null [zoomedReplacement] draws at the on-screen box of the visible region.
  */
 @Composable
 @Suppress("LongParameterList", "LongMethod", "CyclomaticComplexMethod")
@@ -83,10 +67,8 @@ internal fun ZoomableImage(
         if (newScale <= minScale) offset = Offset.Zero
     }
 
-    // Fire onTransformStarted exactly on the false -> true edge of in-progress, and
-    // onZoomedRegionChanged exactly on the true -> false edge with a settled zoom.
-    // snapshotFlow + distinctUntilChanged means recomposition without a gesture-state
-    // change does not re-fire either callback (`wpass-6ag` review M3).
+    // onTransformStarted fires on the gesture's start edge, onZoomedRegionChanged on its settle
+    // edge while zoomed; recomposition alone fires neither.
     if (onZoomedRegionChanged != null || onTransformStarted != null) {
         LaunchedEffect(transformableState) {
             snapshotFlow { transformableState.isTransformInProgress }
@@ -105,9 +87,8 @@ internal fun ZoomableImage(
 
     val density = LocalDensity.current
     val transforming = transformableState.isTransformInProgress
-    // Only honour the replacement while genuinely zoomed in. A double-tap reset drops
-    // scale to minScale without a transform edge, so this gate (not just !transforming)
-    // is what keeps a stale sub-rect from being shown over the reset full page.
+    // Gated on scale too: a double-tap reset has no transform edge, and a stale sub-rect must
+    // not show over the reset page.
     val replacementBox = if (zoomedReplacement != null && !transforming && scale > minScale) {
         visiblePageBoxOnScreen(scale, offset, slotSize, pageAspect)
     } else {
@@ -117,10 +98,8 @@ internal fun ZoomableImage(
     Box(
         modifier = modifier
             .fillMaxSize()
-            // The graphicsLayer scale below draws outside layout bounds unless an ancestor
-            // clips. Clip HERE (an unscaled layer) — not via clip=true on the scaled layer,
-            // whose clip shape would scale with it — so zoomed content can never overdraw
-            // the trust-caption dock beside this slot (ADR 0005 Z.8, ZoomableImageClipTest).
+            // Clip on this unscaled layer, not the scaled one, so zoomed content never draws
+            // outside the slot (ADR 0005 Z.7, ZoomableImageClipTest).
             .clipToBounds()
             .onSizeChanged { slotSize = it }
             .pointerInput(Unit) {
@@ -135,9 +114,8 @@ internal fun ZoomableImage(
                         } else {
                             scale = doubleTapScale
                             offset = Offset.Zero
-                            // Double-tap raises scale without a transform edge, so the
-                            // snapshotFlow never fires; request the sharp sub-rect render
-                            // explicitly to keep wpass-f4b parity with the pinch path.
+                            // No transform edge on double-tap, so request the sharp sub-rect
+                            // render here, as a pinch settle would.
                             if (slotSize != IntSize.Zero) {
                                 onZoomedRegionChanged?.invoke(
                                     visiblePageSubRect(doubleTapScale, Offset.Zero, slotSize, pageAspect),
@@ -151,10 +129,8 @@ internal fun ZoomableImage(
         contentAlignment = Alignment.Center,
     ) {
         if (replacementBox != null) {
-            // The replacement is the visible page region rasterised at viewport
-            // resolution with its native aspect ratio. Place it at the on-screen box
-            // that region occupies; FillBounds is exact because the box and the bitmap
-            // share that aspect, so no axis is independently scaled (`wpass-fdh`).
+            // The replacement shares its box's aspect ratio, so FillBounds places it at the
+            // visible region's on-screen box without stretching.
             Image(
                 bitmap = zoomedReplacement!!,
                 contentDescription = contentDescription,
@@ -186,10 +162,8 @@ internal fun ZoomableImage(
 }
 
 /**
- * Slot-pixel rectangle of the page region the viewport currently shows. [page] is the
- * on-screen page rect (slot minus ContentScale.Fit letterbox); `i*` is its intersection
- * with the visible window, both in the untransformed slot coordinate space. `null` when
- * the viewport sits entirely in the letterbox (zero-area intersection).
+ * The page rect in the slot ([page], letterbox excluded) and its intersection with the visible
+ * window (`i*`), in untransformed slot pixels; null when the viewport shows only letterbox.
  */
 private data class VisibleRegion(
     val ix0: Float,
@@ -225,9 +199,8 @@ private fun visibleRegion(
 }
 
 /**
- * Maps the currently-visible region of the displayed page into a normalised page rect
- * for the renderer's [RenderSourceRect.SubRect]. When [pageAspect] is null the slot is
- * treated as filling the page (legacy behaviour from the inline surface).
+ * The visible region of the page as a normalised [RenderSourceRect.SubRect]. A null
+ * [pageAspect] treats the slot as filling the page.
  */
 @Suppress("ReturnCount")
 internal fun visiblePageSubRect(
@@ -251,10 +224,8 @@ internal fun visiblePageSubRect(
 }
 
 /**
- * On-screen (viewport-pixel) box the visible page region occupies. Derived from the same
- * intersection as [visiblePageSubRect], so the box always has the rendered region's
- * aspect ratio — placing the (aspect-faithful) replacement bitmap here can never stretch
- * it. `null` when the viewport sits entirely in the letterbox.
+ * The on-screen box of the visible page region, from the same intersection as
+ * [visiblePageSubRect] so it has the rendered region's aspect; null over letterbox only.
  */
 internal fun visiblePageBoxOnScreen(
     scale: Float,
@@ -291,10 +262,8 @@ private fun pageRectInSlot(slotW: Float, slotH: Float, pageAspect: Float?): Page
     }
 }
 
-// Sub-rect re-render lands the sharp-at-zoom property (`wpass-f4b`), so MAX_SCALE can
-// sit at 5f — the renderer rasterises the visible region at viewport resolution within
-// the unchanged 4 MP per-bitmap cap, so the user-perceived pixel density at 5x is the
-// same as at 1x rather than 5x-bilinear-smeared.
+// PDF pages stay sharp at 5x because the visible region is re-rendered at viewport
+// resolution, within the 4 MP per-bitmap cap; the image arm decodes once and upsamples.
 internal const val DEFAULT_MIN_SCALE: Float = 1f
 internal const val DEFAULT_MAX_SCALE: Float = 5f
 internal const val DEFAULT_DOUBLE_TAP_SCALE: Float = 2f

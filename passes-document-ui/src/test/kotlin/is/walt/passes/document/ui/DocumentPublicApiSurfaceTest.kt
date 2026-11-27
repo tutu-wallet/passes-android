@@ -22,40 +22,18 @@ class DocumentPublicApiSurfaceTest {
     @Test
     fun documentSemanticsExposesEverySlot() {
         val argb = ArgbColor(0xFF000000.toInt())
-        // A distinct value proves captionIconTint is its own slot, not an alias.
-        val iconTint = ArgbColor(0xFFFF8800.toInt())
         val semantics = DocumentSemantics(
-            captionBackground = argb,
-            captionForeground = argb,
-            captionIconTint = iconTint,
             frameBackground = argb,
             fullScreenBannerBackground = argb,
             fullScreenBannerForeground = argb,
             fullScreenBannerLabel = "open",
             closeFullScreenLabel = "close",
         )
-        assertThat(semantics.captionBackground).isEqualTo(argb)
-        assertThat(semantics.captionForeground).isEqualTo(argb)
-        assertThat(semantics.captionIconTint).isEqualTo(iconTint)
         assertThat(semantics.frameBackground).isEqualTo(argb)
         assertThat(semantics.fullScreenBannerBackground).isEqualTo(argb)
         assertThat(semantics.fullScreenBannerForeground).isEqualTo(argb)
         assertThat(semantics.fullScreenBannerLabel).isEqualTo("open")
         assertThat(semantics.closeFullScreenLabel).isEqualTo("close")
-    }
-
-    @Test
-    fun documentSemanticsCaptionIconTintDefaultsToCaptionForeground() {
-        val foreground = ArgbColor(0xFF123456.toInt())
-        val other = ArgbColor(0xFF000000.toInt())
-        val semantics = DocumentSemantics(
-            captionBackground = other,
-            captionForeground = foreground,
-            frameBackground = other,
-            fullScreenBannerBackground = other,
-            fullScreenBannerForeground = other,
-        )
-        assertThat(semantics.captionIconTint).isEqualTo(foreground)
     }
 
     /**

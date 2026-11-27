@@ -3,8 +3,10 @@
 For PDF import, the repository's trust claim ("every security-and-privacy-critical
 behavior Walt makes about pass handling lives in code you can read") decomposes into
 a per-threat enumeration plus three load-bearing controls. Where a mitigation is the
-consumer's (inline provenance, display-label isolation), its row says so. Each threat lists where it
-lives in the format, the mitigating control, and for accepted risks the rationale.
+consumer's (provenance on the list and the detail surface, nothing that reads as
+verified in its own chrome, display-label isolation), its row says so. Each threat
+lists where it lives in the format, the mitigating control, and for accepted risks
+the rationale.
 
 This is the security-side companion to ADR 0005 ("PDF document support"): the ADR
 records what the architecture is, this document records why each piece must exist.
@@ -101,11 +103,12 @@ permission levels.
 
 **Mitigation.** Not verified. ADR 0005 D5. Every PDF imported into Walt
 carries `Provenance.UserProvided`, structurally distinct from PKPASS's
-`SignatureStatus.AppleVerified` / `SelfSigned` ladder. The
-`DocumentTrustCaption` ("User-provided document. This app has not verified
-the source.") is non-suppressible on the full-screen view, in the same visual
-register as the existing `SignatureStatus.SelfSigned` pill; inline, the host's
-"Pass type" row carries provenance (ADR 0005 D5.T).
+`SignatureStatus.AppleVerified` / `SelfSigned` ladder, and neither the kernel
+nor the host draws anything on a document surface that reads as verified.
+The kernel draws no provenance signal on a document; the host's class label in
+its list and its "Pass type" row on the detail surface carry it (ADR 0005
+D1.L, D5.T). A document's pages can still depict a verified affordance,
+including this app's own pkpass signature status (threat 12).
 
 **Rationale for not verifying.** A "Verified" UI signal that Walt cannot
 honestly back would dilute the PKPASS signature trust signal. There is no
@@ -113,8 +116,7 @@ analogue to Apple's WWDR root for ticket issuance. Implementing PAdES
 correctly (across MDP transforms, certification chains, revocation) is its
 own project, and a half-correct implementation is worse than none.
 
-**Status.** Accepted. The UI mitigation is the provenance signal: the kernel's caption
-on the full-screen view (D5) and the host's row inline (D5.T).
+**Status.** Accepted. The UI mitigation is the host's provenance signal (D5.T).
 
 ### 6. Network fetches at render time
 
@@ -227,9 +229,12 @@ elsewhere, trusts the scanner's intent, and lands on an attacker page.
 **Mitigation.** None applicable from Walt. The barcode is rasterized
 content the user is responsible for sourcing, and Walt makes no claim
 about the contents of an unverified document. The provenance signal (the
-host's "Pass type" row inline, `DocumentTrustCaption` on the full-screen view)
-is the user-facing one; the structural absence of a "Verified" pill prevents
-false-confidence escalation.
+host's class label and "Pass type" row) is the user-facing one, and no
+surface draws a "Verified" pill for a document. Nothing stops the document
+depicting one: a screenshot of a verified pass, this app's own included. At
+full screen, where a gate scan happens, the kernel shows the document alone,
+so a user who never expanded the row meets no provenance signal there and
+nothing contradicts what the document shows.
 
 **Status.** Accepted-risk for v1; the provenance signal is the user-facing
 mitigation.
@@ -241,9 +246,8 @@ user-controlled and drawn by the consumer. A filename
 containing U+202E or other Cf/Cc characters could rearrange visible glyphs
 to spoof Walt UI text.
 
-**Mitigation.** `DocumentTrustCaption` renders constant text and carries no label, and
-no kernel surface draws the display label. A consumer that draws it wraps it with
-`isolated()` from `passes-ui-core` (U+2068 / U+2069 bidi isolates, the
+**Mitigation.** No kernel surface draws the display label. A consumer that draws it
+wraps it with `isolated()` from `passes-ui-core` (U+2068 / U+2069 bidi isolates, the
 `B3UrlConfirmSheet` discipline of `passes-ui/TRUST_CLAIMS.md` section 2);
 `BidiIsolationTest` pins the shape of the wrap.
 
@@ -258,7 +262,7 @@ verify it, and the consumer pins it with its own test.
 | `ParserConfig.maxArchiveBytes` (10 MB)          | `PdfImportConfig.maxBytes` (25 MB); enforced at import and at storage         |
 | Manifest hash + PKCS#7 signature                | Not applicable; provenance is `UserProvided` (D5)                             |
 | `ImageRenderBounds` (1920 x 1920 per bitmap)    | Per-page rendered-bitmap cap of 4 MP                                          |
-| `SignatureStatus` four-band badge               | Host "Pass type" row inline; "User-provided document" caption on the full-screen view |
+| `SignatureStatus` four-band badge               | Host class label and "Pass type" row (no kernel-drawn signal)                 |
 | `FieldLinkScanner` Cf/Cc rejection              | Not applicable (no link extraction)                                           |
 | `B3UrlConfirmSheet`                             | Not applicable (no URL surfaced)                                              |
 | `ExpiredOverlayState`                           | Not applicable (no expiration metadata; sort by import date)                  |

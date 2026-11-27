@@ -18,8 +18,6 @@ import java.util.Collections
 
 /** Placeholder semantics shared by the document surface tests; override a slot with `copy`. */
 internal val testDocumentSemantics = DocumentSemantics(
-    captionBackground = ArgbColor(0xFF202020.toInt()),
-    captionForeground = ArgbColor(0xFFFFFFFF.toInt()),
     frameBackground = ArgbColor(0xFFEEEEEE.toInt()),
     fullScreenBannerBackground = ArgbColor(0xFFD0D0D0.toInt()),
     fullScreenBannerForeground = ArgbColor(0xFF202020.toInt()),

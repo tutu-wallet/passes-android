@@ -34,6 +34,7 @@ import com.google.common.truth.Truth.assertThat
 import `is`.walt.passes.core.ScannableFormat
 import `is`.walt.passes.document.BarcodedImageDocument
 import `is`.walt.passes.document.BarcodedImageDocumentId
+import `is`.walt.passes.document.Document
 import `is`.walt.passes.document.ImageDocument
 import `is`.walt.passes.document.ImageDocumentId
 import `is`.walt.passes.document.PdfDocument
@@ -324,27 +325,6 @@ class DocumentViewInstrumentedTest {
     }
 
     @Test
-    fun fullScreenSurfaceShowsTheTrustCaption() {
-        // wpass-jil / ADR 0005 Z.8: the trust caption is docked on the full-screen
-        // surface and visible at first composition. The bitmap-availability path is
-        // gated on a renderer round-trip so the assertion targets the caption only.
-        val recorder = RecordingBinder()
-        composeRule.setContent {
-            ThemedHost {
-                FullScreenDocumentView(
-                    doc = doc(pageCount = 1),
-                    pdfFile = pipeRead,
-                    renderer = recorder,
-                    onClose = {},
-                )
-            }
-        }
-        composeRule.onNodeWithText(
-            "User-provided document. This app has not verified the source.",
-        ).assertIsDisplayed()
-    }
-
-    @Test
     fun pinchOnFullScreenDrivesAZoomAwareRerenderCall() {
         // wpass-jil + wpass-f4b: after the user pinches in the full-screen surface,
         // the surface fires a renderer.render(SubRect) call AND the bitmap swap from
@@ -476,37 +456,34 @@ class DocumentViewInstrumentedTest {
     }
 
     @Test
-    fun fullScreenImageSurfaceShowsTheTrustCaption() {
-        // wpass-pl7.4: the generalized full-screen surface docks the same caption on the
-        // image arm, visible as soon as the surface composes.
-        composeRule.setContent {
-            ThemedHost {
-                FullScreenDocumentView(
-                    doc = imageDoc(),
-                    imageFile = pipeRead,
-                    imageDecoder = RecordingImageDecoder(),
-                    onClose = {},
-                )
-            }
-        }
-        composeRule.onNodeWithText(
-            "User-provided document. This app has not verified the source.",
-        ).assertIsDisplayed()
+    fun pinchOnFullScreenImageDoesNotRedecode() {
+        // The one decode already carries max-zoom resolution; unlike the PDF arm, a pinch re-renders nothing.
+        assertPinchKeepsOneDecode(imageDoc())
     }
 
     @Test
-    fun pinchOnFullScreenImageKeepsTheDockedTrustCaptionFixedAndDoesNotRedecode() {
-        // wpass-pl7.4 acceptance: the docked caption stays fixed and legible at zoom. The
-        // caption is structurally outside the zoom transform, so its on-screen bounds
-        // must be IDENTICAL before and after a pinch — not merely still-displayed. And
-        // unlike the PDF arm's sub-rect re-render, the image arm decodes exactly once
-        // (the base decode already carries max-zoom resolution); a pinch must not drive
-        // a second decode call.
+    fun pinchOnFullScreenCompositeDoesNotRedecode() {
+        // A composite's photo takes the plain image's surface. Synthetic, non-PII payload.
+        assertPinchKeepsOneDecode(
+            BarcodedImageDocument(
+                id = BarcodedImageDocumentId("comp-instrumented"),
+                displayLabel = "fixture.png",
+                byteCount = 4096L,
+                widthPx = 1080,
+                heightPx = 2340,
+                barcodePayload = "TEST-PAYLOAD-000",
+                barcodeFormat = ScannableFormat.Aztec,
+                importedAtEpochMs = 0L,
+            ),
+        )
+    }
+
+    private fun assertPinchKeepsOneDecode(doc: Document) {
         val decoder = RecordingImageDecoder()
         composeRule.setContent {
             ThemedHost {
                 FullScreenDocumentView(
-                    doc = imageDoc(),
+                    doc = doc,
                     imageFile = pipeRead,
                     imageDecoder = decoder,
                     onClose = {},
@@ -515,9 +492,6 @@ class DocumentViewInstrumentedTest {
         }
         composeRule.waitForIdle()
         composeRule.onNodeWithContentDescription("Image document").assertIsDisplayed()
-        val captionBefore = composeRule
-            .onNodeWithText("User-provided document. This app has not verified the source.")
-            .getUnclippedBoundsInRoot()
 
         composeRule.onNodeWithContentDescription("Image document").performTouchInput {
             pinch(
@@ -529,60 +503,8 @@ class DocumentViewInstrumentedTest {
         }
         composeRule.waitForIdle()
 
-        val captionAfter = composeRule
-            .onNodeWithText("User-provided document. This app has not verified the source.")
-            .getUnclippedBoundsInRoot()
-        assertThat(captionAfter).isEqualTo(captionBefore)
-        composeRule.onNodeWithText(
-            "User-provided document. This app has not verified the source.",
-        ).assertIsDisplayed()
-        assertThat(decoder.decodeCount()).isEqualTo(1)
-    }
-
-    @Test
-    fun pinchOnFullScreenCompositeImageKeepsTheDockedTrustCaptionFixed() {
-        // wpass-pl7.4 acceptance: a composite's retained photo gets the same full-screen
-        // zoom surface as a plain image (wpass-8lu routing), with the caption equally
-        // fixed. Payload is a synthetic non-PII fixture (epic constraint 7).
-        composeRule.setContent {
-            ThemedHost {
-                FullScreenDocumentView(
-                    doc = BarcodedImageDocument(
-                        id = BarcodedImageDocumentId("comp-instrumented"),
-                        displayLabel = "fixture.png",
-                        byteCount = 4096L,
-                        widthPx = 1080,
-                        heightPx = 2340,
-                        barcodePayload = "TEST-PAYLOAD-000",
-                        barcodeFormat = ScannableFormat.Aztec,
-                        importedAtEpochMs = 0L,
-                    ),
-                    imageFile = pipeRead,
-                    imageDecoder = RecordingImageDecoder(),
-                    onClose = {},
-                )
-            }
-        }
-        composeRule.waitForIdle()
         composeRule.onNodeWithContentDescription("Image document").assertIsDisplayed()
-        val captionBefore = composeRule
-            .onNodeWithText("User-provided document. This app has not verified the source.")
-            .getUnclippedBoundsInRoot()
-
-        composeRule.onNodeWithContentDescription("Image document").performTouchInput {
-            pinch(
-                start0 = center + Offset(-100f, 0f),
-                end0 = center + Offset(-300f, 0f),
-                start1 = center + Offset(100f, 0f),
-                end1 = center + Offset(300f, 0f),
-            )
-        }
-        composeRule.waitForIdle()
-
-        val captionAfter = composeRule
-            .onNodeWithText("User-provided document. This app has not verified the source.")
-            .getUnclippedBoundsInRoot()
-        assertThat(captionAfter).isEqualTo(captionBefore)
+        assertThat(decoder.decodeCount()).isEqualTo(1)
     }
 
     private fun imageDoc() = ImageDocument(
@@ -610,8 +532,6 @@ class DocumentViewInstrumentedTest {
     }
 
     private val semantics = DocumentSemantics(
-        captionBackground = ArgbColor(0xFF202020.toInt()),
-        captionForeground = ArgbColor(0xFFFFFFFF.toInt()),
         frameBackground = ArgbColor(0xFFEEEEEE.toInt()),
         fullScreenBannerBackground = ArgbColor(0xFFD0D0D0.toInt()),
         fullScreenBannerForeground = ArgbColor(0xFF202020.toInt()),

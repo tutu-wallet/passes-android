@@ -6,25 +6,8 @@ import androidx.compose.runtime.ProvidableCompositionLocal
 import androidx.compose.runtime.staticCompositionLocalOf
 
 /**
- * The host's entry point into `passes-document-ui`. Wraps [content] in a
- * [CompositionLocalProvider] that supplies [LocalDocumentSemantics]. Every
- * `passes-document-ui` composable expects to be called inside this scope; reading
- * [LocalDocumentSemantics] outside of it fails fast.
- *
- * Sibling to `passes-ui::PassesTheme`; a host rendering both passes and documents
- * wires both at the screen-graph root, e.g.:
- *
- * ```
- * PassesTheme(semantics = walledPassesSemantics) {
- *     DocumentTheme(semantics = walledDocumentSemantics) {
- *         AppContent()
- *     }
- * }
- * ```
- *
- * Color and typography for general chrome are supplied by the host's surrounding
- * `MaterialTheme`; `DocumentTheme` does not redeclare them. [semantics] is the small
- * set of slots that have no Material3 analogue — see [DocumentSemantics].
+ * Supplies [LocalDocumentSemantics] to every `passes-document-ui` composable in [content]. Sibling
+ * to `PassesTheme`; general colour and type come from the host's `MaterialTheme`.
  */
 @Composable
 public fun DocumentTheme(
@@ -37,12 +20,7 @@ public fun DocumentTheme(
     )
 }
 
-/**
- * Composition-local accessor for the host-supplied [DocumentSemantics]. Reading this
- * outside a [DocumentTheme] scope throws — fail-fast keeps a forgotten
- * `DocumentTheme(...)` scope from silently rendering with a developer-default trust-
- * caption palette.
- */
+/** The host's [DocumentSemantics]. Throws outside a [DocumentTheme], so no surface renders a default palette. */
 public val LocalDocumentSemantics: ProvidableCompositionLocal<DocumentSemantics> =
     staticCompositionLocalOf {
         error(
