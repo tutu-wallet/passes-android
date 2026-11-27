@@ -113,10 +113,10 @@ consumer's list is permitted strictly when all five hold:
    disclosure.
 
 The *C1 list-level distinction* is conditions 1 to 4, and the rest of this document
-cites it in that sense. It carries almost all of the load: the kernel draws no
-provenance caption on the list or on a scannable card's detail surface, only the host
-draws a type row, which may sit collapsed, and bound (b) of the "Pass type" row
-requires the list-level distinction in return.
+cites it in that sense. It carries almost all of the load: neither the list nor a
+scannable card's detail surface shows a provenance caption, only the host's type row,
+which may sit collapsed, and bound (b) of the "Pass type" row requires the list-level
+distinction in return.
 
 **Why the pass mark is required.** A pass tile gives the issuer a region of the list
 it paints freely, beside text it already writes. Without the mark, a pkpass item is

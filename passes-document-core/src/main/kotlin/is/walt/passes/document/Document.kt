@@ -4,7 +4,7 @@ package `is`.walt.passes.document
  * The sealed supertype for every kind of imported, non-signature-verified document Walt
  * stores alongside signed passes. Two arms: [PdfDocument] (wpass-i9x step 2) and
  * [ImageDocument] (step 4). The fields here are exactly what the document surfaces
- * (tile, lane, trust caption) read in common; kind-specific fields — `pageCount` on the
+ * read in common; kind-specific fields — `pageCount` on the
  * PDF arm, `widthPx` / `heightPx` on the image arm — live on their arm, never on the
  * supertype.
  *

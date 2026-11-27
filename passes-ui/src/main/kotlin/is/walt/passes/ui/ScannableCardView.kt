@@ -2,64 +2,35 @@ package `is`.walt.passes.ui
 
 import android.graphics.Bitmap
 import androidx.compose.foundation.Image
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.defaultMinSize
-import androidx.compose.foundation.text.selection.SelectionContainer
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.painter.BitmapPainter
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import `is`.walt.passes.core.BarcodeEncoder
 import `is`.walt.passes.core.EncodeResult
 import `is`.walt.passes.core.ScannableCard
 import `is`.walt.passes.core.ScannableFormat
-import `is`.walt.passes.ui.core.isolated
 import `is`.walt.passes.ui.internal.BARCODE_RENDER_FAILURE_DESCRIPTION
 import `is`.walt.passes.ui.internal.barcodeContentScale
 import `is`.walt.passes.ui.internal.toMonochromeBitmap
 
 /**
- * [card]'s code alone, at the gate-distance minimum sizes of [BarcodeView]; an encoder failure
- * renders a described blank. [showPayloadCaption] adds the payload as selectable, isolated text.
+ * [card]'s code alone, described by its label, at the gate-distance minimum sizes of
+ * [BarcodeView]. An encoder failure renders a described blank of the same size.
  */
 @Composable
 public fun ScannableCardView(
     card: ScannableCard,
     modifier: Modifier = Modifier,
-    showPayloadCaption: Boolean = false,
 ) {
-    if (!showPayloadCaption) {
-        ScannableCodeImage(card, imageDescription = card.label, modifier = modifier)
-    } else {
-        Column(
-            modifier = modifier,
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(CAPTION_GAP),
-        ) {
-            ScannableCodeImage(card, imageDescription = null, modifier = Modifier)
-            SelectionContainer {
-                Text(
-                    text = isolated(card.payload),
-                    style = MaterialTheme.typography.labelMedium,
-                    fontFamily = FontFamily.Monospace,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    textAlign = TextAlign.Center,
-                )
-            }
-        }
-    }
+    ScannableCodeImage(card, imageDescription = card.label, modifier = modifier)
 }
 
 /**
@@ -125,5 +96,3 @@ private fun ScannableFormat.minRenderSizeDp(): Pair<Int, Int> = when (this) {
     ScannableFormat.Code39,
     -> 320 to 96
 }
-
-private val CAPTION_GAP = 12.dp

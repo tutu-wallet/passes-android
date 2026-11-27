@@ -13,6 +13,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.getUnclippedBoundsInRoot
@@ -20,6 +21,7 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
@@ -385,7 +387,7 @@ class DocumentViewInstrumentedTest {
         val recorder = RecordingBinder()
         composeRule.setContent {
             ThemedHost {
-                Box(modifier = Modifier.fillMaxWidth().height(300.dp)) {
+                Box(modifier = Modifier.fillMaxWidth().height(300.dp).testTag(SHORT_SLOT_TAG)) {
                     DocumentView(
                         doc = doc(pageCount = 3),
                         pdfFile = pipeRead,
@@ -396,12 +398,13 @@ class DocumentViewInstrumentedTest {
         }
         composeRule.waitForIdle()
 
+        val slot = composeRule.onNodeWithTag(SHORT_SLOT_TAG).getUnclippedBoundsInRoot()
         val page = composeRule
             .onNodeWithContentDescription("Page 1 of 3")
             .getUnclippedBoundsInRoot()
 
-        assertThat(page.top.value).isAtLeast(0f)
-        assertThat(page.bottom.value).isAtMost(300f)
+        assertThat(page.top.value).isAtLeast(slot.top.value)
+        assertThat(page.bottom.value).isAtMost(slot.bottom.value)
     }
 
     @Test
@@ -683,6 +686,7 @@ class DocumentViewInstrumentedTest {
     }
 
     private companion object {
+        const val SHORT_SLOT_TAG = "short-slot"
         const val BYTES_PER_PIXEL = 4
         const val DECODED_WIDTH = 108
         const val DECODED_HEIGHT = 234

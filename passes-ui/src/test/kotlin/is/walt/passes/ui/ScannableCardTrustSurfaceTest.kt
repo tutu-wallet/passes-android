@@ -84,13 +84,8 @@ class ScannableCardTrustSurfaceTest {
 
     @Test
     fun fullScreenCodeImageCarriesNoDescriptionSoTalkBackReadsTheLabelOnce() {
-        // The detail surface composes the label as its own Text directly beneath the code,
-        // so the code image must carry no contentDescription — otherwise TalkBack reads the
-        // label twice. The trap is a one-word default: routing this back through
-        // ScannableCardView (showPayloadCaption = false) sends card.label into the image
-        // again, and the by-text assertions above stay green because a contentDescription
-        // is not a text node. Both forms checked: the image would carry the raw label,
-        // while the Text carries the FSI/PDI-isolated one.
+        // The label is its own Text beneath the code, so the image must carry no description
+        // or TalkBack reads the label twice. Both the raw and the isolated form are checked.
         composeRule.setContent {
             ThemedHost {
                 ScannableCardScreen(card = qrFixture(label = "Library card"))
@@ -248,11 +243,11 @@ class ScannableCardTrustSurfaceTest {
     }
 
     @Test
-    fun codeViewRendersNoPayloadCaptionByDefault() {
+    fun codeViewDescribesTheCodeWithTheLabel() {
         composeRule.setContent {
-            ThemedHost { ScannableCardView(card = qrFixture()) }
+            ThemedHost { ScannableCardView(card = qrFixture(label = "Library card")) }
         }
-        composeRule.onNodeWithText("⁨WALT-MEMBER-12345⁩").assertDoesNotExist()
+        composeRule.onAllNodesWithContentDescription("Library card").assertCountEquals(1)
     }
 
     @Test
