@@ -3,8 +3,8 @@
 For PDF import, the repository's trust claim ("every security-and-privacy-critical
 behavior Walt makes about pass handling lives in code you can read") decomposes into
 a per-threat enumeration plus three load-bearing controls. Where a mitigation is the
-consumer's (provenance on the list and the detail surface, display-label isolation),
-its row says so. Each threat lists where it lives in the format, the mitigating control, and
+consumer's (provenance on the list and the detail surface, nothing that reads as
+verified in its own chrome, display-label isolation), its row says so. Each threat lists where it lives in the format, the mitigating control, and
 for accepted risks the rationale.
 
 This is the security-side companion to ADR 0005 ("PDF document support"): the ADR
@@ -103,7 +103,7 @@ permission levels.
 **Mitigation.** Not verified. ADR 0005 D5. Every PDF imported into Walt
 carries `Provenance.UserProvided`, structurally distinct from PKPASS's
 `SignatureStatus.AppleVerified` / `SelfSigned` ladder, and neither the kernel
-nor the host draws a signature or verified affordance on a document surface.
+nor the host draws anything on a document surface that reads as verified.
 The kernel draws no provenance signal on a document; the host's class label in
 its list and its "Pass type" row on the detail surface carry it (ADR 0005
 D1.L, D5.T). A document's pages can still depict a verified affordance,
