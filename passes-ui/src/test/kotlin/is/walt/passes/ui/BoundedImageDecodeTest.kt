@@ -72,6 +72,14 @@ class BoundedImageDecodeTest {
     }
 
     @Test
+    fun aPngThatEndsInsideAChunkIsMalformedFromTheBytes() {
+        val (bitmap, rejection) = decodeBoundedBitmap(pngHeader(width = 8, height = 8), ImageRenderBounds.Default)
+
+        assertThat(bitmap).isNull()
+        assertThat(rejection).isEqualTo(ImageDecodeRejection.Malformed)
+    }
+
+    @Test
     fun platformGateAcceptsOnlyAPngAtOrUnderTheCeiling() {
         assertThat(sourceRejection(mimeType = "image/png", width = 4096, height = 4096)).isNull()
         assertThat(sourceRejection(mimeType = "image/png", width = 16_777_216, height = 1)).isNull()
@@ -93,7 +101,7 @@ class BoundedImageDecodeTest {
             .isEqualTo(ImageDecodeRejection.ExceedsArea)
     }
 
-    // A PNG signature and IHDR chunk with nothing after them: all the byte-level check reads.
+    // A PNG signature and an IHDR chunk cut before its CRC: all the header check reads.
     private fun pngHeader(width: Int, height: Int, interlaced: Boolean = false): ByteArray =
         ByteArrayOutputStream().also { out ->
             DataOutputStream(out).apply {

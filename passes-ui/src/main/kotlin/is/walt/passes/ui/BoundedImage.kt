@@ -16,6 +16,7 @@ import androidx.compose.ui.graphics.painter.BitmapPainter
 import `is`.walt.passes.core.ImageBytes
 import `is`.walt.passes.core.ImageRole
 import `is`.walt.passes.core.PngHeader
+import `is`.walt.passes.core.PngPicture
 import `is`.walt.passes.image.decode.BoundedBitmap
 import `is`.walt.passes.image.decode.BoundedDecodePolicy
 import `is`.walt.passes.image.decode.DecodeSize
@@ -93,23 +94,28 @@ internal fun decodeBoundedBitmap(
     bounds: ImageRenderBounds,
 ): Pair<Bitmap?, ImageDecodeRejection?> {
     pngRejection(rawBytes)?.let { return null to it }
+    // Only the chunks that draw reach the platform reader, so a metadata chunk costs the decode nothing.
+    val picture = PngPicture.of(rawBytes)
     val decoded =
-        decodeBounded(
-            rawBytes = rawBytes,
-            policy =
-                BoundedDecodePolicy(
-                    // Display only, so a hardware bitmap is fine.
-                    allocator = ImageDecoder.ALLOCATOR_DEFAULT,
-                    gate = ::sourceRejection,
-                    maxSize = DecodeSize(bounds.maxWidthPx, bounds.maxHeightPx),
-                    onMalformed = { ImageDecodeRejection.Malformed },
-                    onRuntimeFailure = { ImageDecodeRejection.Other },
-                    // The host has no rejection bucket for an OOM, so it propagates.
-                    onOutOfMemory = null,
-                ),
-        )
+        if (picture == null) {
+            BoundedBitmap.Rejected(ImageDecodeRejection.Malformed)
+        } else {
+            decodeBounded(rawBytes = picture, policy = displayPolicy(bounds))
+        }
     return when (decoded) {
         is BoundedBitmap.Decoded -> decoded.bitmap to null
         is BoundedBitmap.Rejected -> null to decoded.reason
     }
 }
+
+private fun displayPolicy(bounds: ImageRenderBounds): BoundedDecodePolicy<ImageDecodeRejection> =
+    BoundedDecodePolicy(
+        // Display only, so a hardware bitmap is fine.
+        allocator = ImageDecoder.ALLOCATOR_DEFAULT,
+        gate = ::sourceRejection,
+        maxSize = DecodeSize(bounds.maxWidthPx, bounds.maxHeightPx),
+        onMalformed = { ImageDecodeRejection.Malformed },
+        onRuntimeFailure = { ImageDecodeRejection.Other },
+        // The host has no rejection bucket for an OOM, so it propagates.
+        onOutOfMemory = null,
+    )
