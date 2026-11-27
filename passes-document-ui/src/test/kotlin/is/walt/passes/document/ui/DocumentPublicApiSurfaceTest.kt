@@ -20,52 +20,40 @@ import java.io.File
 class DocumentPublicApiSurfaceTest {
 
     @Test
-    fun documentSemanticsDataClassExposesAllNineSlots() {
+    fun documentSemanticsExposesEverySlot() {
         val argb = ArgbColor(0xFF000000.toInt())
-        // captionIconTint gets a distinct value so the read below proves it is its own
-        // independent slot, not an alias of captionForeground (it merely *defaults* to
-        // captionForeground when a caller omits it).
+        // A distinct value proves captionIconTint is its own slot, not an alias.
         val iconTint = ArgbColor(0xFFFF8800.toInt())
         val semantics = DocumentSemantics(
             captionBackground = argb,
             captionForeground = argb,
             captionIconTint = iconTint,
-            tileBackground = argb,
-            tileForeground = argb,
-            tileLabelForeground = argb,
-            laneBackground = argb,
-            documentBadgeBackground = argb,
-            documentBadgeForeground = argb,
+            frameBackground = argb,
+            fullScreenBannerBackground = argb,
+            fullScreenBannerForeground = argb,
+            fullScreenBannerLabel = "open",
+            closeFullScreenLabel = "close",
         )
-        // Reading every nested field forces them to remain in the public-API shape;
-        // a rename or removal breaks the test.
         assertThat(semantics.captionBackground).isEqualTo(argb)
         assertThat(semantics.captionForeground).isEqualTo(argb)
         assertThat(semantics.captionIconTint).isEqualTo(iconTint)
-        assertThat(semantics.tileBackground).isEqualTo(argb)
-        assertThat(semantics.tileForeground).isEqualTo(argb)
-        assertThat(semantics.tileLabelForeground).isEqualTo(argb)
-        assertThat(semantics.laneBackground).isEqualTo(argb)
-        assertThat(semantics.documentBadgeBackground).isEqualTo(argb)
-        assertThat(semantics.documentBadgeForeground).isEqualTo(argb)
+        assertThat(semantics.frameBackground).isEqualTo(argb)
+        assertThat(semantics.fullScreenBannerBackground).isEqualTo(argb)
+        assertThat(semantics.fullScreenBannerForeground).isEqualTo(argb)
+        assertThat(semantics.fullScreenBannerLabel).isEqualTo("open")
+        assertThat(semantics.closeFullScreenLabel).isEqualTo("close")
     }
 
     @Test
     fun documentSemanticsCaptionIconTintDefaultsToCaptionForeground() {
-        // The slot's default keeps the addition non-breaking: a caller that omits
-        // captionIconTint gets a monochrome caption matching captionForeground. This
-        // pins that default so a later change to it is a deliberate, reviewed edit.
         val foreground = ArgbColor(0xFF123456.toInt())
         val other = ArgbColor(0xFF000000.toInt())
         val semantics = DocumentSemantics(
             captionBackground = other,
             captionForeground = foreground,
-            tileBackground = other,
-            tileForeground = other,
-            tileLabelForeground = other,
-            laneBackground = other,
-            documentBadgeBackground = other,
-            documentBadgeForeground = other,
+            frameBackground = other,
+            fullScreenBannerBackground = other,
+            fullScreenBannerForeground = other,
         )
         assertThat(semantics.captionIconTint).isEqualTo(foreground)
     }

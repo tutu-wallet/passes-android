@@ -96,10 +96,6 @@ class ComposableSurfaceLockTest {
         assertThat(typeNames).contains("ImageRenderBounds")
     }
 
-    // Document-surface shape locks (DocumentTrustCaption / DocumentTile / DocumentView
-    // / DocumentsLane and the no-overload + PdfRendererBinder-not-Client assertions)
-    // moved to passes-document-ui::DocumentSurfaceLockTest with the composables (wpass-r4z).
-
     @Test
     fun securitySheetsAllAcceptUiTelemetryGuard() {
         listOf("B3UrlConfirmSheet", "PhoneConfirmSheet", "EmailConfirmSheet").forEach { name ->
@@ -159,80 +155,29 @@ class ComposableSurfaceLockTest {
     }
 
     @Test
-    fun scannableCardTrustCaptionHasExactlyOneUserVisibleParameter() {
-        // (modifier) — C2 in SCANNABLE_CARD_THREAT_MODEL.md: no `enabled`, no theme
-        // suppression flag, no overload that hides the caption. The "Created by you"
-        // caption is structurally always-on, mirroring DocumentTrustCaption.
-        assertUserVisibleParamCount(
-            "ScannableCardTrustCaptionKt",
-            "ScannableCardTrustCaption",
-            expected = 1,
-        )
-    }
-
-    @Test
-    fun scannableCardTileHasExactlyThreeUserVisibleParameters() {
-        // (card, onClick, modifier). No share/export, no overflow menu, no
-        // showCaption flag — drift here is a trust-claim regression (SCANNABLE_CARD_
-        // THREAT_MODEL.md C2: caption non-suppressibility).
-        assertUserVisibleParamCount("ScannableCardTileKt", "ScannableCardTile", expected = 3)
-    }
-
-    @Test
-    fun scannableCardScreenHasExactlyFiveUserVisibleParameters() {
-        // (card, modifier, showLabel, trustCaption, faceTint). `showLabel` (wpass-1wu.1 /
-        // Walt wlt-tct) gates ONLY the label Text. `trustCaption` (wpass-gv6) is a
-        // TrustCaptionPlacement selecting how provenance is carried: Docked renders the
-        // verbatim caption; HostedTypeRow drops it so the host carries provenance via its
-        // own "Pass type" details row, under the bounded C2 concession in
-        // SCANNABLE_CARD_THREAT_MODEL.md. The strong type (not a Boolean) is pinned by
-        // scannableCardScreenTrustCaptionParamIsThePlacementType. `faceTint` (wpass-80y.1)
-        // colors the card face only — it cannot reach the code panel, which is pinned to
-        // literal white by codePanelIsLiterallyWhiteNotAThemeTokenOrTheFaceTint. A SIXTH
-        // parameter — e.g. a per-element `showBarcode` / `showPayloadCaption` suppressor, or
-        // a panel-color override — would breach the surface contract; review the threat
-        // model before changing this number.
+    fun scannableCardScreenHasExactlyFourUserVisibleParameters() {
+        // (card, modifier, showLabel, faceTint). showLabel gates the label only and faceTint the
+        // card face only: a parameter that hid the code or payload, or recoloured the panel, is a breach.
         assertUserVisibleParamCount(
             "ScannableCardScreenKt",
             "ScannableCardScreen",
-            expected = 5,
+            expected = 4,
         )
-    }
-
-    @Test
-    fun scannableCardScreenTrustCaptionParamIsThePlacementType() {
-        // Belt-and-suspenders on the count lock: pin that the fourth slot is the strong
-        // TrustCaptionPlacement type, not a raw Boolean. The placement is the audited
-        // carrier-of-provenance choice (Docked | HostedTypeRow), each arm documented in
-        // the C2 concession; a bare `showCaption: Boolean` would erase that audit point.
-        val method = findComposable("ScannableCardScreenKt", "ScannableCardScreen")
-        val typeNames = method.parameterTypes.map { it.simpleName }
-        assertWithMessage("ScannableCardScreen must accept the TrustCaptionPlacement type")
-            .that(typeNames)
-            .contains("TrustCaptionPlacement")
     }
 
     @Test
     fun compactCodeViewHasExactlyFourUserVisibleParameters() {
-        // (payload, format, modifier, contentDescription). The compact list-face code
-        // render (wpass-tjc.2) is mechanism only: no label, eyebrow, caption, or
-        // signature-affordance parameter may appear here — the C1/C2 list-surface
-        // distinctions live on the consumer's card and kernel trust captions stay on
-        // detail surfaces. Review the threat model before changing this number.
+        // (payload, format, modifier, contentDescription). Mechanism only: no label, eyebrow,
+        // caption or signature affordance; the list-level distinction is the consumer's item.
         assertUserVisibleParamCount("CompactCodeViewKt", "CompactCodeView", expected = 4)
     }
 
     @Test
     fun scannableCardSurfacesHaveNoOverloads() {
-        // The caption non-suppressibility rule extends to overloads: a future
-        // contributor cannot quietly add `ScannableCardTile(..., showCaption: Boolean)`
-        // as a sibling with the same name.
+        // An overload could add a parameter that the count locks miss.
         listOf(
-            "ScannableCardTrustCaptionKt" to "ScannableCardTrustCaption",
-            "ScannableCardTileKt" to "ScannableCardTile",
             "ScannableCardScreenKt" to "ScannableCardScreen",
-            // Compact list-face render (wpass-tjc.2): an overload adding chrome would
-            // dilute the mechanism-only shape its param-count lock pins.
+            // An overload adding chrome would dilute the mechanism-only shape.
             "CompactCodeViewKt" to "CompactCodeView",
         ).forEach { (file, name) ->
             val klass = Class.forName("is.walt.passes.ui.$file")

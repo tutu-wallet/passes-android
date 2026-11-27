@@ -21,41 +21,8 @@ import `is`.walt.passes.document.ui.theme.LocalDocumentSemantics
 import `is`.walt.passes.ui.core.toComposeColor
 
 /**
- * The verbatim, locked "this is a user-supplied document" caption that anchors the
- * trust contract of the document surface (ADR 0005 D5 / D8): a PDF or image rendered by
- * Walt is never signature-verified, has no attestable origin, and is presented under a
- * fixed caption the user cannot dismiss.
- *
- * This composable's *content* is non-suppressible — its wording and layout are locked by
- * `DocumentSurfaceLockTest`, with no `enabled` parameter, theme token, or overload to
- * alter or skip it (the lock counts the largest method named `DocumentTrustCaption` and
- * asserts the exact arity). *Whether* it is rendered on a detail surface is a separate
- * question governed by `DocumentView`'s `TrustCaptionPlacement`: docked by default,
- * omitted only under the audited `HostedTypeRow` D5.T concession (the host then carries
- * provenance via its own "Pass type" row). Mirrors `ExpiredOverlay`'s shape: the trust
- * claim is structural, not a per-call configuration.
- *
- * Layout is a flat [Row] of an info-outline icon followed by the caption text, both
- * center-aligned, with `captionBackground` clipped into an inset rounded chip
- * (wpass-v3u) so the caption reads as an intentional element rather than an
- * edge-to-edge band, matching the `ScannableCardTrustCaption` chip register. A
- * consumer that wants the historical filled colour-block keeps a non-transparent
- * `captionBackground`; a consumer matching a flat, borderless house style sets
- * `captionBackground` transparent and the caption reads as inline chrome rather than
- * a separate surface. This is a RESTYLE only: the caption is composed at exactly the
- * same sites, is still a single [Text] node, and there is still no way to suppress it
- * (ADR 0005 D5). Its wording is set by D5.N.
- *
- * The icon tint is its own theme slot, `DocumentSemantics.captionIconTint`, defaulted
- * to `captionForeground` so a consumer that does not care gets a consistent
- * monochrome caption for free, while a consumer that wants an accent-coloured glyph
- * sets it explicitly. The glyph itself is hand-authored in-module (see
- * `internal.InfoOutlineIcon`) so this module does not pull in `material-icons-extended`.
- *
- * The displayed text is a fixed English literal; no part of it comes from the
- * document. There is therefore no BiDi isolation here — nothing user-controlled to
- * isolate. The user-controlled `displayLabel` is wrapped by `DocumentTile` /
- * `DocumentView` at their own boundaries; see `passes-ui-core::isolated`.
+ * The locked "user-provided document" caption (ADR 0005 D5): fixed wording beside an info
+ * icon. No parameter, token or overload alters its wording or removes it.
  */
 @Composable
 public fun DocumentTrustCaption(
@@ -74,9 +41,7 @@ public fun DocumentTrustCaption(
     ) {
         Icon(
             imageVector = InfoOutlineIcon,
-            // Decorative: the verbatim caption text sits immediately beside it and is
-            // the audit-relevant semantics node. A contentDescription here would only
-            // add a redundant TalkBack stop on top of the text.
+            // Decorative: the caption text beside it is the node TalkBack reads.
             contentDescription = null,
             tint = semantics.captionIconTint.toComposeColor(),
             modifier = Modifier.size(16.dp),
@@ -89,22 +54,10 @@ public fun DocumentTrustCaption(
     }
 }
 
-/** Inset rounded-chip geometry for the caption (wpass-v3u). Kernel-owned, not themable. */
+/** Inset rounded-chip geometry for the caption. Kernel-owned, not themable. */
 private val CHIP_INSET = 12.dp
 private val CHIP_RADIUS = 10.dp
 
-/**
- * The exact caption copy. Public-internal so tests can assert the displayed text
- * matches the trust claim verbatim. Wording is the load-bearing part of ADR 0005 D5;
- * a contributor changing this string is making a security-policy edit and the test
- * suite will require them to update the assertion.
- *
- * Note on dual-anchor placement: the caption is composed BOTH inside `DocumentsLane`
- * (so the wallet-list user sees it before tapping any document) AND inside
- * `DocumentView` (so a deep-linked or shortcut-launched DocumentView does not bypass
- * it). The duplication is deliberate; do NOT refactor it to a single render site —
- * each composition site is an independent trust anchor and removing one collapses the
- * defense.
- */
+/** The caption copy, worded by ADR 0005 D5.N. Changing it is a security-policy edit; tests assert the literal. */
 internal const val TRUST_CAPTION_TEXT: String =
     "User-provided document. This app has not verified the source."

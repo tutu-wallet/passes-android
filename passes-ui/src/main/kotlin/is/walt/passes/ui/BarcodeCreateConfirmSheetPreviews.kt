@@ -5,7 +5,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.tooling.preview.Preview
 import `is`.walt.passes.core.QrPayloadKind
 import `is`.walt.passes.ui.theme.ArgbColor
-import `is`.walt.passes.ui.theme.CategoryAccentColors
 import `is`.walt.passes.ui.theme.ExpiredBadgeStyle
 import `is`.walt.passes.ui.theme.PassesSemantics
 import `is`.walt.passes.ui.theme.PassesTheme
@@ -35,10 +34,6 @@ private fun PreviewHost(content: @Composable () -> Unit) {
             confirmContainer = argb,
             confirmForeground = white,
             cancelForeground = argb,
-        ),
-        categoryAccent = CategoryAccentColors(
-            boardingPass = argb, eventTicket = argb,
-            coupon = argb, storeCard = argb, generic = argb,
         ),
     )
     MaterialTheme { PassesTheme(semantics = semantics, content = content) }

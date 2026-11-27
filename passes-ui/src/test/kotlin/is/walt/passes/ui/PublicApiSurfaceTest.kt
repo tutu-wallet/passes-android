@@ -8,12 +8,10 @@ import `is`.walt.passes.core.PassInstant
 import `is`.walt.passes.core.PassType
 import `is`.walt.passes.core.ScannableFormat
 import `is`.walt.passes.ui.theme.ArgbColor
-import `is`.walt.passes.ui.theme.CategoryAccentColors
 import `is`.walt.passes.ui.theme.ExpiredBadgeStyle
 import `is`.walt.passes.ui.theme.PassesSemantics
 import `is`.walt.passes.ui.theme.SecuritySheetStyle
 import `is`.walt.passes.ui.theme.SignatureBadgeColors
-import `is`.walt.passes.ui.theme.UnverifiedArtifactStyle
 import com.google.common.truth.Truth.assertThat
 import org.junit.Test
 import java.io.File
@@ -448,35 +446,13 @@ class PublicApiSurfaceTest {
                 eyebrowForeground = argb,
                 mutedForeground = argb,
             ),
-            categoryAccent = CategoryAccentColors(
-                boardingPass = argb,
-                eventTicket = argb,
-                coupon = argb,
-                storeCard = argb,
-                generic = argb,
-            ),
-            unverifiedArtifact = UnverifiedArtifactStyle(
-                accent = argb,
-                captionBackground = argb,
-                captionForeground = argb,
-            ),
         )
-        // Reading every nested field forces them to remain in the public-API shape;
-        // a rename or removal breaks the test. Document tokens (caption / tile / lane
-        // / document badge) live on `passes-document-ui::DocumentSemantics` and are
-        // covered by `DocumentPublicApiSurfaceTest` over there (wpass-r4z).
+        // Reading each nested field keeps it in the public API: a rename or removal fails here.
         assertThat(semantics.signatureBadge.appleVerifiedBackground).isEqualTo(argb)
         assertThat(semantics.expiredBadge.scrimAlpha).isEqualTo(96)
         assertThat(semantics.securitySheet.confirmContainer).isEqualTo(argb)
         assertThat(semantics.securitySheet.eyebrowForeground).isEqualTo(argb)
         assertThat(semantics.securitySheet.mutedForeground).isEqualTo(argb)
-        assertThat(semantics.categoryAccent.boardingPass).isEqualTo(argb)
-        assertThat(semantics.unverifiedArtifact.accent).isEqualTo(argb)
-        // captionIconTint defaults to captionForeground when not explicitly supplied —
-        // a consumer that does not opt into a separate accent gets a consistent
-        // monochrome caption. Locking the default here keeps that contract testable.
-        assertThat(semantics.unverifiedArtifact.captionIconTint)
-            .isEqualTo(semantics.unverifiedArtifact.captionForeground)
     }
 
     @Test
@@ -497,19 +473,6 @@ class PublicApiSurfaceTest {
         )
         assertThat(style.eyebrowForeground.argb).isEqualTo(0xFF73777F.toInt())
         assertThat(style.mutedForeground.argb).isEqualTo(0xFFC4C7C5.toInt())
-    }
-
-    @Test
-    fun unverifiedArtifactStylePlaceholderIsAvailableForTestsAndPreviews() {
-        val placeholder = UnverifiedArtifactStyle.Placeholder
-        // The placeholder is a neutral grayscale set, NOT a brand value — its sole
-        // purpose is to make `PassesSemantics()` default-constructible. Hosts must
-        // override. The test merely asserts the constant exists and parses; concrete
-        // values are not part of the contract.
-        assertThat(placeholder.accent).isNotNull()
-        assertThat(placeholder.captionBackground).isNotNull()
-        assertThat(placeholder.captionForeground).isNotNull()
-        assertThat(placeholder.captionIconTint).isEqualTo(placeholder.captionForeground)
     }
 
     /**

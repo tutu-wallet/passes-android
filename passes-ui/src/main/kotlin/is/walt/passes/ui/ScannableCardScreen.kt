@@ -4,7 +4,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
@@ -26,95 +25,23 @@ import `is`.walt.passes.ui.core.faceIsTinted
 import `is`.walt.passes.ui.core.isolated
 
 /**
- * Full-screen surface for scanning a [ScannableCard]. A content-sized card face holds a
- * literal-white code panel, the user-controlled label and the payload readback (all
- * FSI/PDI isolated), with the [ScannableCardTrustCaption] docked at the bottom by
- * default (omitted only under the audited [TrustCaptionPlacement.HostedTypeRow]
- * concession — see [trustCaption]).
- *
- * The card is sized to the code (plus a quiet-zone margin), not to the whole screen
- * (wpass-1wu.2 / Walt wlt-n5z): the rest of the surface is transparent so the host's
- * background shows through instead of a full wash in a tall slot. ZXing bakes the scan
- * quiet zone into the matrix (`ZxingBarcodeEncoder`), so scannability is preserved;
- * [CODE_QUIET_ZONE] adds visual breathing room inside the panel and the QR/1D
- * `ContentScale` split in [ScannableCardView] is unchanged.
- *
- * [faceTint] colors the card face only; the panel behind the code stays
- * [SCAN_CODE_PANEL], which carries that guarantee and the argument for it.
- *
- * The tint is presentation only. The kernel never learns why a color was chosen and
- * stores nothing: which color an item carries is the consumer's (walt-android's
- * `WalletColorRepository`, keyed per wallet entry). `ScannableCard` deliberately carries
- * no color field — wpass-q5p removed it and it stays removed. Ink on the face is derived
- * from the tint's luminance via [inkOn] so an arbitrary consumer tint stays legible in
- * both themes; that is a contrast guarantee, not a brand token.
- *
- * Trust contract: by default ([TrustCaptionPlacement.Docked]) the caption is composed at
- * the bottom of the screen (C2 in `docs/SCANNABLE_CARD_THREAT_MODEL.md`), structurally
- * separate from any host navigation chrome. No theme token and no overload can drop it;
- * the ONE way it is omitted is the audited [TrustCaptionPlacement.HostedTypeRow]
- * concession below, under which the host carries provenance via its own "Pass type" row
- * (C2 "Pass type" row concession). Neither [showLabel] nor [faceTint] can suppress the
- * barcode, the payload caption, or the trust caption.
- *
- * [trustCaption] selects how the provenance signal is carried: with
- * [TrustCaptionPlacement.HostedTypeRow] the kernel renders no caption here because the
- * host carries the claim itself, as a "Pass type" row inside its own details section
- * (value "Scanned" for a scannable card). Under that mode a neutral type label is an
- * accepted carrier and the row may sit in a collapsed-by-default foldout — see
- * `TrustCaptionPlacement` and the C2 "Pass type" row concession in the threat model.
- * Defaults to [TrustCaptionPlacement.Docked] (the verbatim docked caption), so every
- * existing caller is unchanged.
- *
- * No share / save-to-photos / print affordance, and no overflow menu. The user came
- * here to scan, then back out — those are the only two paths off this surface. Host
- * navigation chrome (back button, screen title) is supplied by the consumer's
- * scaffold; this composable is the body only.
- *
- * @param showLabel when false, the built-in label is not rendered. Defaults to true so
- *   every existing caller is unchanged. Hosts that render their own title above this
- *   surface (e.g. an editable self-title) pass false to avoid a duplicate (Walt wlt-tct).
- * @param trustCaption how the provenance signal is carried. Defaults to
- *   [TrustCaptionPlacement.Docked] (verbatim docked caption).
- *   [TrustCaptionPlacement.HostedTypeRow] drops the kernel caption so the host carries
- *   provenance via its own "Pass type" details row under the C2 concession (wpass-gv6).
- * @param faceTint color of the card face behind the code panel. Defaults to
- *   [Color.Unspecified], which keeps the `MaterialTheme.colorScheme.surface` face every
- *   existing caller gets today (wpass-80y.1 / Walt wlt-38v8); a fully transparent tint means
- *   "no tint" and falls back to the same default (see `faceIsTinted`). Pass an opaque color:
- *   ink is derived from the nominal value, so a translucent tint composites over host paint
- *   the kernel cannot see and the derived ink may not match what the user sees.
+ * Scan surface for a [ScannableCard]: a card face holding a literal-white code panel, the label
+ * and the payload. It draws no provenance signal; the host's "Pass type" row does (C2).
  */
 @Composable
 public fun ScannableCardScreen(
     card: ScannableCard,
     modifier: Modifier = Modifier,
     showLabel: Boolean = true,
-    trustCaption: TrustCaptionPlacement = TrustCaptionPlacement.Docked,
     faceTint: Color = Color.Unspecified,
 ) {
-    Column(
-        modifier = modifier.fillMaxSize(),
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .padding(SCREEN_MARGIN),
+        contentAlignment = Alignment.Center,
     ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f)
-                .padding(SCREEN_MARGIN),
-            contentAlignment = Alignment.Center,
-        ) {
-            CodeCard(card = card, showLabel = showLabel, faceTint = faceTint)
-        }
-
-        // Docked: the kernel renders the verbatim caption here. HostedTypeRow: the kernel
-        // renders nothing — the host carries provenance via its own "Pass type" details
-        // row (wpass-gv6 / C2 concession). Exhaustive `when` so a future placement arm
-        // must make an explicit decision rather than silently dropping the caption.
-        when (trustCaption) {
-            TrustCaptionPlacement.Docked ->
-                ScannableCardTrustCaption(modifier = Modifier.fillMaxWidth())
-            TrustCaptionPlacement.HostedTypeRow -> Unit
-        }
+        CodeCard(card = card, showLabel = showLabel, faceTint = faceTint)
     }
 }
 

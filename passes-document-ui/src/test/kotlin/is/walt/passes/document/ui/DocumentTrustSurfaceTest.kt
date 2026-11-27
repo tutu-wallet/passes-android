@@ -2,7 +2,6 @@ package `is`.walt.passes.document.ui
 
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
-import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import android.os.ParcelFileDescriptor
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -10,6 +9,7 @@ import com.google.common.truth.Truth.assertThat
 import `is`.walt.passes.core.ScannableFormat
 import `is`.walt.passes.document.BarcodedImageDocument
 import `is`.walt.passes.document.BarcodedImageDocumentId
+import `is`.walt.passes.document.Document
 import `is`.walt.passes.document.ImageDocument
 import `is`.walt.passes.document.ImageDocumentId
 import `is`.walt.passes.document.PdfDocument
@@ -21,15 +21,7 @@ import org.junit.runner.RunWith
 import org.robolectric.annotation.Config
 import java.io.File
 
-/**
- * Robolectric-backed Compose smoke tests for the trust-claim-bearing document
- * surfaces. Locks the audit-relevant property (caption text, BiDi-isolated
- * displayLabel, lane composition) rather than visual fidelity.
- *
- * Carved out of `passes-ui::TrustClaimSurfaceTest` (wpass-r4z) when the document
- * composables moved into their own module. The PKPASS-side trust assertions stay
- * over in `passes-ui`.
- */
+/** Smoke tests for the trust-claim-bearing document surfaces: caption wording and where it renders. */
 @RunWith(AndroidJUnit4::class)
 @Config(sdk = [34])
 class DocumentTrustSurfaceTest {
@@ -68,145 +60,29 @@ class DocumentTrustSurfaceTest {
     }
 
     @Test
-    fun documentTileWrapsDisplayLabelInBidiIsolates() {
-        // displayLabel is user-controlled (typically the source filename). A bidi
-        // character in the filename must not reorder surrounding chrome glyphs.
-        // Mirrors the security-sheet bidi-isolation test for B3 URLs and org names.
+    fun fullScreenPdfDocumentRendersTheNonSuppressibleTrustCaption() {
+        // The renderer rejects every page; the caption must display all the same.
         val doc = PdfDocument(
-            id = PdfDocumentId("doc-1"),
-            displayLabel = "tax-2025.pdf",
+            id = PdfDocumentId("pdf-fs"),
+            displayLabel = "ticket.pdf",
             byteCount = 1024L,
-            pageCount = 3,
+            pageCount = 2,
             importedAtEpochMs = 0L,
         )
-        composeRule.setContent {
-            ThemedHost(semantics) {
-                DocumentTile(doc = doc, thumbnail = null, onClick = {})
-            }
-        }
-        // The text on the tile is FSI + label + PDI. Look up by the full isolated
-        // form so a missing wrap fails the assertion rather than a merely-cosmetic
-        // regression.
-        composeRule.onNodeWithText("⁨tax-2025.pdf⁩").assertIsDisplayed()
-    }
-
-    @Test
-    fun documentsLaneRendersHeaderAndCaptionAboveTiles() {
-        val docs = listOf(
-            PdfDocument(
-                id = PdfDocumentId("a"),
-                displayLabel = "alpha.pdf",
-                byteCount = 1024L,
-                pageCount = 1,
-                importedAtEpochMs = 0L,
-            ),
-        )
-        composeRule.setContent {
-            ThemedHost(semantics) {
-                DocumentsLane(
-                    documents = docs,
-                    thumbnails = emptyMap(),
-                    onDocumentClick = {},
-                )
-            }
-        }
-        composeRule.onNodeWithText("Documents").assertIsDisplayed()
-        composeRule.onNodeWithText(
-            "User-provided document. This app has not verified the source.",
-        ).assertIsDisplayed()
-        composeRule.onNodeWithText("⁨alpha.pdf⁩").assertIsDisplayed()
-    }
-
-    @Test
-    fun documentsLaneRendersNothingForEmptyDocuments() {
-        composeRule.setContent {
-            ThemedHost(semantics) {
-                DocumentsLane(
-                    documents = emptyList(),
-                    thumbnails = emptyMap(),
-                    onDocumentClick = {},
-                )
-                androidx.compose.material3.Text("sentinel")
-            }
-        }
-        composeRule.onNodeWithText("sentinel").assertIsDisplayed()
-        // The trust caption MUST NOT show in the empty case — an empty lane is no
-        // surface at all and should not introduce trust chrome that has nothing to
-        // anchor to.
-        composeRule.onAllNodesWithText(
-            "User-provided document. This app has not verified the source.",
-        ).fetchSemanticsNodes().let { nodes ->
-            assertThat(nodes).isEmpty()
-        }
-    }
-
-    @Test
-    fun imageDocumentViewRendersTheNonSuppressibleTrustCaption() {
-        // The image arm (wpass-i9x step 4) reuses DocumentTrustCaption verbatim, so the same
-        // non-suppressible caption that anchors the PDF surface anchors the image surface — and
-        // it shows regardless of decode outcome. A fake decoder that rejects keeps the image
-        // region empty; the caption must still display, which is the trust claim under test.
-        val doc = ImageDocument(
-            id = ImageDocumentId("img-1"),
-            displayLabel = "ticket.png",
-            byteCount = 2048L,
-            widthPx = 1080,
-            heightPx = 1920,
-            importedAtEpochMs = 0L,
-        )
-        val file = File.createTempFile("walt-image-doc", ".png").apply { writeBytes(byteArrayOf(1, 2, 3)) }
-        val pfd = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
-        try {
+        withTempPfd { pfd ->
             composeRule.setContent {
                 ThemedHost(semantics) {
-                    DocumentView(doc = doc, imageFile = pfd, imageDecoder = RejectingImageDecoder)
+                    FullScreenDocumentView(
+                        doc = doc,
+                        pdfFile = pfd,
+                        renderer = RecordingRenderer(pageCount = 2),
+                        onClose = {},
+                    )
                 }
             }
             composeRule.onNodeWithText(
                 "User-provided document. This app has not verified the source.",
             ).assertIsDisplayed()
-        } finally {
-            pfd.close()
-            file.delete()
-        }
-    }
-
-    @Test
-    fun documentViewHostedTypeRowOmitsKernelCaption() {
-        // wpass-gv6 / D5 concession: TrustCaptionPlacement.HostedTypeRow drops the kernel
-        // caption on the detail surface — the host carries provenance via its own "Pass
-        // type" details row instead. The kernel arm renders NO caption; that the host
-        // renders a "Pass type" row is the consumer-side obligation, pinned by a
-        // walt-android test (wlt-3cer), not here.
-        val doc = ImageDocument(
-            id = ImageDocumentId("img-hosted"),
-            displayLabel = "ticket.png",
-            byteCount = 2048L,
-            widthPx = 1080,
-            heightPx = 1920,
-            importedAtEpochMs = 0L,
-        )
-        val file = File.createTempFile("walt-image-doc", ".png").apply { writeBytes(byteArrayOf(1, 2, 3)) }
-        val pfd = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
-        try {
-            composeRule.setContent {
-                ThemedHost(semantics) {
-                    DocumentView(
-                        doc = doc,
-                        imageFile = pfd,
-                        imageDecoder = RejectingImageDecoder,
-                        trustCaption = TrustCaptionPlacement.HostedTypeRow,
-                    )
-                }
-            }
-            composeRule.onAllNodesWithText(
-                "User-provided document. This app has not verified the source.",
-            ).fetchSemanticsNodes().let { nodes ->
-                assertThat(nodes).isEmpty()
-            }
-        } finally {
-            pfd.close()
-            file.delete()
         }
     }
 
@@ -224,7 +100,7 @@ class DocumentTrustSurfaceTest {
             heightPx = 2340,
             importedAtEpochMs = 0L,
         )
-        withImagePfd { pfd ->
+        withTempPfd { pfd ->
             composeRule.setContent {
                 ThemedHost(semantics) {
                     FullScreenDocumentView(
@@ -256,7 +132,7 @@ class DocumentTrustSurfaceTest {
             barcodeFormat = ScannableFormat.Aztec,
             importedAtEpochMs = 0L,
         )
-        withImagePfd { pfd ->
+        withTempPfd { pfd ->
             composeRule.setContent {
                 ThemedHost(semantics) {
                     FullScreenDocumentView(
@@ -273,7 +149,53 @@ class DocumentTrustSurfaceTest {
         }
     }
 
-    private fun withImagePfd(block: (ParcelFileDescriptor) -> Unit) {
+    @Test
+    fun inlineImageArmComposesWithItsFullScreenEntry() {
+        assertInlineViewOffersFullScreen(
+            ImageDocument(
+                id = ImageDocumentId("img-inline"),
+                displayLabel = "boarding.png",
+                byteCount = 2048L,
+                widthPx = 1080,
+                heightPx = 2340,
+                importedAtEpochMs = 0L,
+            ),
+        )
+    }
+
+    @Test
+    fun inlineCompositeArmComposesWithItsFullScreenEntry() {
+        assertInlineViewOffersFullScreen(
+            BarcodedImageDocument(
+                id = BarcodedImageDocumentId("comp-inline"),
+                displayLabel = "boarding.png",
+                byteCount = 2048L,
+                widthPx = 1080,
+                heightPx = 2340,
+                barcodePayload = "TEST-PAYLOAD-000",
+                barcodeFormat = ScannableFormat.Aztec,
+                importedAtEpochMs = 0L,
+            ),
+        )
+    }
+
+    private fun assertInlineViewOffersFullScreen(doc: Document) {
+        withTempPfd { pfd ->
+            composeRule.setContent {
+                ThemedHost(semantics) {
+                    DocumentView(
+                        doc = doc,
+                        imageFile = pfd,
+                        imageDecoder = RejectingImageDecoder,
+                        onOpenFullScreen = {},
+                    )
+                }
+            }
+            composeRule.onNodeWithText(semantics.fullScreenBannerLabel).assertIsDisplayed()
+        }
+    }
+
+    private fun withTempPfd(block: (ParcelFileDescriptor) -> Unit) {
         val file = File.createTempFile("walt-image-doc", ".png").apply { writeBytes(byteArrayOf(1, 2, 3)) }
         val pfd = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
         try {

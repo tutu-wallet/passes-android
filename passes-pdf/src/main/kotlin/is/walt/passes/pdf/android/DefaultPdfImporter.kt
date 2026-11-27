@@ -314,10 +314,7 @@ internal class DefaultPdfImporter(
         // default and keeps the read syscall count low without inflating per-import RAM.
         const val COPY_BUFFER_SIZE: Int = 64 * 1024
 
-        // Thumbnail dimensions for the smoke render. 600 x 800 = 480 000 px, comfortably
-        // below the renderer service's 4 MP cap (PdfRendererService.MAX_PIXELS), and an
-        // aspect ratio close enough to the 4:3 tile that DocumentTile renders into that
-        // the bitmap's intrinsic shape doesn't fight the layout's aspect-ratio constraint.
+        // Smoke-render size: 480 000 px, well under the renderer's PdfRendererService.MAX_PIXELS.
         const val THUMB_WIDTH_PX: Int = 600
         const val THUMB_HEIGHT_PX: Int = 800
 

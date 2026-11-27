@@ -42,7 +42,8 @@ Intentional choices a reviewer should know up front. If the code does something 
 - **Deletion is irreversible.** No trash bin, no undo. Cached decoded data is wiped at delete time.
 - **Storage is encrypted with a hardware-backed key.** SQLCipher database; the key is wrapped by Android Keystore, with StrongBox preferred when available.
 - **No pass content in logs or telemetry.** The `TelemetryGuard` interface in `passes-core` accepts only enum events and bounded numeric/categorical fields, never user-content strings. Enforced by API shape, not reviewer discipline.
-- **walt-android consumes this code directly.** The closed-source Walt app does not parallel-implement any trust-claim-bearing logic. What you audit here is what ships on the device.
+- **walt-android consumes this code directly.** The closed-source Walt app does not parallel-implement any trust-claim-bearing logic. What you audit here is what ships on the device, apart from the app-held controls in the next item.
+- **Three controls are the app's, documented here but not enforceable here.** The provenance signal for a user-created card and for the inline document view is the host's "Pass type" row (`docs/SCANNABLE_CARD_THREAT_MODEL.md`, C2; ADR 0005 D5.T). The list that shows passes, cards and documents is the host's (the consumer list concession in the same threat model). A document's display label is bidi-isolated by the host that draws it (`docs/PDF_THREAT_MODEL.md`, threat 13). The kernel cannot check these at runtime; each section names the test the app pins it with.
 
 ## Supported versions
 

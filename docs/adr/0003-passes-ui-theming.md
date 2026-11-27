@@ -30,7 +30,6 @@ a single `LocalPassesSemantics` provided at `PassesTheme(...)` scope:
 - `securitySheet`: emphasis, body, confirm, cancel slots for the URL / phone /
   email confirmation sheets, explicitly distinct from chrome dialogs so the
   user does not muscle-memory through.
-- `categoryAccent`: per-`PassType` accent strip color for the wallet-list view.
 
 Color values are packed ARGB integers (`ArgbColor(0xAARRGGBB)`, in `passes-ui-core`), matching `passes-core`'s `ColorValue.rgb` shape with an alpha channel. Compose-side conversion is a one-line `Color(argb.argb.toLong())` at the API boundary. The contract type stays primitive so the JVM `PublicApiSurfaceTest` exercises the whole shape without a device.
 
@@ -143,11 +142,11 @@ An item's color has two sources and neither depends on signature status. A consu
 
 - **D4's scope rule covers a consumer's list.** `Pass.colors` overrides the theme on `PassFront`. In a consumer's list, the pass tile of a pkpass item may show one image from the pass file on `Pass.colors.background`, and no other pass color reaches the item (`SCANNABLE_CARD_THREAT_MODEL.md`, consumer list concession, condition 4). The pass mark, the item's text and its controls sit outside the pass tile in the host theme, so a pass-supplied color cannot hide the mark or restyle host text. A consumer that renders its own pass faces applies no pass color outside a pass tile; one that composes `PassFront` gets D4's behavior.
 - **Pass colors are the same for every signature status.** They are read from the pass file alone. No item color, face tint or pass tile color is chosen or varied by signature status, verification outcome, signing identity or an identity the pass file claims. The trust badge's `signatureBadge` colors (D2) are the one status-keyed color and stay on the badge.
-- **Class colors reach kernel surfaces as consumer-supplied tints.** `ScannableCardScreen(faceTint)` and `DocumentView(faceTint)` take an already-constructed `Color`; the kernel stores none, parses none and infers nothing from one. Ink on a tinted face is derived from the tint's luminance (`inkOn`), pinned at 4.5:1 or better, so an arbitrary consumer color cannot render the in-words trust text illegible. This is the theming analogue of D5's "no off switch."
+- **Class colors reach kernel surfaces as consumer-supplied tints.** `ScannableCardScreen(faceTint)` and `DocumentView(faceTint)` take an already-constructed `Color`; the kernel stores none, parses none and infers nothing from one. Ink on a tinted face is derived from the tint's luminance (`inkOn`), pinned at 4.5:1 or better, so an opaque consumer color cannot render the label or the payload readback illegible; a translucent one composites over host paint the kernel cannot see.
 - **The security-sheet family is untouched.** `B3UrlConfirmSheet`, `PhoneConfirmSheet` and `EmailConfirmSheet` read `MaterialTheme.colorScheme` and `LocalPassesSemantics` only. They take no tint parameter and must not: the attack D4 names applies verbatim to a user- or consumer-chosen color.
 - **Color carries no trust meaning.** See `SCANNABLE_CARD_THREAT_MODEL.md` ("colour carries no trust meaning") and ADR 0005 D1.C.
 
-Tests: `ScannableCardTrustSurfaceTest` (`inkOnClearsWcagAaAgainstEveryTintIncludingTheWorstCase`; a tint cannot suppress barcode, label, payload or trust caption; the code panel is literally white) and `ComposableSurfaceLockTest` (parameter-count locks on the three security sheets: adding a tint breaks the count, but swapping one of the six parameters for a color would not, so a reviewer reads the enumeration in each test's comment).
+Tests: `ScannableCardTrustSurfaceTest` (`inkOnClearsWcagAaAgainstEveryTintIncludingTheWorstCase`; a tint cannot suppress the label or payload; the code panel is literally white) and `ComposableSurfaceLockTest` (parameter-count locks on the three security sheets: adding a tint breaks the count, but swapping one of the six parameters for a color would not, so a reviewer reads the enumeration in each test's comment).
 
 ## Amendment to D5: `BoundedImage` downsamples to its bounds
 

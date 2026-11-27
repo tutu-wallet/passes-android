@@ -1,10 +1,7 @@
 package `is`.walt.passes.ui
 
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.size
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.toArgb
@@ -13,8 +10,6 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
-import androidx.compose.ui.test.performClick
-import androidx.compose.ui.unit.dp
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.google.common.truth.Truth.assertThat
 import com.google.common.truth.Truth.assertWithMessage
@@ -30,35 +25,17 @@ import `is`.walt.passes.core.ScannableFormat
 import kotlin.reflect.full.primaryConstructor
 import kotlin.reflect.jvm.isAccessible
 import `is`.walt.passes.ui.theme.ArgbColor
-import `is`.walt.passes.ui.theme.CategoryAccentColors
 import `is`.walt.passes.ui.theme.ExpiredBadgeStyle
 import `is`.walt.passes.ui.theme.PassesSemantics
 import `is`.walt.passes.ui.theme.PassesTheme
 import `is`.walt.passes.ui.theme.SecuritySheetStyle
 import `is`.walt.passes.ui.theme.SignatureBadgeColors
-import `is`.walt.passes.ui.theme.UnverifiedArtifactStyle
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.annotation.Config
 
-/**
- * Robolectric-backed Compose smoke tests for the `ScannableCard` trust surfaces. The
- * behavioral contract under test maps 1:1 to the threat-model controls in
- * `docs/SCANNABLE_CARD_THREAT_MODEL.md`:
- *
- *  - **C2 (non-suppressible "Created by you" caption)**: every tile renders the verbatim
- *    caption regardless of tile-modifier-scoped size; the full-screen surface renders it
- *    docked at the bottom; theming the placeholder semantics does not remove it.
- *  - **C2 (≥2 visual distinguishers)**: indirectly asserted via the surface lock tests in
- *    `ComposableSurfaceLockTest` (param shape locks out a hide-caption flag) and the no-
- *    overload assertion. Pixel-level coverage of the dashed border + leading band + icon
- *    triple is the implementation bead's emulator-backed instrumentation work.
- *
- * Caption text is asserted by literal because the wording is the load-bearing trust
- * claim; renaming it requires updating this test, which forces a security-policy
- * conversation rather than a silent UX edit.
- */
+/** Smoke tests for `ScannableCardScreen` and `ScannableCardView`: label, payload readback, tint and code panel. */
 @RunWith(AndroidJUnit4::class)
 @Config(sdk = [34])
 class ScannableCardTrustSurfaceTest {
@@ -91,118 +68,7 @@ class ScannableCardTrustSurfaceTest {
             confirmForeground = ArgbColor(0xFFFFFFFF.toInt()),
             cancelForeground = ArgbColor(0xFF202020.toInt()),
         ),
-        categoryAccent = CategoryAccentColors(
-            boardingPass = ArgbColor(0xFF1D4ED8.toInt()),
-            eventTicket = ArgbColor(0xFF7C2D92.toInt()),
-            coupon = ArgbColor(0xFF555555.toInt()),
-            storeCard = ArgbColor(0xFF555555.toInt()),
-            generic = ArgbColor(0xFF555555.toInt()),
-        ),
-        unverifiedArtifact = UnverifiedArtifactStyle(
-            accent = ArgbColor(0xFF8A4A2E.toInt()),
-            captionBackground = ArgbColor(0xFFFFF0E0.toInt()),
-            captionForeground = ArgbColor(0xFF301010.toInt()),
-        ),
     )
-
-    @Test
-    fun trustCaptionTextIsLiteralCreatedByYou() {
-        composeRule.setContent {
-            ThemedHost { ScannableCardTrustCaption() }
-        }
-        composeRule.onNodeWithText("Created by you").assertIsDisplayed()
-    }
-
-    @Test
-    fun tileRendersTrustCaptionByLiteralWording() {
-        composeRule.setContent {
-            ThemedHost { ScannableCardTile(card = qrFixture(), onClick = {}) }
-        }
-        composeRule.onNodeWithText("Created by you").assertIsDisplayed()
-    }
-
-    @Test
-    fun tileRendersTrustCaptionAtConstrainedSmallSize() {
-        // Constrain the tile modifier to a deliberately tight box so the caption layout
-        // has to survive a smaller-than-default slot. Acceptance criterion: caption must
-        // remain visible at every tile size (no truncation, no clipping out of view).
-        composeRule.setContent {
-            ThemedHost {
-                Box(modifier = Modifier.size(160.dp, 220.dp)) {
-                    ScannableCardTile(card = qrFixture(), onClick = {})
-                }
-            }
-        }
-        composeRule.onNodeWithText("Created by you").assertIsDisplayed()
-    }
-
-    @Test
-    fun tileRendersTrustCaptionForOneDimensionalBarcodeFormat() {
-        // The previewSize path for 1D barcodes is a different code branch from QR; both
-        // must compose with the caption visible.
-        composeRule.setContent {
-            ThemedHost { ScannableCardTile(card = code128Fixture(), onClick = {}) }
-        }
-        composeRule.onNodeWithText("Created by you").assertIsDisplayed()
-    }
-
-    @Test
-    fun tilePropagatesClickToOnClickCallback() {
-        var clicks = 0
-        composeRule.setContent {
-            ThemedHost {
-                ScannableCardTile(card = qrFixture(), onClick = { clicks++ })
-            }
-        }
-        composeRule.onNodeWithText("Created by you").performClick()
-        composeRule.waitForIdle()
-        // Caption is part of the tile's clickable surface; tapping anywhere navigates.
-        assert(clicks == 1) { "expected one click propagation, got $clicks" }
-    }
-
-    @Test
-    fun fullScreenRendersTrustCaptionDockedAtBottom() {
-        composeRule.setContent {
-            ThemedHost { ScannableCardScreen(card = qrFixture()) }
-        }
-        composeRule.onNodeWithText("Created by you").assertIsDisplayed()
-    }
-
-    @Test
-    fun fullScreenHostedTypeRowOmitsKernelCaption() {
-        // wpass-gv6 / C2 concession: TrustCaptionPlacement.HostedTypeRow drops the kernel
-        // caption on the detail surface — the host carries provenance via its own "Pass
-        // type" details row instead. The kernel renders NO "Created by you" caption here;
-        // that the host renders a "Pass type" row is the consumer-side obligation, pinned
-        // by a walt-android test (wlt-3cer), not here. The barcode and payload caption are
-        // unaffected (asserted below) — only the trust caption is dropped.
-        composeRule.setContent {
-            ThemedHost {
-                ScannableCardScreen(
-                    card = qrFixture(),
-                    trustCaption = TrustCaptionPlacement.HostedTypeRow,
-                )
-            }
-        }
-        composeRule.onNodeWithText("Created by you").assertDoesNotExist()
-    }
-
-    @Test
-    fun hostedTypeRowStillRendersBarcodeAndPayloadCaption() {
-        // HostedTypeRow drops ONLY the trust caption; it is not a general surface
-        // suppressor. The barcode and the GH #102 payload-readback caption must still
-        // render, so a host opting into the type-row concession does not lose the scan
-        // target or the POS fallback.
-        composeRule.setContent {
-            ThemedHost {
-                ScannableCardScreen(
-                    card = qrFixture(label = "Library card"),
-                    trustCaption = TrustCaptionPlacement.HostedTypeRow,
-                )
-            }
-        }
-        composeRule.onNodeWithText("⁨WALT-MEMBER-12345⁩").assertIsDisplayed()
-    }
 
     @Test
     fun fullScreenRendersUserSuppliedLabel() {
@@ -218,13 +84,8 @@ class ScannableCardTrustSurfaceTest {
 
     @Test
     fun fullScreenCodeImageCarriesNoDescriptionSoTalkBackReadsTheLabelOnce() {
-        // The detail surface composes the label as its own Text directly beneath the code,
-        // so the code image must carry no contentDescription — otherwise TalkBack reads the
-        // label twice. The trap is a one-word default: routing this back through
-        // ScannableCardView (showPayloadCaption = false) sends card.label into the image
-        // again, and the by-text assertions above stay green because a contentDescription
-        // is not a text node. Both forms checked: the image would carry the raw label,
-        // while the Text carries the FSI/PDI-isolated one.
+        // The label is its own Text beneath the code, so the image must carry no description
+        // or TalkBack reads the label twice. Both the raw and the isolated form are checked.
         composeRule.setContent {
             ThemedHost {
                 ScannableCardScreen(card = qrFixture(label = "Library card"))
@@ -248,15 +109,13 @@ class ScannableCardTrustSurfaceTest {
     }
 
     @Test
-    fun fullScreenShowLabelFalseStillRendersTrustAndPayloadCaptions() {
-        // showLabel gates ONLY the top label; it must NOT be able to suppress the
-        // bottom-docked non-suppressible trust caption (C2) or the payload caption.
+    fun fullScreenShowLabelFalseStillRendersThePayload() {
+        // showLabel gates only the label, never the payload readback.
         composeRule.setContent {
             ThemedHost {
                 ScannableCardScreen(card = qrFixture(label = "Library card"), showLabel = false)
             }
         }
-        composeRule.onNodeWithText("Created by you").assertIsDisplayed()
         composeRule.onNodeWithText("⁨WALT-MEMBER-12345⁩").assertIsDisplayed()
     }
 
@@ -272,10 +131,8 @@ class ScannableCardTrustSurfaceTest {
     }
 
     @Test
-    fun faceTintDoesNotSuppressBarcodeLabelPayloadOrTrustCaption() {
-        // The tint is presentation only: it is not a surface suppressor. Every element
-        // the untinted surface renders must still render under a tint — in particular the
-        // non-suppressible C2 caption and the GH #102 payload readback.
+    fun faceTintDoesNotSuppressLabelOrPayload() {
+        // The tint is presentation only: everything the untinted surface renders still renders.
         composeRule.setContent {
             ThemedHost {
                 ScannableCardScreen(
@@ -286,14 +143,11 @@ class ScannableCardTrustSurfaceTest {
         }
         composeRule.onNodeWithText("⁨Library card⁩").assertIsDisplayed()
         composeRule.onNodeWithText("⁨WALT-MEMBER-12345⁩").assertIsDisplayed()
-        composeRule.onNodeWithText("Created by you").assertIsDisplayed()
     }
 
     @Test
-    fun darkFaceTintDoesNotSuppressBarcodeLabelPayloadOrTrustCaption() {
-        // Sibling of the light-tint case above so both inkOn branches compose. The
-        // palette's tints are light, but the parameter accepts any color and the ink flip
-        // is a real branch — exercising only one would leave half the surface untested.
+    fun darkFaceTintDoesNotSuppressLabelOrPayload() {
+        // Sibling of the light-tint case, so both inkOn branches compose.
         composeRule.setContent {
             ThemedHost {
                 ScannableCardScreen(
@@ -304,7 +158,6 @@ class ScannableCardTrustSurfaceTest {
         }
         composeRule.onNodeWithText("⁨Library card⁩").assertIsDisplayed()
         composeRule.onNodeWithText("⁨WALT-MEMBER-12345⁩").assertIsDisplayed()
-        composeRule.onNodeWithText("Created by you").assertIsDisplayed()
     }
 
     @Test
@@ -338,7 +191,6 @@ class ScannableCardTrustSurfaceTest {
         }
         composeRule.onNodeWithText("⁨Library card⁩").assertIsDisplayed()
         composeRule.onNodeWithText("⁨WALT-MEMBER-12345⁩").assertIsDisplayed()
-        composeRule.onNodeWithText("Created by you").assertIsDisplayed()
     }
 
     @Test
@@ -363,23 +215,6 @@ class ScannableCardTrustSurfaceTest {
                 .that(ratio)
                 .isAtLeast(WCAG_AA_NORMAL_TEXT)
         }
-    }
-
-    @Test
-    fun placeholderUnverifiedArtifactStyleStillRendersCaption() {
-        // PassesSemantics ships UnverifiedArtifactStyle.Placeholder so the surfaces
-        // compose under a default-constructed semantics (tests / previews). Lock that
-        // a host who forgets to override still gets the trust caption — degraded
-        // styling is acceptable, missing caption is not.
-        val defaulted = semantics.copy(
-            unverifiedArtifact = UnverifiedArtifactStyle.Placeholder,
-        )
-        composeRule.setContent {
-            PassesTheme(semantics = defaulted) {
-                MaterialTheme { ScannableCardTile(card = qrFixture(), onClick = {}) }
-            }
-        }
-        composeRule.onNodeWithText("Created by you").assertIsDisplayed()
     }
 
     @Test
@@ -408,28 +243,17 @@ class ScannableCardTrustSurfaceTest {
     }
 
     @Test
-    fun tileDoesNotRenderPayloadCaption() {
-        // The carousel tile is identification-only; rendering the payload below
-        // its small preview would crowd the chrome and is not the surface the
-        // GH #102 fallback targets. Default-off behaviour pinned here so the
-        // caption stays scoped to the detail surface.
+    fun codeViewDescribesTheCodeWithTheLabel() {
         composeRule.setContent {
-            ThemedHost { ScannableCardTile(card = qrFixture(), onClick = {}) }
+            ThemedHost { ScannableCardView(card = qrFixture(label = "Library card")) }
         }
-        composeRule.onNodeWithText("⁨WALT-MEMBER-12345⁩").assertDoesNotExist()
+        composeRule.onAllNodesWithContentDescription("Library card").assertCountEquals(1)
     }
 
     @Test
     fun fullScreenRendersPayloadCaptionEvenWhenEncoderFails() {
-        // GH #102's whole point is that the user can fall back to reading the
-        // number aloud when the *scanner* fails. The kernel-internal mirror of
-        // that is: when the *encoder* fails (the validator-bypassed defensive
-        // path inside ScannableCardView), the caption must still render — a user
-        // with an unrenderable barcode can still read their payload. An 11-digit
-        // EAN-13 trips ZxingBarcodeEncoder (see BarcodeEncoderTest's
-        // ean13RejectsWrongLengthAtWriter) but is rejected upstream by the
-        // validator; construct the card via the internal constructor so the
-        // encoder-failure UI path is exercised end-to-end.
+        // When the encoder fails the payload must still render, so the user can read it out.
+        // An 11-digit EAN-13 trips the encoder; the validator would reject it, hence the fixture.
         composeRule.setContent {
             ThemedHost { ScannableCardScreen(card = encoderRejectedEan13Fixture()) }
         }

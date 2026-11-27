@@ -40,47 +40,8 @@ import `is`.walt.passes.ui.core.faceIsTinted
 import `is`.walt.passes.ui.core.toComposeColor
 
 /**
- * Presentation of a [Document] — the public entry point the consumer composes. This is a
- * dispatcher on the sealed [Document] type: it selects the surface for the concrete arm and
- * forwards the consumer's parameters. [PdfDocument] routes to [PdfDocumentView] (a swipeable
- * pager over the isolated PDF renderer); [ImageDocument] routes to [ImageDocumentView] (a
- * single, no-pager image over the isolated image-decode sandbox); [BarcodedImageDocument]
- * (wpass-8lu) routes to the SAME [ImageDocumentView] for its image half — the generated barcode
- * and format switcher are composed by the consumer with `passes-ui`, so this surface stays
- * image-only and the two UI towers remain independent. By default the trust caption is
- * rendered inside every arm; the ONE way it is omitted is the audited [trustCaption] =
- * [TrustCaptionPlacement.HostedTypeRow] concession (ADR 0005 D5.T), under which the host
- * carries provenance via its own "Pass type" row. No other parameter, theme token, or
- * overload can drop it, so the [DocumentSurfaceLockTest] shape lock and
- * [DocumentTrustSurfaceTest] visible-text lock hold across the seam.
- *
- * The backend handles are kind-specific and nullable: a consumer supplies the [pdfFile] /
- * [renderer] pair for a [PdfDocument] and the [imageFile] / [imageDecoder] pair for an
- * [ImageDocument]. The dispatcher requires the pair that matches the arm; passing a document
- * without its backend pair is a programming error and fails fast. This keeps a consumer that
- * only ever shows one kind from having to fabricate the other backend.
- *
- * [trustCaption] selects how the provenance signal is carried: with
- * [TrustCaptionPlacement.HostedTypeRow] each arm renders no caption because the host carries
- * the claim itself, as a "Pass type" row inside its own details section (values "PDF" /
- * "Image" / "Image, Scanned"). Under that mode a neutral type label is an accepted carrier
- * and the row may sit in a collapsed-by-default foldout — see `TrustCaptionPlacement` and
- * the ADR 0005 D5 "Pass type" row addendum. Defaults to [TrustCaptionPlacement.Docked] (the
- * verbatim docked caption) so every existing caller is unchanged.
- *
- * [faceTint] is presentation only — the kernel never learns why a color was chosen and
- * stores nothing; which color an item carries is the consumer's (walt-android's
- * `WalletColorRepository`, keyed per wallet entry), and no [Document] arm carries a color
- * field (wpass-80y.2 / Walt wlt-38v8).
- *
- * @param faceTint color of the frame the page render / decoded image sits on, in both
- *   arms. The tint reaches the frame ONLY: the rasterised PDF page and the decoded image
- *   are real content, so they render identically tinted or not, and identically in light
- *   and dark. Defaults to [Color.Unspecified], which keeps the flush-to-slot
- *   [is.walt.passes.document.ui.theme.DocumentSemantics.laneBackground] frame every existing
- *   caller gets today; a fully transparent tint means "no tint" and falls back to the same
- *   default rather than leaving the frame unpainted. Pass an opaque color: a translucent
- *   tint composites over host paint the kernel cannot see.
+ * Inline view of a [Document], dispatching on its arm: PDF to a pager, image and composite to one
+ * image. It draws no provenance caption: the host's "Pass type" row carries that (ADR 0005 D5.T).
  */
 @Composable
 @Suppress("LongParameterList")
@@ -92,7 +53,6 @@ public fun DocumentView(
     imageDecoder: ImageDecodeBinder? = null,
     modifier: Modifier = Modifier,
     telemetry: DocumentTelemetryGuard = DocumentTelemetryGuard.NoOp,
-    trustCaption: TrustCaptionPlacement = TrustCaptionPlacement.Docked,
     onOpenFullScreen: (() -> Unit)? = null,
     fullScreenAffordance: (@Composable (onOpen: () -> Unit) -> Unit)? = null,
     faceTint: Color = Color.Unspecified,
@@ -104,7 +64,6 @@ public fun DocumentView(
             renderer = requireNotNull(renderer) { "DocumentView(PdfDocument) requires a non-null renderer" },
             modifier = modifier,
             telemetry = telemetry,
-            trustCaption = trustCaption,
             onOpenFullScreen = onOpenFullScreen,
             fullScreenAffordance = fullScreenAffordance,
             faceTint = faceTint,
@@ -123,7 +82,6 @@ public fun DocumentView(
             },
             modifier = modifier,
             telemetry = telemetry,
-            trustCaption = trustCaption,
             onOpenFullScreen = onOpenFullScreen,
             fullScreenAffordance = fullScreenAffordance,
             faceTint = faceTint,
@@ -132,63 +90,8 @@ public fun DocumentView(
 }
 
 /**
- * Presentation of a [PdfDocument] — the trust caption (Docked by default) above a swipeable
- * pager of rasterised pages. `PdfDocumentView` fills the bounds the consumer gives it and
- * does NOT assume a full screen: the caption takes its natural height, the pager takes
- * the rest, and each page is letterboxed into the pager slot rather than sized from a
- * fixed aspect ratio — so a short consumer slot can never make a page overflow upward
- * into the caption. The trust caption is composed on the consumer's own background;
- * only the pager carries [is.walt.passes.document.ui.theme.DocumentSemantics.laneBackground],
- * so the caption reads as host screen chrome rather than part of the document surface.
- * Pages are rasterised on demand by the isolated-process renderer reached through
- * [renderer] (the `PdfRendererBinder` interface, never the concrete `PdfRendererClient`,
- * so test fakes substitute cleanly) and held in a small per-document LRU cache to
- * amortise re-render on quick swipes.
- *
- * Trust contract:
- *
- *  - The [DocumentTrustCaption] is rendered inside this view by default; the ONE way it
- *    is omitted is the audited `trustCaption = TrustCaptionPlacement.HostedTypeRow`
- *    concession (ADR 0005 D5.T), under which the host carries provenance via its own
- *    "Pass type" row. No other parameter, theme token, or overload can drop it, and no
- *    `DocumentView` overload exists. `DocumentSurfaceLockTest` pins the parameter shape;
- *    `DocumentTrustSurfaceTest` pins the visible-text contract (and the HostedTypeRow omit).
- *  - The view displays only the rasterised page bitmaps and the caption. ADR 0005 D4:
- *    no PDF metadata, no extracted text, no annotation list, no attachment list.
- *  - The view exposes no share, export, print, or open-with affordance. ADR 0005 D8.
- *    `DocumentPublicApiSurfaceTest.passesDocumentUiCompiledClassesContainNoForbiddenStrings`
- *    enforces by scanning compiled bytecode for `android.intent.action.SEND` and the
- *    `application/pdf` MIME literal so a future contributor cannot quietly add either.
- *  - Inline surface is fixed 1x: no pinch-zoom, no pan, no double-tap. Zoom lives only
- *    on the full-screen detail surface (wpass-ny4 / wpass-jil).
- *
- * @param fullScreenAffordance Optional host-supplied open-full-screen affordance, used
- *   only when [onOpenFullScreen] is also non-null. Mirrors the `closeButton` slot on
- *   [FullScreenDocumentView]: the host owns chrome — shape, corner radius, leading icon,
- *   label, padding (wpass-emn). When supplied it is **floated over the bottom-centre of
- *   the page** (matching Walt's pill design, which overlaps the page edge); the host
- *   accepts that overlap as part of choosing a floating affordance. When `null` (the
- *   default) the kernel's neutral banner is **docked below the page** exactly as before,
- *   so consumers that do not pass this slot are unchanged and the page is never obscured.
- *   Either way this slot cannot suppress the trust caption or the page tap target; both
- *   are structural and independent of it.
- *
- * Bitmap ownership: the LRU cache stores native [Bitmap]s and recycles them on
- * eviction; the renderer service has already pre-recycled its source-side copy
- * before returning. On dispose the cache is cleared so every retained pixel buffer
- * is freed at the same moment the composable leaves composition.
- *
- * Cancellation: [renderer]'s suspend functions are cancellation-cooperative — the
- * `LaunchedEffect` keyed on the current page is cancelled when the user swipes,
- * freeing the rendering coroutine even if the underlying binder transact is still
- * in flight on its IO worker.
- *
- * pdfFile lifetime: [pdfFile] is owned by the caller. It MUST remain open for as
- * long as `DocumentView` is composed; closing it earlier produces undefined
- * behaviour for any in-flight `render()` call (the binder duplicates the fd
- * on each transact, but a closed source fd surfaces as a renderer-side
- * `RendererFailed`, not as a UI-visible error). Close after `DocumentView` leaves
- * composition.
+ * A swipeable pager of pages rasterised by the isolated renderer, letterboxed at a fixed 1x.
+ * [pdfFile] is the caller's and must stay open while this is composed.
  */
 @Composable
 @Suppress("LongParameterList")
@@ -198,7 +101,6 @@ private fun PdfDocumentView(
     renderer: PdfRendererBinder,
     modifier: Modifier = Modifier,
     telemetry: DocumentTelemetryGuard = DocumentTelemetryGuard.NoOp,
-    trustCaption: TrustCaptionPlacement = TrustCaptionPlacement.Docked,
     onOpenFullScreen: (() -> Unit)? = null,
     fullScreenAffordance: (@Composable (onOpen: () -> Unit) -> Unit)? = null,
     faceTint: Color = Color.Unspecified,
@@ -214,16 +116,6 @@ private fun PdfDocumentView(
         modifier = modifier.fillMaxSize(),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        // Docked: the kernel renders the verbatim caption here. HostedTypeRow: the kernel
-        // renders nothing — the host carries provenance via its own "Pass type" details
-        // row (wpass-gv6 / D5 concession). Exhaustive `when` (not an `if`) so a future
-        // placement arm cannot silently fall through to omitting the caption — the one
-        // direction a trust surface must never default to.
-        when (trustCaption) {
-            TrustCaptionPlacement.Docked -> DocumentTrustCaption()
-            TrustCaptionPlacement.HostedTypeRow -> Unit
-        }
-
         DocumentFaceSlot(
             faceTint = faceTint,
             onOpenFullScreen = onOpenFullScreen,
@@ -250,31 +142,8 @@ private fun PdfDocumentView(
 }
 
 /**
- * Presentation of an [ImageDocument] — the trust caption (Docked by default) above a single,
- * fixed-fit image (wpass-i9x step 4). The image-arm analogue of [PdfDocumentView], minus the
- * pager: an image is a single page, so there is no [HorizontalPager] and no per-page cache.
- * The original image is decoded once inside the `passes-image` sandbox (reached through the
- * caller-supplied [decoder], the `ImageDecodeBinder` interface, never the concrete client) and
- * the bounded ARGB_8888 raster is letterboxed into the slot with [ContentScale.Fit].
- *
- * Trust contract (identical to the PDF arm):
- *
- *  - The [DocumentTrustCaption] is composed inside this view by default; the ONE way it is
- *    omitted is the audited `trustCaption = TrustCaptionPlacement.HostedTypeRow` concession
- *    (ADR 0005 D5.T). No other parameter, theme token, or overload can drop it, and no
- *    overload exists. `DocumentSurfaceLockTest` / `DocumentTrustSurfaceTest` pin the shape
- *    and the visible text (and the HostedTypeRow omit) across both arms.
- *  - The view displays only the decoded raster and the caption. ADR 0005 D4: no image
- *    metadata, no EXIF, no extracted text — the content description is a fixed neutral string.
- *  - No share / export / open-with affordance (ADR 0005 D8); the bytecode scan in
- *    `DocumentPublicApiSurfaceTest` keeps it that way.
- *  - Fixed 1x: no pinch-zoom or pan inline, matching the PDF inline surface.
- *
- * [imageFile] is the ORIGINAL image bytes, owned by the caller; it MUST stay open while this
- * view is composed. Close after `DocumentView` leaves composition. Inline stays fixed 1x;
- * full-screen zoom lives on `FullScreenDocumentView`, whose image arm this view's
- * [onOpenFullScreen] / [fullScreenAffordance] pair (wired identically to the PDF arm,
- * wpass-pl7.4) is the entry path to.
+ * One image decoded in the isolated image sandbox, letterboxed at a fixed 1x.
+ * [imageFile] is the caller's and must stay open while this is composed.
  */
 @Composable
 @Suppress("LongParameterList")
@@ -284,7 +153,6 @@ private fun ImageDocumentView(
     decoder: ImageDecodeBinder,
     modifier: Modifier = Modifier,
     telemetry: DocumentTelemetryGuard = DocumentTelemetryGuard.NoOp,
-    trustCaption: TrustCaptionPlacement = TrustCaptionPlacement.Docked,
     onOpenFullScreen: (() -> Unit)? = null,
     fullScreenAffordance: (@Composable (onOpen: () -> Unit) -> Unit)? = null,
     faceTint: Color = Color.Unspecified,
@@ -293,16 +161,6 @@ private fun ImageDocumentView(
         modifier = modifier.fillMaxSize(),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        // Docked: the kernel renders the verbatim caption here. HostedTypeRow: the kernel
-        // renders nothing — the host carries provenance via its own "Pass type" details
-        // row (wpass-gv6 / D5 concession). Exhaustive `when` (not an `if`) so a future
-        // placement arm cannot silently fall through to omitting the caption — the one
-        // direction a trust surface must never default to.
-        when (trustCaption) {
-            TrustCaptionPlacement.Docked -> DocumentTrustCaption()
-            TrustCaptionPlacement.HostedTypeRow -> Unit
-        }
-
         DocumentFaceSlot(
             faceTint = faceTint,
             onOpenFullScreen = onOpenFullScreen,
@@ -321,19 +179,8 @@ private fun ImageDocumentView(
 }
 
 /**
- * The face-slot trio both arms compose identically: the [documentFace] frame holding the
- * tappable content region, the floating host affordance, and the docked [FullScreenBanner]
- * fallback. One implementation so the PDF and image arms cannot drift apart on the
- * full-screen entry path — the same reason [documentFace] itself is shared.
- *
- * The face paints behind the content only — the document-surface tone the page render /
- * decoded image sits on (showing through ContentScale.Fit letterbox bars), so the caption
- * above reads as host chrome rather than part of the document surface.
- *
- * [content] receives the slot-filling, tap-wired, padded modifier to place its surface
- * with. Content tap opens full screen; the clickable and drag gestures coexist (Compose
- * routes quick press-release to the click, drags to the content), and it sits on the slot
- * region rather than the bitmap so the tap target exists through Loading / Failed too.
+ * The frame, tappable content region and full-screen entry both arms share, so they cannot
+ * drift. [content] receives the slot-filling, tap-wired modifier to place its surface with.
  */
 @Composable
 private fun ColumnScope.DocumentFaceSlot(
@@ -369,9 +216,7 @@ private fun ColumnScope.DocumentFaceSlot(
         }
     }
 
-    // No custom affordance: the neutral banner docks below the content (original layout),
-    // so default consumers' content is never obscured. The trust caption above this
-    // Column cannot be pushed off-screen by it.
+    // No custom affordance: the neutral banner docks below the content, never over it.
     if (onOpenFullScreen != null && fullScreenAffordance == null) {
         FullScreenBanner(onClick = onOpenFullScreen)
     }
@@ -399,8 +244,7 @@ private fun InlineDecodedImage(
         targetSizePx = IntSize(requestWidthPx, requestHeightPx),
         telemetry = telemetry,
     )
-    // Loading / Failed render nothing inline; the lane tone is the placeholder, matching
-    // DocumentPage. A future retry affordance belongs on DocumentTile, not here.
+    // Loading / Failed render nothing inline; the frame tone is the placeholder, as in DocumentPage.
     when (state) {
         is DocumentImageState.Loading, is DocumentImageState.Failed -> Unit
         is DocumentImageState.Rendered -> Image(
@@ -415,27 +259,15 @@ private fun InlineDecodedImage(
 }
 
 /**
- * Paints the frame the page render / decoded image sits on, shared by both arms so the PDF
- * and image surfaces cannot drift apart on the one thing [DocumentView] `faceTint` touches.
- *
- * Background only: it never clips or filters the content drawn into the Box, which is what
- * makes the frame-not-content constraint structural rather than a convention.
- *
- * Two things are deliberate. What counts as a tint is [faceIsTinted], shared with the
- * scannable face; the fallback keeps the document-surface tone rather than showing host
- * paint through the letterbox bars. And the rounded card shape arrives with the tint rather
- * than unconditionally: an untinted frame is the host's own
- * [is.walt.passes.document.ui.theme.DocumentSemantics.laneBackground] tone bleeding to the
- * slot edge, and rounding it would change the appearance of every consumer already shipping
- * the surface (paint only — a shape on a background never moves layout). Corner radius comes
- * with the opt-in that asks for a card.
+ * Paints the frame behind the page or image for both arms: background only, never a clip or
+ * filter on content. A tint brings the rounded card shape; untinted keeps the flat frame tone.
  */
 @Composable
 private fun Modifier.documentFace(faceTint: Color): Modifier =
     if (faceIsTinted(faceTint)) {
         background(faceTint, RoundedCornerShape(FACE_RADIUS))
     } else {
-        background(LocalDocumentSemantics.current.laneBackground.toComposeColor())
+        background(LocalDocumentSemantics.current.frameBackground.toComposeColor())
     }
 
 /**
@@ -496,12 +328,8 @@ private fun DocumentPage(
         cache = cache,
     )
 
-    // The page fills the slot the pager hands it (the pager's `weight(1f)` share of
-    // DocumentView's Column) and lets ContentScale.Fit letterbox the bitmap inside it.
-    // Fixed 1x — zoom lives in the full-screen surface (wpass-ny4 / wpass-jil). The
-    // Loading and Failed arms render nothing in the inline surface; the pager itself
-    // is the placeholder. A future affordance for either belongs on `DocumentTile`,
-    // not here.
+    // Fills the pager's slot at a fixed 1x (zoom is the full-screen surface's); ContentScale.Fit
+    // letterboxes. Loading and Failed render nothing: the pager itself is the placeholder.
     when (state) {
         is PdfThumbnailState.Loading, is PdfThumbnailState.Failed -> Unit
         is PdfThumbnailState.Rendered -> Image(

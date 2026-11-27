@@ -13,6 +13,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.getUnclippedBoundsInRoot
@@ -20,6 +21,7 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
@@ -32,7 +34,6 @@ import com.google.common.truth.Truth.assertThat
 import `is`.walt.passes.core.ScannableFormat
 import `is`.walt.passes.document.BarcodedImageDocument
 import `is`.walt.passes.document.BarcodedImageDocumentId
-import `is`.walt.passes.document.DocumentRejectedKind
 import `is`.walt.passes.document.ImageDocument
 import `is`.walt.passes.document.ImageDocumentId
 import `is`.walt.passes.document.PdfDocument
@@ -112,31 +113,6 @@ class DocumentViewInstrumentedTest {
     }
 
     @Test
-    fun swipingTheTrustCaptionStillPagesTheDocumentSurface() {
-        // The trust caption is non-suppressible regardless of pager position.
-        // Pre-condition for the next test: the caption MUST display before, during,
-        // and after a swipe.
-        val recorder = RecordingBinder()
-        composeRule.setContent {
-            ThemedHost {
-                DocumentView(
-                    doc = doc(pageCount = 3),
-                    pdfFile = pipeRead,
-                    renderer = recorder,
-                )
-            }
-        }
-        composeRule.onNodeWithText(
-            "User-provided document. This app has not verified the source.",
-        ).assertIsDisplayed()
-        composeRule.onRoot().performTouchInput { swipeLeft() }
-        composeRule.waitForIdle()
-        composeRule.onNodeWithText(
-            "User-provided document. This app has not verified the source.",
-        ).assertIsDisplayed()
-    }
-
-    @Test
     fun swipingThroughManyPagesDrivesDistinctRenderCallsAndExceedsTheLruWindow() {
         // Walk far enough through the document that the LRU has evicted at least one
         // page; that eviction is the production code's recycle path. We assert the
@@ -163,40 +139,9 @@ class DocumentViewInstrumentedTest {
     }
 
     @Test
-    fun captionStillRendersWhenEveryRenderCallIsRejected() {
-        val failing = object : PdfRendererBinder {
-            override suspend fun probe(pdf: ParcelFileDescriptor): ProbeResult =
-                ProbeResult.Rejected(DocumentRejectedKind.RendererFailed)
-
-            override suspend fun render(
-                pdf: ParcelFileDescriptor,
-                page: Int,
-                widthPx: Int,
-                heightPx: Int,
-                sourceRect: RenderSourceRect,
-            ): RenderResult = RenderResult.Rejected(DocumentRejectedKind.RendererFailed)
-        }
-        composeRule.setContent {
-            ThemedHost {
-                DocumentView(
-                    doc = doc(pageCount = 2),
-                    pdfFile = pipeRead,
-                    renderer = failing,
-                )
-            }
-        }
-        composeRule.onNodeWithText(
-            "User-provided document. This app has not verified the source.",
-        ).assertIsDisplayed()
-    }
-
-    @Test
     @Ignore("A horizontal pinch on the inline surface leaves page 1 no longer displayed")
-    fun pinchOnTheInlineSurfaceDoesNotZoomAndKeepsTheTrustCaptionVisible() {
-        // wpass-ny4: inline DocumentView is fixed 1x after the design pivot. Pinch
-        // gestures must NOT scale the page (no zoom surface inline) and the trust
-        // caption must remain visible. The actual zoom surface lives on the full-screen
-        // detail view (wpass-jil), entered via the banner.
+    fun pinchOnTheInlineSurfaceDoesNotZoom() {
+        // Inline is a fixed 1x: zoom lives on the full-screen surface.
         val recorder = RecordingBinder()
         composeRule.setContent {
             ThemedHost {
@@ -221,9 +166,6 @@ class DocumentViewInstrumentedTest {
         composeRule.waitForIdle()
 
         composeRule.onNodeWithContentDescription("Page 1 of 3").assertIsDisplayed()
-        composeRule.onNodeWithText(
-            "User-provided document. This app has not verified the source.",
-        ).assertIsDisplayed()
     }
 
     @Test
@@ -439,18 +381,13 @@ class DocumentViewInstrumentedTest {
     }
 
     @Test
-    fun trustCaptionDoesNotOverlapThePageWhenTheConsumerGivesAShortSlot() {
-        // Regression for wpass-b6h: walt-android embeds DocumentView in a short slot —
-        // sandwiched between a document title and a details section — not the full
-        // screen. The page must letterbox into whatever height it is given. An earlier
-        // `fillMaxWidth().aspectRatio(3:4)` page derived its height from its width and
-        // ignored the slot height, so in a short slot it grew taller than the pager
-        // viewport and drew up over the non-suppressible trust caption. Pinning
-        // caption.bottom <= page.top keeps that boundary structural.
+    fun pageLetterboxesIntoAShortSlot() {
+        // A host embeds DocumentView in a short slot, so the page must take its height from
+        // the slot and never from its own width.
         val recorder = RecordingBinder()
         composeRule.setContent {
             ThemedHost {
-                Box(modifier = Modifier.fillMaxWidth().height(300.dp)) {
+                Box(modifier = Modifier.fillMaxWidth().height(300.dp).testTag(SHORT_SLOT_TAG)) {
                     DocumentView(
                         doc = doc(pageCount = 3),
                         pdfFile = pipeRead,
@@ -461,16 +398,13 @@ class DocumentViewInstrumentedTest {
         }
         composeRule.waitForIdle()
 
-        val captionBottom = composeRule
-            .onNodeWithText("User-provided document. This app has not verified the source.")
-            .getUnclippedBoundsInRoot()
-            .bottom
-        val pageTop = composeRule
+        val slot = composeRule.onNodeWithTag(SHORT_SLOT_TAG).getUnclippedBoundsInRoot()
+        val page = composeRule
             .onNodeWithContentDescription("Page 1 of 3")
             .getUnclippedBoundsInRoot()
-            .top
 
-        assertThat(pageTop.value).isAtLeast(captionBottom.value)
+        assertThat(page.top.value).isAtLeast(slot.top.value)
+        assertThat(page.bottom.value).isAtMost(slot.bottom.value)
     }
 
     @Test
@@ -678,12 +612,9 @@ class DocumentViewInstrumentedTest {
     private val semantics = DocumentSemantics(
         captionBackground = ArgbColor(0xFF202020.toInt()),
         captionForeground = ArgbColor(0xFFFFFFFF.toInt()),
-        tileBackground = ArgbColor(0xFFF5F5F5.toInt()),
-        tileForeground = ArgbColor(0xFF202020.toInt()),
-        tileLabelForeground = ArgbColor(0xFF606060.toInt()),
-        laneBackground = ArgbColor(0xFFEEEEEE.toInt()),
-        documentBadgeBackground = ArgbColor(0xFFD0D0D0.toInt()),
-        documentBadgeForeground = ArgbColor(0xFF202020.toInt()),
+        frameBackground = ArgbColor(0xFFEEEEEE.toInt()),
+        fullScreenBannerBackground = ArgbColor(0xFFD0D0D0.toInt()),
+        fullScreenBannerForeground = ArgbColor(0xFF202020.toInt()),
     )
 
     /**
@@ -755,6 +686,7 @@ class DocumentViewInstrumentedTest {
     }
 
     private companion object {
+        const val SHORT_SLOT_TAG = "short-slot"
         const val BYTES_PER_PIXEL = 4
         const val DECODED_WIDTH = 108
         const val DECODED_HEIGHT = 234
