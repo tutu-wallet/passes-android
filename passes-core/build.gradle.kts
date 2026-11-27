@@ -14,9 +14,8 @@ dependencies {
     testImplementation(libs.truth)
 }
 
-// Shrunk-build check: R8 (classfile mode, the JDK as library) runs over this module, its
-// dependencies and a probe, adding no keep rule but the probe's own. ShrunkBuildSignatureTest
-// runs on the output, so it covers keep rules at run time and nothing specific to Android.
+// R8 (classfile mode, JDK as library) shrinks this module, its dependencies and a probe under the
+// embedded keep rules alone; ShrunkBuildSignatureTest verifies on that output, not on Android.
 val shrunkProbe: SourceSet by sourceSets.creating
 val r8: Configuration by configurations.creating { isCanBeConsumed = false }
 val shrunkClasses = layout.buildDirectory.dir("shrunkProbe/classes")

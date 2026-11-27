@@ -34,7 +34,8 @@ public sealed interface TamperReason {
 
     /**
      * The signature could not be verified: a malformed envelope, a verification step that could
-     * not run, or no signature under [ParserConfig.Strict]. Not evidence of a manifest mismatch.
+     * not run, or no signature while [ParserConfig.acceptUnsignedArchives] is off (as in
+     * [ParserConfig.Strict]). Not evidence of a manifest mismatch.
      */
     public data object SignatureCryptoFailure : TamperReason
 

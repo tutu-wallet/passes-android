@@ -15,7 +15,8 @@ import java.security.Security
 class ShrunkBuildSignatureTest {
     @Test
     fun onlyTheKeptKernelClassesKeepTheirNames() {
-        // Guards the harness: a run that stopped renaming, or a broad keep rule, shows up here.
+        // Guards the harness: a run that stopped renaming, or a keep rule that pins kernel
+        // class names, shows up here.
         val kernelRoot = shrunkClasses.resolve("is/walt/passes/core")
         val named =
             kernelRoot.walkTopDown()
@@ -119,7 +120,7 @@ class ShrunkBuildSignatureTest {
         @AfterClass
         @JvmStatic
         fun closeShrunkClasses() {
-            shrunk.close()
+            if (::shrunk.isInitialized) shrunk.close()
         }
     }
 }

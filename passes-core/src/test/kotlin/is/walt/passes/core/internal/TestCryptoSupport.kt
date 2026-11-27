@@ -52,7 +52,7 @@ import java.util.Date
  * and a regression in one suite is informative about the same path in the other.
  *
  * Visibility is `internal` to the module — these helpers are test-only because they
- * generate ephemeral RSA keys, but Kotlin's test source set lives in the same module
+ * generate ephemeral keys, but Kotlin's test source set lives in the same module
  * as production code, so any test class in `passes-core` can call them.
  */
 internal fun ensureBouncyCastleProvider() {
@@ -357,7 +357,7 @@ private fun JcaX509v3CertificateBuilder.addSubjectKeyIdentifier(publicKey: Publi
 }
 
 // String name lookup is fine here: tests run on JVM where Security.addProvider
-// (called from `ensureBouncyCastleProvider`) installs bcprov-jdk18on:1.79 under "BC"
+// (called from `ensureBouncyCastleProvider`) installs bcprov-jdk18on under "BC"
 // before any helper resolves. The production verifier deliberately holds an instance
 // instead — see `BC_PROVIDER` in `SignatureVerifier.kt` and the wpass-4js writeup —
 // because Android already has a stripped BC parked in the "BC" slot. Tests are
