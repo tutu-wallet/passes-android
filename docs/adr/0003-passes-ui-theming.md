@@ -47,7 +47,8 @@ The PKPASS spec lets each pass declare its own `foregroundColor`,
 `passes-core`). On the pass surface itself, those colors override the host's
 `MaterialTheme.colorScheme.surface` / `onSurface`. Off the pass, wallet list
 chrome, bottom sheets, expired overlay, security confirmation sheets, the host
-theme is authoritative.
+theme is authoritative. In a consumer's own list the pass surface is the pass
+tile alone (addendum below); the rest of the item is list chrome.
 
 Why scoped: a pass-supplied color does not get to recolor a security confirmation sheet; letting the pass influence them opens an "adversarial pass darkens cancel button into invisibility" attack.
 
@@ -135,12 +136,13 @@ Theming data classes, security intents, image bounds, the expired-state ADT and 
 
 - Accessibility: every composable takes a `contentDescription: String?` where applicable, and the trust badge, expired pill and barcode altText must pass non-null descriptions. Accessibility-test coverage is incomplete.
 
-## Addendum: card color is class-based and user-assigned, not issuer-derived (D4)
+## Addendum: issuer color on the pass's own surface, class color elsewhere (D4)
 
-Colour means class and nothing else. The pass file's `backgroundColor` is read, never rendered, on a consumer's list item: every pkpass renders the same class tint regardless of `pass.json`, every other artifact class gets its own class tint, and the user can reassign any item's color from a picker on the detail surface.
+Color has two sources and neither is the signature. A pass's surface takes the colors its pass file declares; scannable card, document and composite items take a class color the consumer assigns and the user may reassign.
 
-- **D4 itself is unchanged.** `Pass.colors` overrides the theme on the kernel pass surface (`PassFront`) and nowhere else. A consumer that renders its own card faces ignores `PassColors`; one that composes `PassFront` gets D4's behavior.
-- **Colors reach kernel surfaces as consumer-supplied tints.** `ScannableCardScreen(faceTint)` and `DocumentView(faceTint)` take an already-constructed `Color`; the kernel stores none, parses none and infers nothing from one. Ink on a tinted face is derived from the tint's luminance (`inkOn`), pinned at 4.5:1 or better, so an arbitrary consumer color cannot render the in-words trust text illegible. This is the theming analogue of D5's "no off switch."
+- **D4's scope rule covers a consumer's list.** `Pass.colors` overrides the theme on the pass's own surface: `PassFront`, and the pass tile of a pkpass item in a consumer's list, which may show one image from the pass file on the file's `backgroundColor` (`SCANNABLE_CARD_THREAT_MODEL.md`, consumer list concession, condition 4). The pass mark, the item's text and the list chrome take the host theme, so a pass-supplied color cannot hide the mark or restyle host text. A consumer that renders its own pass faces decides whether to apply `PassColors`; one that composes `PassFront` gets D4's behavior.
+- **Pass colors are the same for every signature status.** They are read from the pass file alone. Choosing or varying a color by signature status, verification outcome or signing identity is forbidden on every surface.
+- **Class colors reach kernel surfaces as consumer-supplied tints.** `ScannableCardScreen(faceTint)` and `DocumentView(faceTint)` take an already-constructed `Color`; the kernel stores none, parses none and infers nothing from one. Ink on a tinted face is derived from the tint's luminance (`inkOn`), pinned at 4.5:1 or better, so an arbitrary consumer color cannot render the in-words trust text illegible. This is the theming analogue of D5's "no off switch."
 - **The security-sheet family is untouched.** `B3UrlConfirmSheet`, `PhoneConfirmSheet` and `EmailConfirmSheet` read `MaterialTheme.colorScheme` and `LocalPassesSemantics` only. They take no tint parameter and must not: the attack D4 names applies verbatim to a user- or consumer-chosen color.
 - **Color carries no trust meaning.** See `SCANNABLE_CARD_THREAT_MODEL.md` ("colour carries no trust meaning") and ADR 0005 D1.C.
 
