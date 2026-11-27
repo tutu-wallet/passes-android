@@ -13,8 +13,9 @@ package `is`.walt.passes.document
  *
  * [maxImageDecodePx] is the per-side bound the image arm asks the sandbox to decode within
  * (aspect-preserving, never upscaled, and additionally capped by the sandbox's own 4 MP
- * output ceiling). The returned bounded raster is what becomes the [ImageDocument][`is`.walt
- * .passes.document.ImageDocument] dimensions and the persisted display thumbnail.
+ * output ceiling). The returned raster gives the [ImageDocument][`is`.walt.passes.document
+ * .ImageDocument] dimensions; the stored thumbnail is that raster scaled into
+ * [DocumentThumbnailBounds].
  */
 public data class DocumentImportConfig(
     public val maxBytes: Long = PdfImportConfig.DEFAULT_MAX_BYTES,

@@ -11,6 +11,7 @@ import `is`.walt.passes.document.DocumentImportFailedEvent
 import `is`.walt.passes.document.DocumentImportSucceededEvent
 import `is`.walt.passes.document.DocumentRejectedKind
 import `is`.walt.passes.document.DocumentTelemetryGuard
+import `is`.walt.passes.document.DocumentThumbnailBounds
 import `is`.walt.passes.document.PdfImportConfig
 import `is`.walt.passes.document.PdfImportResult
 import `is`.walt.passes.pdf.android.internal.ThumbnailEncoder
@@ -598,10 +599,9 @@ class PdfImporterTest {
         // unit suite — the renderer is faked, so PdfRenderer never actually parses it.
         val VALID_PDF_BYTES: ByteArray = "%PDF-1.4\n%¥±ë\n1 0 obj".encodeToByteArray()
 
-        const val DEFAULT_THUMB_W: Int = DefaultPdfImporter.THUMB_WIDTH_PX
-        const val DEFAULT_THUMB_H: Int = DefaultPdfImporter.THUMB_HEIGHT_PX
+        const val DEFAULT_THUMB_W: Int = DocumentThumbnailBounds.MAX_WIDTH_PX
+        const val DEFAULT_THUMB_H: Int = DocumentThumbnailBounds.MAX_HEIGHT_PX
 
-        // 600 x 800 ARGB_8888 → 1 920 000 bytes. Matches the importer's THUMB constants.
         const val DEFAULT_THUMB_PIXEL_BYTES: Int = DEFAULT_THUMB_W * DEFAULT_THUMB_H * 4
     }
 }

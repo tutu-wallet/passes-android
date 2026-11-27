@@ -47,7 +47,7 @@ public enum class DocumentFormat {
  *
  * [bytes] is the ORIGINAL document bytes (PDF bytes, or the original compressed image
  * bytes); storage round-trips them as an opaque BLOB and never decodes them. [thumbnailBytes]
- * is the Walt-produced display raster encoded as PNG upstream.
+ * is the PNG thumbnail the kernel's document importer encoded, round-tripped the same way.
  */
 public sealed interface DocumentInsert {
     public val label: String

@@ -16,8 +16,8 @@ import `is`.walt.passes.core.ScannableFormat
  *
  * [bytes] is always the ORIGINAL document bytes (PDF bytes, or the original compressed image
  * bytes) — persist them verbatim; this is the "persist original" half of the import contract.
- * [thumbnailBytes] is a Walt-produced PNG: page-0 for a PDF, the bounded sandbox raster for an
- * image.
+ * [thumbnailBytes] is a PNG the kernel encoded, fitting [DocumentThumbnailBounds]: page 0 for a
+ * PDF, the sandbox raster scaled down for an image.
  */
 public sealed interface DocumentPersist {
     public val label: String

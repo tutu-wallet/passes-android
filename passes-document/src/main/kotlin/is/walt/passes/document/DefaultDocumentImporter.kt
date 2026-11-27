@@ -470,12 +470,9 @@ internal class DefaultDocumentImporter(
         }
 
         /**
-         * Reconstructs the bounded ARGB_8888 raster the sandbox returned into a host `Bitmap`,
-         * PNG-encodes it as the display thumbnail, and closes the `SharedMemory` on every path.
-         * The raster is Walt-produced (already decoded and bounded inside the sandbox), so this
-         * in-process work never runs a codec over hostile bytes. Returns
-         * [ImageDecodeOutcome.Rejected] with [ImageDecodeRejectedKind.DecodeFailed] if the
-         * reconstruction or PNG-compress throws.
+         * Rebuilds the sandbox's raster in a host `Bitmap`, scales it into [DocumentThumbnailBounds] and
+         * PNG-encodes that as the stored thumbnail. No codec reads untrusted bytes here; any throw folds to
+         * [ImageDecodeRejectedKind.DecodeFailed], and the `SharedMemory` is closed on every path.
          */
         private fun encodeRasterToThumbnail(ok: ImageDecodeResult.Ok): ImageDecodeOutcome =
             runCatching {
@@ -484,10 +481,16 @@ internal class DefaultDocumentImporter(
                     val bitmap = Bitmap.createBitmap(ok.widthPx, ok.heightPx, Bitmap.Config.ARGB_8888)
                     try {
                         bitmap.copyPixelsFromBuffer(mapped)
-                        val png = ByteArrayOutputStream().also { out ->
-                            bitmap.compress(Bitmap.CompressFormat.PNG, PNG_QUALITY, out)
-                        }.toByteArray()
-                        ImageDecodeOutcome.Decoded(png, ok.widthPx, ok.heightPx)
+                        val size = thumbnailSize(ok.widthPx, ok.heightPx)
+                        val thumbnail = Bitmap.createScaledBitmap(bitmap, size.widthPx, size.heightPx, true)
+                        try {
+                            val png = ByteArrayOutputStream().also { out ->
+                                thumbnail.compress(Bitmap.CompressFormat.PNG, PNG_QUALITY, out)
+                            }.toByteArray()
+                            ImageDecodeOutcome.Decoded(png, ok.widthPx, ok.heightPx)
+                        } finally {
+                            if (thumbnail !== bitmap) thumbnail.recycle()
+                        }
                     } finally {
                         bitmap.recycle()
                     }
