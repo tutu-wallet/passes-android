@@ -11,6 +11,7 @@ import `is`.walt.passes.document.DocumentImportFailedEvent
 import `is`.walt.passes.document.DocumentImportSucceededEvent
 import `is`.walt.passes.document.DocumentRejectedKind
 import `is`.walt.passes.document.DocumentTelemetryGuard
+import `is`.walt.passes.document.DocumentThumbnailBounds
 import `is`.walt.passes.document.PdfImportConfig
 import `is`.walt.passes.document.PdfImportResult
 import `is`.walt.passes.pdf.android.internal.ThumbnailEncoder
@@ -186,13 +187,12 @@ class PdfImporterTest {
     @Test
     fun successPathInvokesPersistExactlyOnceAndReturnsImported() = runTest {
         val sm = SharedMemory.create("walt-test-import", DEFAULT_THUMB_PIXEL_BYTES)
-        val factory =
-            RecordingSessionFactory(
-                binder = StaticBinder(
-                    probeResult = ProbeResult.Ok(pageCount = 4),
-                    renderResult = RenderResult.Ok(sm, DEFAULT_THUMB_W, DEFAULT_THUMB_H, 1f),
-                ),
+        val binder =
+            StaticBinder(
+                probeResult = ProbeResult.Ok(pageCount = 4),
+                renderResult = RenderResult.Ok(sm, DEFAULT_THUMB_W, DEFAULT_THUMB_H, 1f),
             )
+        val factory = RecordingSessionFactory(binder = binder)
         val persists = mutableListOf<PersistArgs>()
         val result =
             importer(sessionFactory = factory).import(
@@ -213,6 +213,7 @@ class PdfImporterTest {
         assertThat(persists.single().byteSize).isEqualTo(VALID_PDF_BYTES.size)
         assertThat(persists.single().pages).isEqualTo(4)
         assertThat(persists.single().thumbSize).isGreaterThan(0)
+        assertThat(binder.renderRequests).containsExactly(Triple(0, 600, 800))
         assertThat(factory.lastSession?.closed).isTrue()
     }
 
@@ -557,6 +558,8 @@ class PdfImporterTest {
         private val probeResult: ProbeResult = ProbeResult.Rejected(DocumentRejectedKind.RendererFailed),
         private val renderResult: RenderResult = RenderResult.Rejected(DocumentRejectedKind.RendererFailed),
     ) : PdfRendererBinder {
+        val renderRequests: MutableList<Triple<Int, Int, Int>> = mutableListOf()
+
         override suspend fun probe(pdf: ParcelFileDescriptor): ProbeResult = probeResult
 
         override suspend fun render(
@@ -565,7 +568,7 @@ class PdfImporterTest {
             widthPx: Int,
             heightPx: Int,
             sourceRect: RenderSourceRect,
-        ): RenderResult = renderResult
+        ): RenderResult = renderResult.also { renderRequests += Triple(page, widthPx, heightPx) }
     }
 
     private class RecordingTelemetry : DocumentTelemetryGuard {
@@ -598,10 +601,9 @@ class PdfImporterTest {
         // unit suite — the renderer is faked, so PdfRenderer never actually parses it.
         val VALID_PDF_BYTES: ByteArray = "%PDF-1.4\n%¥±ë\n1 0 obj".encodeToByteArray()
 
-        const val DEFAULT_THUMB_W: Int = DefaultPdfImporter.THUMB_WIDTH_PX
-        const val DEFAULT_THUMB_H: Int = DefaultPdfImporter.THUMB_HEIGHT_PX
+        const val DEFAULT_THUMB_W: Int = DocumentThumbnailBounds.MAX_WIDTH_PX
+        const val DEFAULT_THUMB_H: Int = DocumentThumbnailBounds.MAX_HEIGHT_PX
 
-        // 600 x 800 ARGB_8888 → 1 920 000 bytes. Matches the importer's THUMB constants.
         const val DEFAULT_THUMB_PIXEL_BYTES: Int = DEFAULT_THUMB_W * DEFAULT_THUMB_H * 4
     }
 }

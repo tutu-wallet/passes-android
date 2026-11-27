@@ -210,9 +210,8 @@ public interface PassRepository {
     public suspend fun loadDocumentBytes(id: DocumentRecordId): StorageResult<ByteArray>
 
     /**
-     * Loads the rendered thumbnail bytes for the document with [id]. Thumbnails are
-     * generated upstream by the isolated renderer service (ADR 0005 D3) and stored as
-     * opaque BLOBs.
+     * Loads the stored thumbnail for the document with [id]: the PNG the kernel's document
+     * importer encoded, returned as stored and never decoded here.
      */
     public suspend fun loadDocumentThumbnail(id: DocumentRecordId): StorageResult<ByteArray>
 

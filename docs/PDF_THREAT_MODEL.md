@@ -231,7 +231,10 @@ content the user is responsible for sourcing, and Walt makes no claim
 about the contents of an unverified document. The provenance signal (the
 host's class label and "Pass type" row) is the user-facing one, and no
 surface draws a "Verified" pill for a document. Nothing stops the document
-depicting one: a screenshot of a verified pass, this app's own included. At
+depicting one: a screenshot of a verified pass, this app's own included, on
+its detail surfaces and, at thumbnail size, in its list tile (consumer list
+concession, condition 4, in `SCANNABLE_CARD_THREAT_MODEL.md`). A code the
+page depicts can also be shown straight from that tile, at thumbnail size. At
 full screen, where a gate scan happens, the kernel shows the document alone,
 so a user who never expanded the row meets no provenance signal there and
 nothing contradicts what the document shows.

@@ -25,7 +25,7 @@ import `is`.walt.passes.ui.internal.toMonochromeBitmap
 
 /**
  * Compact `(payload, format)` render for sizes below [ScannableCardView]'s minimums; the caller sizes it.
- * Mechanism only: no label, caption or signature affordance composes here (`SCANNABLE_CARD_THREAT_MODEL.md`).
+ * Mechanism only, for previews off the list: no label, caption or signature affordance composes here.
  */
 @Composable
 public fun CompactCodeView(

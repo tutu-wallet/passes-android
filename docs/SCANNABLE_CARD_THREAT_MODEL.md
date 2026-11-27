@@ -53,8 +53,9 @@ detail surfaces. A *list item* is one entry in a consumer's list, in whatever sh
 consumer draws it. A *class label* is the host-written name of an item's artifact class
 ("PDF", "QR CODE"), distinct from the item's user- or file-supplied label (`label`,
 `displayLabel`). A *pass tile* is the one bounded, clipped region of a pkpass list item
-that may show an image and a colour from the pass file. The *pass mark* is the
-host-drawn mark of condition 3 below.
+that may show an image and a colour from the pass file, and a *document tile* the one
+such region of a document item that may show the document's stored thumbnail. The
+*pass mark* is the host-drawn mark of condition 3 below.
 
 ### C1 / C2 concession: the consumer's list
 
@@ -87,10 +88,11 @@ consumer's list is permitted strictly when all five hold:
    - It may be silent to assistive technology. The item's accessible description names
      its `PassType` in host words the host uses for no other class.
 4. No list item draws artifact imagery (issuer artwork, document page, image or code),
-   with one exception: a pkpass item's pass tile may show one image from the pass file,
-   on the pass file's `backgroundColor` or on the item's class or user colour. Those
-   pixels and the file's colour are the issuer's and can imitate any mark the host
-   draws, so the exception is bound:
+   with two exceptions: a pkpass item's pass tile and a document item's document tile.
+   A pass tile may show one image from the pass file, on the pass file's
+   `backgroundColor` or on the item's class or user colour. Those pixels and the file's
+   colour are the issuer's and can imitate any mark the host draws, so the exception is
+   bound:
    - The image, and the colour when it is the file's, are taken from the pass file
      alone and are the same for every signature status. Showing or withholding them by
      verification outcome would make them a verified affordance (condition 1).
@@ -109,9 +111,40 @@ consumer's list is permitted strictly when all five hold:
      not the isolated process that images a user imports decode in (C5; ADR 0005 D3 and
      section I).
 
-   Every other pixel source stays out of the list: a document page or image, a
-   user-chosen image on any item, and a code outside the list-face code render
-   concession below. Supplied text is covered by the residual risk below.
+   A document tile may show the document's stored thumbnail: page 0 of a PDF, or the
+   image of an image document or a composite. Those pixels are whoever produced the
+   file's, a wallet file's sender included, and can depict anything, so this exception
+   is bound the same way:
+   - The pixels are the thumbnail the kernel's importer stored with the document, the
+     same for the life of the item: page 0 rendered in the isolated renderer, or the
+     isolated decoder's raster scaled down in the app process, where no codec reads
+     untrusted bytes. The importer fits it to 600 x 800 (`DocumentThumbnailBounds`); an
+     image or composite document stored by an earlier kernel can hold its whole raster,
+     up to 2048 px a side, which meets the same limits. The host stores no other thumbnail, on a
+     wallet-file restore as on an import, and renders no page or image live for the
+     list.
+   - The document tile has a host-fixed size and position, the same on every document
+     item. The thumbnail is clipped to it; to fill it, the host sizes `BoundedImage` to
+     cover the tile at the thumbnail's aspect and clips to the tile. No pixel from it,
+     or derived from it, reaches outside. While it loads or if it fails, the tile
+     shows the item's class or user colour.
+   - The class label, the item's text and its controls sit on the host's surface in
+     host colours, outside the tile. Anything else the host draws on a document tile is
+     decoration: no class, identity or state is carried there alone.
+   - A composite's tile shows its photo. The host renders no code from its payload in
+     the list.
+   - The thumbnail decodes in the app process through `BoundedImage`, at
+     `ImageRenderBounds.Default` or tighter, under the limits a pass image meets. They
+     hold whatever the stored bytes are, so no codec but the platform's PNG reader runs
+     on them in the app process. The bytes a user imported still decode only in the
+     isolated process (C5; ADR 0005 D3 and section I).
+
+   Every other pixel source stays out of the list: an image the user picks to decorate
+   any item, and a code rendered on any item, from a card's or composite's payload or
+   from a pass's barcode. The kernel's `CompactCodeView` is for previews off the list,
+   such as a create or import-confirm sheet, and its parameter lock
+   (`ComposableSurfaceLockTest.compactCodeViewHasExactlyFourUserVisibleParameters`)
+   keeps it mechanism-only there. Supplied text is covered by the residual risk below.
 5. Detail-surface provenance holds. A user-created or document item opens a detail
    surface carrying the host's "Pass type" row (below; ADR 0005 D5.T for documents), the
    provenance signal this bound relies on past the class label: no kernel surface for a
@@ -126,7 +159,8 @@ only on the host's type row, which may sit collapsed. Bound (b) of the "Pass typ
 requires the list-level distinction in return.
 
 **Why the pass mark is required.** A pass tile gives the issuer a region of the list
-it paints freely, beside text it already writes. Without the mark, a pkpass item is
+it paints freely, beside text it already writes, and a document tile gives whoever
+produced a document the same. Without the mark, a pkpass item is
 told apart only by what it lacks, and issuer content can supply that: a class word in
 its text, a class glyph or a document page in its pass tile. The mark is the one part
 of a pkpass item nothing in the pass file can draw, move or remove, and it holds in
@@ -135,26 +169,26 @@ both directions:
 - A pass posing as a code or a document still carries the mark, whatever its text
   prints and its pass tile depicts.
 - A user-created or document item cannot carry it. The host draws it on pkpass items
-  only, the item draws no imagery beyond a code under the list-face code render
-  concession, and supplied text never reaches the mark's position. An image document
-  that is a photograph of a pass shows its class label and no mark (Threat 1).
+  only, a document's pixels stay inside its document tile, and supplied text never
+  reaches the mark's position. An image document that is a photograph of a pass shows
+  its class label and no mark, whatever its document tile depicts (Threat 1).
 
 What supplied content cannot reach is the mark's position, not its shape. A title can
-carry a glyph or emoji that resembles the mark, and a pass tile can depict a copy of
-it; neither sits at the mark's position, and a copy inside a pass tile sits on an item
-that carries the real one.
+carry a glyph or emoji that resembles the mark, and a pass tile or a document tile can
+depict a copy of it; none sits at the mark's position. A copy in a pass tile sits on
+an item that carries the real one, and a copy in a document tile on an item that
+carries a class label instead.
 
 **Accepted residual risk.** The class label and the pass mark each name a class;
 neither proves what an item's content claims. A pkpass item shows issuer text and, in
 its pass tile, issuer pixels on an issuer-chosen colour. Between them they can print a
 class word, host-looking metadata or verification wording, and depict a seal, a tick, a
 code, or another organisation's logo and colour. A document's file name or a user's
-label can print the same words in a title. None of it is the host's voice, and it is
-bounded:
+label can print the same words in a title, and a document tile can depict the same
+things, a whole pass included. None of it is the host's voice, and it is bounded:
 
 - Posing as a user-created or document class gains little past the list. The item
-  keeps the pass mark, by condition 5 it opens the pkpass detail surface, and the host
-  renders no code for it in the list.
+  keeps the pass mark, and by condition 5 it opens the pkpass detail surface.
 - Posing as verified, or as a known issuer, through issuer text or pass tile artwork is
   bounded by conditions 1 and 5. The host draws no verified mark at list scale for
   artwork to copy, a signed pass and an unsigned one render the same item, and the
@@ -162,16 +196,23 @@ bounded:
   artwork cannot suppress, restyle or fold away. The list does not tell an unsigned
   pass in a known brand's logo and colour from the signed original; only the detail
   surface does.
+- Posing as a pass, or as verified, through a document tile (a screenshot of a pass,
+  this app's own included, or a page drawn like a ticket) is bounded by conditions 2,
+  3 and 5. The item carries its class label and no pass mark, and it opens a document
+  detail surface, which carries the host's "Pass type" row and no signature status.
+  The list does not stop a user who reads the picture and not the label (Threat 1;
+  `PDF_THREAT_MODEL.md` threat 12).
 - An issuer colour equal to the list's surface hides the pass tile's edge, so its
   artwork can read as drawn on the host's surface. What bounds it is the pass tile's
   fixed size and position: the artwork cannot leave that frame, and host surface
   separates the pass mark and the item's text from it.
-- Artwork can depict a scannable code. A user can then present an unsigned pass's code
-  straight from the list without meeting the in-words signature status, which is the
-  reach the list-face code render concession guards for user-created codes. Accepted:
-  the host cannot tell a depicted code from any other picture, the picture is the
-  issuer's on the list as on the detail surface, and what a scanner does with it is
-  the scanner's call (Threats 2 and 9).
+- Artwork or a document tile can depict a scannable code; a composite's photo depicts
+  its own. A user can then present it straight from the list without opening the
+  detail surface, so meeting neither a pkpass item's signature status in words nor a
+  document's "Pass type" row. Accepted: the host cannot tell a depicted code from any
+  other picture, the picture is the issuer's or the document's on the list as on the
+  detail surface, and what a scanner does with it is the scanner's call (Threats 2 and
+  9; `PDF_THREAT_MODEL.md` threat 12).
 - Posing as verified through a file name or user label is bounded only by the class
   label, which names a class that is never verified. The provenance row on the detail
   surface may sit collapsed, so a user who never expands it meets a
@@ -185,12 +226,18 @@ bounded:
   the `PassType` for a pkpass item (condition 3). Two items of different classes can
   still be made to speak alike.
 
-**Decode exposure.** A list that draws pass tiles decodes one image per pkpass item
-it displays, where a detail surface decodes only the pass the user opened. With a
-`PassImageCache` an image the cache holds is not decoded again; without one, it is
-decoded each time its item is displayed. The decode is in-process, PNG-only,
-bounded per image (condition 4) and run at most two at a time in the process, so the
-list adds reach to an exposure pass images already carry and no new decode path.
+**Decode exposure.** A list that draws pass and document tiles decodes one image per
+pkpass or document item it displays, where a detail surface decodes only the item the
+user opened. With a `PassImageCache` an image the cache holds is not decoded again;
+without one, it is decoded each time its item is displayed. Every such decode is
+in-process, PNG-only, bounded per image (condition 4) and run at most two at a time in
+the process, so the list adds reach to an exposure pass images already carry and no
+new decode path. A document thumbnail meets those limits whatever its bytes are; the
+one the kernel's importer stores is a PNG it encoded itself, at most 600 x 800, or up
+to 2048 px a side for an image or composite stored by an earlier kernel. Its bytes
+stay in the encrypted store and are deleted with the document. A host that keeps the
+cache clears it after the composition that drops a deleted pass's or document's row
+(`passes-ui/TRUST_CLAIMS.md` section 6).
 
 Dropping or weakening any of the five conditions amends this document. The kernel
 cannot verify them at runtime, so the obligation is the consumer's. Its wallet-list
@@ -205,37 +252,12 @@ tests are expected to pin that:
   neither moves nor covers the mark;
 - no item of another class draws the mark, and the mark's position holds only
   host-drawn content on every class;
-- no item draws artifact imagery outside a pass tile or a list-face code render, no
-  pass colour paints outside a pass tile, pass images decode only through
-  `BoundedImage`, and no pass barcode renders.
-
-### C1 / C2 concession: list-face code render
-
-A scannable card's (and a composite artifact's extracted) actual code may render on a
-list item through the kernel's `CompactCodeView` (`(payload, format)` only). This goes
-past condition 4 of the consumer list concession: a code usable straight from the list
-means the user may never open the detail surface. It is permitted strictly when all
-three hold:
-
-1. The kernel render stays mechanism-only. No label, eyebrow, caption or signature
-   affordance can be composed inside `CompactCodeView`; pinned by
-   `ComposableSurfaceLockTest.compactCodeViewHasExactlyFourUserVisibleParameters`
-   (`payload`, `format`, `modifier`, `contentDescription`) and its no-overload lock.
-2. The item that shows the code meets every other condition of the consumer list
-   concession, with its class label ("QR CODE" / "CODE 128" / "IMAGE, QR CODE") in view
-   whenever the code is. Only user-created codes render at list scale; the host renders
-   no pkpass barcode in the list, whatever the pass's signature status.
-3. Detail-surface provenance holds: the host's "Pass type" row below.
-
-**Accepted residual risk.** A user who scans straight from the list never meets the
-"Pass type" row for that use. Bounded because the user typed the code, confirmed one
-decoded from their image, or chose to restore it and confirmed it under C4 where C4
-applies (a restored card's content is the sender's; see the "Pass type" row section),
-the list-level class distinction is in view at scan time, and Walt is a
-display device, not an issuer: the POS / recipient is the authority on whether the code
-is credit-worthy (Threat 9). Rendering a list-face code without the condition-2 class
-label, or pkpass barcodes at list scale, amends this row. Issuer artwork that depicts a
-code is not a render; condition 4 of the consumer list concession governs it.
+- a document item's tile shows only the thumbnail the kernel's importer stored for it,
+  on an import and a wallet-file restore alike, clipped to a host-fixed tile with the
+  class label outside it, and decoded at `ImageRenderBounds.Default` or tighter;
+- no item draws artifact imagery outside a pass tile or a document tile, no pass
+  colour paints outside a pass tile, pass images and document thumbnails decode only
+  through `BoundedImage`, and no code renders from a payload or a pass's barcode.
 
 ### C1 / C2 concession: colour carries no trust meaning, for any class
 
@@ -325,7 +347,9 @@ This is weaker than a caption that states provenance in words, in two ways:
 and C1 holds in the direction it must: every user-created and document
 item names its class in the host's voice and cannot shed it, none can carry the pass
 mark (condition 3 of the consumer list concession), and no list item carries a verified
-affordance (condition 1), so passing for a pkpass gains nothing at list scale. The
+affordance (condition 1). A card draws no imagery in the list, so passing for a pkpass
+gains it nothing there; a document tile can depict a pass, which the residual risk of
+that concession accepts. The
 detail surface is entered from the list, or straight after the user creates or imports
 the item (bound (c)), and the user can delete the card. The row, even collapsed, is a
 labelled, consistent location for provenance. Walt remains a display device (Threat 9).
@@ -342,7 +366,7 @@ chose its content. Accepted residual risk: for such a card the class label and t
 are the whole provenance bound. What the restore flow tells the user is the consumer's.
 
 **Bound of this row.** A host that shows a card's code at scan size, through
-`ScannableCardScreen` or `ScannableCardView` outside a list item, (a) renders a "Pass
+`ScannableCardScreen` or `ScannableCardView`, (a) renders a "Pass
 type" row naming the artifact class on the item's detail surface, and reaches any
 other showing of the code (a sheet over that surface, say) only through it, (b)
 preserves the C1 list-level distinction, and (c) enters the detail surface only from
@@ -466,7 +490,8 @@ tagged `NoSignature`.
 
 **Mitigation.** C1 (distinct class end-to-end) and C2 (provenance in the host's words).
 The kernel draws no list and no provenance caption. At list scale the distinction is
-the consumer list concession, where pass tiles admit issuer artwork and colour; on the
+the consumer list concession, where pass tiles admit issuer artwork and colour and
+document tiles a document's stored thumbnail; on the
 detail surface it is the host's "Pass type" row, which may sit collapsed. The load
 sits almost entirely on C1's list-level distinction, which is accepted deliberately.
 
@@ -474,9 +499,11 @@ sits almost entirely on C1's list-level distinction, which is accepted deliberat
 surfaces. The C1 list-level distinction carries the load: a class
 label on every user-created and document item, the pass mark on every pkpass item, no
 verified affordance on any item of any class, and artifact imagery nowhere but a pass
-tile or a list-face code render. Colour distinguishes nothing on its own and is not
-relied on to, and the class label and the pass mark name a class without proving what
-an item claims (residual risk of the consumer list concession). This is the
+tile or a document tile. A document tile can depict a pass, a photographed one
+included; its item still carries its class label and no mark. Colour distinguishes
+nothing on its own and is not relied on to, and the class label and the pass mark
+name a class without proving what an item claims (residual risk of the consumer list
+concession). This is the
 load-bearing concern of the feature; every control traces back to this row.
 
 ### 2. Hostile URI payload encoded into a QR that another device auto-acts on - Spoofing / Elevation of privilege
@@ -687,6 +714,10 @@ data enters the system that the type-it-yourself ScannableCard lacks:
   network / storage (C5). This covers all three still sources; the system-camera snap is
   first-party bytes written to an app-private cache file but takes the same isolated path,
   so a malicious gallery/file substitution gets identical treatment.
+- **The list tile is not the imported bytes.** A composite's list tile draws the
+  thumbnail stored at import: a PNG the kernel encoded from the image sandbox's raster,
+  decoded through `BoundedImage` under the pass image limits (consumer list concession,
+  condition 4). The imported bytes never decode in the app process.
 - **Live auto-detect** decodes in-process but only first-party sensor YUV (no still-image
   codec; C5) and produces a code-only artifact; no image is retained on that path.
 - **The decoded payload is never a usable code until confirmed.** Actionable payloads (URI
@@ -786,7 +817,7 @@ v2"; each is deliberately absent because it re-opens a threat row above.
 | C2      | Consumer-side: a test that the details section renders a "Pass type" row, a test that no deep link, shortcut, widget or exported intent opens a detail or scan surface directly, and the list tests of the consumer list concession. Kernel: `scannableCardScreenHasExactlyFourUserVisibleParameters` (the surface's parameter shape). Colour row: `ScannableCardTrustSurfaceTest.faceTintDoesNotSuppressLabelOrPayload` (and its dark-tint twin), `codePanelIsLiterallyWhiteNotAThemeTokenOrTheFaceTint`, `inkOnClearsWcagAaAgainstEveryTintIncludingTheWorstCase`, `DocumentFaceTintTest.faceTintLeavesThePageRenderRequestUnchanged`; the shared tint gate by `passes-ui-core`'s `FaceTintTest` |
 | C3      | Length-cap, charset and Cf/Cc rejection unit tests; `theTwoDimensionalFormatsEncodeAtTheirValidatorCap`, `theTwoDimensionalFormatsRoundTripAtTheirValidatorCap`, `BarcodeEncoderRoundTripTest.nonAsciiPayloadsSurviveOnTheCharsetPinnedFormats`, `BarcodeEncoderCharsetTest`; `noFormatIsDecodeOnly` and `isCreatableAgreesWithWhatTheValidatorAccepts`; byte-capable charset rules in `ScannableFormatConstraintsTest` |
 | C4      | `QrPayloadClassifierTest`, `BarcodeCreateConfirmSheetTest`; consumer-side (expected), tests that a code `requiresCreateConfirmation` flags is not saved unconfirmed on restore or on a format change |
-| C5      | Encoder integration test; decode confinement by the isolated-decode tests (`BarcodeDecodeServiceInstrumentedTest`, `YPlaneFrameDecodeTest`) and, consumer-side, an instrumented composite-import test (no host-process decode of source bytes) and a guard test that no CameraX `ImageCapture` appears in the consumer's `src/main` |
+| C5      | Encoder integration test; decode confinement by the isolated-decode tests (`BarcodeDecodeServiceInstrumentedTest`, `YPlaneFrameDecodeTest`); the stored list thumbnail by `ImageThumbnailInstrumentedTest` (fits the 600 x 800 box), `PdfImporterTest` (page 0 requested at 600 x 800) and `BoundedImageDecodeInstrumentedTest.aStoredDocumentThumbnailDecodesAtTileBounds` (PNGs encoded as the importers encode them decode at tile bounds); and, consumer-side, an instrumented composite-import test (no host-process decode of source bytes) and a guard test that no CameraX `ImageCapture` appears in the consumer's `src/main` |
 | C6      | No test in this repo (no schema snapshot); closest is `ScannableCardSurfaceTest.scannableCardConstructorIsExercisedWithEveryShape` |
 
 ## Out of scope for this document

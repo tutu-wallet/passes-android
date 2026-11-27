@@ -47,13 +47,8 @@ public sealed interface PdfThumbnailState {
 public const val DEFAULT_PAGE_WINDOW: Int = 5
 
 /**
- * Bounded shared cache for page bitmaps produced by [rememberPdfThumbnail]. Hoist a
- * single instance to list scope (e.g. `remember { PdfThumbnailCache() }` inside a
- * `LazyColumn`'s parent) so all visible rows share a fixed RAM cap.
- *
- * Binds `Bitmap.recycle` as the eviction callback on top of the kernel's
- * access-ordered LRU; see `RenderedPageCache` for the cache semantics this wraps.
- * Callers must invoke this from the Compose main thread.
+ * Page bitmaps [rememberPdfThumbnail] rendered for one document surface, evicted LRU and recycled. A list row
+ * draws the stored thumbnail through `BoundedImage` instead. Main thread only.
  */
 public class PdfThumbnailCache(maxSize: Int = DEFAULT_PAGE_WINDOW) {
     private val backing: RenderedPageCache<CachedPage> = RenderedPageCache(

@@ -257,6 +257,23 @@ class BoundedImageDecodeInstrumentedTest {
         }
 
     @Test
+    fun aStoredDocumentThumbnailDecodesAtTileBounds() {
+        // Encoded as the document importers encode them; 2048 x 1536 stands for an earlier kernel's image thumbnail.
+        val tile = ImageRenderBounds(maxWidthPx = 390, maxHeightPx = 504)
+        for ((width, height) in listOf(600 to 800, 600 to 450, 2048 to 1536)) {
+            val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).apply { eraseColor(Color.GRAY) }
+            val png = ByteArrayOutputStream().also { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }.toByteArray()
+            bitmap.recycle()
+
+            val (decoded, rejection) = decoded(png, tile)
+
+            assertThat(rejection).isNull()
+            assertThat(decoded!!.width).isAtMost(tile.maxWidthPx)
+            assertThat(decoded.height).isAtMost(tile.maxHeightPx)
+        }
+    }
+
+    @Test
     fun aDecodedBitmapCountsItsPixelsAgainstTheCacheBudget() {
         val png = pngOf(width = 100, height = 100)
         val image = decodePassImage(png, ImageRenderBounds.Default)

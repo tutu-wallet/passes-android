@@ -170,11 +170,7 @@ private val LABEL_TO_PAYLOAD_GAP = 4.dp
 private const val INK_FLIP_LUMINANCE = 0.179f
 
 /**
- * Literally white, never a theme token and never [ScannableCardScreen]'s face tint,
- * because the code is real content and must stay theme-independent and scannable in dark
- * mode. Mirrors `COMPACT_CODE_BACKING` so the list-face and detail-face renders of a code
- * share one white-backing rule. Internal (not private) so the smoke test pins the value;
- * rerouting the panel off this constant, or letting a tint reach it, is amending the
- * contract rather than refactoring it.
+ * Literally white, never a theme token or the face tint, so the code scans in dark mode, as
+ * `COMPACT_CODE_BACKING` is. Internal so the smoke test pins it.
  */
 internal val SCAN_CODE_PANEL: Color = Color.White

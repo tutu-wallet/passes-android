@@ -36,7 +36,7 @@ The kernel draws no document list item. A consumer renders documents in a list o
 1. **The sibling data-model contract holds.** The merge is render-time only. A row is built from `DocumentRow` / `PdfDocument` (or the image and composite arms), never by widening it into a `Pass` or a shared supertype with one.
 2. **The row carries no signature or verified affordance**, and none can be themed onto it. The list is where a document sits closest to a pkpass.
 3. **Detail-surface provenance holds**: the host "Pass type" row on the detail surface, which is the only way into the full-screen view (D5.T). A consumer that drops the row is amending D5.T, not filing a PR.
-4. **The row names its class and draws no page or image.** The class label is host-written (List-surface presentation), visible without interaction, and never truncated or displaced by the display label; the row's accessible description names the class. Dropping either part amends this ADR and the consumer list concession in `SCANNABLE_CARD_THREAT_MODEL.md`, which holds the full condition list for every class.
+4. **The row names its class and draws no page or image outside its document tile.** The class label is host-written (List-surface presentation), visible without interaction, never truncated or displaced by the display label, and sits outside the tile; the row's accessible description names the class. The tile shows only the thumbnail stored at import, under condition 4 of the consumer list concession in `SCANNABLE_CARD_THREAT_MODEL.md`, which holds the full condition list for every class. Dropping any part amends this ADR and that concession.
 
 ### D2. System renderer only: `android.graphics.pdf.PdfRenderer`
 
@@ -198,7 +198,7 @@ The same trust posture (user-supplied file, never signature-verified, provenance
 
 ### I1. `Document` is sealed: `PdfDocument | ImageDocument` (plus the composite arm, C1)
 
-`PdfDocument` keeps `pageCount`; `ImageDocument` carries `widthPx` / `heightPx` instead (the kind-specific field lives on its arm, never on the supertype). `ImageDocument` shares no superclass with `Pass` and has no `SignatureStatus`. The dimensions are the bounded raster decoded inside the sandbox, never derived from an in-process decode of untrusted bytes, never upscaled beyond source. The model carries no container format; that is a persistence detail.
+`PdfDocument` keeps `pageCount`; `ImageDocument` carries `widthPx` / `heightPx` instead (the kind-specific field lives on its arm, never on the supertype). `ImageDocument` shares no superclass with `Pass` and has no `SignatureStatus`. The dimensions are the bounded raster decoded inside the sandbox, never derived from an in-process decode of untrusted bytes, never upscaled beyond source. The stored thumbnail is that raster scaled down in the app process and PNG-encoded there; no codec reads the imported bytes in the app process (List-surface presentation). The model carries no container format; that is a persistence detail.
 
 ### I2. The image reject taxonomy is not merged into `DocumentRejectedKind`
 
@@ -251,7 +251,13 @@ Nullable `barcode_payload TEXT` / `barcode_format TEXT` columns on `documents`. 
 
 ## List-surface presentation
 
-Document items in a consumer's own list (in whatever shape it draws them) take a class tint (D1.C), name the artifact class in a host-written class label ("PDF" / "IMAGE" / "IMAGE, QR CODE"), carry no verified affordance of any kind and no content preview (no page or image thumbnail). The label's position is the consumer's layout choice, provided it is visible without interaction and never truncated or displaced by the display label. Past the class label, the provenance signal is the host's "Pass type" row on the detail surface (D5.T). The composite list-face code posture is a C1/C2 concession recorded as "list-face code render" in `SCANNABLE_CARD_THREAT_MODEL.md`. Issuer color and imagery reach only a pkpass item's pass tile, never a document item, and no document item draws the pass mark (ADR 0003 D4 addendum; consumer list concession, conditions 3 and 4).
+Document items in a consumer's own list (in whatever shape it draws them) take a class tint (D1.C), name the artifact class in a host-written class label ("PDF" / "IMAGE" / "IMAGE, QR CODE") and carry no verified affordance of any kind. The label's position is the consumer's layout choice, provided it is visible without interaction, never truncated or displaced by the display label, and outside the item's document tile. Past the class label, the provenance signal is the host's "Pass type" row on the detail surface (D5.T). Issuer color and imagery reach only a pkpass item's pass tile, never a document item, and no document item draws the pass mark (ADR 0003 D4 addendum; consumer list concession, conditions 3 and 4).
+
+A document item may show its stored thumbnail in a document tile of host-fixed size and position, clipped to the tile (to fill it, the host sizes `BoundedImage` to cover the tile at the thumbnail's aspect, 3:4 for a PDF, and clips), with the item's class tint while it loads or if it fails. A composite shows its photo there and renders no code from its payload. The bounds are condition 4 of the consumer list concession; what this ADR adds is where the pixels come from:
+
+- The thumbnail is the PNG the importer handed the persist callback and storage keeps in `document_thumbnails`, encrypted with the document and deleted with it. The importer fits it to 600 x 800 (`DocumentThumbnailBounds`): page 0 rendered by the isolated renderer at import (D3, D7), centred on white in exactly that box, or the image sandbox's raster scaled down in the app process, keeping its aspect, where no codec reads the imported bytes (I1, C2). An image or composite document stored by an earlier kernel can hold its whole raster, up to 2048 px a side. Nothing renders a page or decodes an original for the list.
+- In the list it decodes in the app process only through `passes-ui`'s `BoundedImage`, under the limits pass images meet: PNG only, picture chunks only, a source ceiling, at most two decodes at a time. Those limits hold whatever the stored bytes are. The original bytes still decode only in the isolated processes.
+- The live render facades (`rememberPdfThumbnail`, `rememberDocumentImage`) serve the detail and full-screen surfaces, not list rows.
 
 ## Out of scope
 
@@ -266,7 +272,7 @@ Document items in a consumer's own list (in whatever shape it draws them) take a
 |---|---|
 | D1, I1, C1 | `PublicApiSurfaceTest` in `passes-document-core` (arm set; no shared superclass with `Pass`) |
 | D1.C | `DocumentFaceTintTest` (tint cannot change the render request; transparent tint falls back); `DocumentSurfaceLockTest.documentViewHasExactlyTenUserVisibleParameters` (`faceTint` is the one colour parameter) |
-| D1.L | Consumer-side: the kernel cannot verify a host's list at runtime |
+| D1.L | Consumer-side: the kernel cannot verify a host's list at runtime. Kernel side of the document tile: `ImageThumbnailInstrumentedTest`, `PdfImporterTest` and `PublicApiSurfaceTest.storedThumbnailsFitTheSameBoxForEveryKind` (the stored thumbnail fits 600 x 800); `BoundedImageDecodeInstrumentedTest.aStoredDocumentThumbnailDecodesAtTileBounds` |
 | D2 | No test (no classpath scan for `pdfbox-android` / `mupdf`) |
 | D3 | `@Ignore`d stub, not run: malformed PDF crashes the renderer, the main process survives, rebind succeeds (`PdfRendererServiceInstrumentedTest`) |
 | D4 | reflection: binder has exactly `probe` and `render`; `PdfThumbnailSurfaceTest` |

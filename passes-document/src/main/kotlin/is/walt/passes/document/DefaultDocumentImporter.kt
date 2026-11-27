@@ -470,12 +470,8 @@ internal class DefaultDocumentImporter(
         }
 
         /**
-         * Reconstructs the bounded ARGB_8888 raster the sandbox returned into a host `Bitmap`,
-         * PNG-encodes it as the display thumbnail, and closes the `SharedMemory` on every path.
-         * The raster is Walt-produced (already decoded and bounded inside the sandbox), so this
-         * in-process work never runs a codec over hostile bytes. Returns
-         * [ImageDecodeOutcome.Rejected] with [ImageDecodeRejectedKind.DecodeFailed] if the
-         * reconstruction or PNG-compress throws.
+         * PNG-encodes the sandbox's raster, scaled into [DocumentThumbnailBounds], as the stored thumbnail. No codec
+         * reads untrusted bytes here; a throw folds to `DecodeFailed`, and the `SharedMemory` is always closed.
          */
         private fun encodeRasterToThumbnail(ok: ImageDecodeResult.Ok): ImageDecodeOutcome =
             runCatching {
@@ -484,10 +480,15 @@ internal class DefaultDocumentImporter(
                     val bitmap = Bitmap.createBitmap(ok.widthPx, ok.heightPx, Bitmap.Config.ARGB_8888)
                     try {
                         bitmap.copyPixelsFromBuffer(mapped)
-                        val png = ByteArrayOutputStream().also { out ->
-                            bitmap.compress(Bitmap.CompressFormat.PNG, PNG_QUALITY, out)
-                        }.toByteArray()
-                        ImageDecodeOutcome.Decoded(png, ok.widthPx, ok.heightPx)
+                        val thumbnail = scaledDown(bitmap, thumbnailSize(ok.widthPx, ok.heightPx))
+                        try {
+                            val png = ByteArrayOutputStream().also { out ->
+                                thumbnail.compress(Bitmap.CompressFormat.PNG, PNG_QUALITY, out)
+                            }.toByteArray()
+                            ImageDecodeOutcome.Decoded(png, ok.widthPx, ok.heightPx)
+                        } finally {
+                            if (thumbnail !== bitmap) thumbnail.recycle()
+                        }
                     } finally {
                         bitmap.recycle()
                     }
@@ -498,6 +499,14 @@ internal class DefaultDocumentImporter(
             }.getOrElse {
                 runCatching { ok.sharedMemory.close() }
                 ImageDecodeOutcome.Rejected(ImageDecodeRejectedKind.DecodeFailed)
+            }
+
+        // Halving first keeps a single bilinear pass from aliasing text in a large screenshot.
+        private fun scaledDown(source: Bitmap, target: ThumbnailSize): Bitmap =
+            scaleSteps(ThumbnailSize(source.width, source.height), target).fold(source) { current, step ->
+                Bitmap.createScaledBitmap(current, step.widthPx, step.heightPx, true).also {
+                    if (current !== source) current.recycle()
+                }
             }
 
         private const val PNG_QUALITY: Int = 100

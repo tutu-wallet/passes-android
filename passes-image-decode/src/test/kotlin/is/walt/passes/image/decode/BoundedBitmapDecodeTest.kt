@@ -6,6 +6,7 @@ import com.google.common.truth.Truth.assertThat
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.annotation.Config
+import kotlin.math.roundToInt
 
 /**
  * The pure halves, plus the gate dispatch through Robolectric's `ImageDecoder` stub (about 100 x 100
@@ -79,6 +80,23 @@ class BoundedBitmapDecodeTest {
     }
 
     @Test
+    fun aBoxTwiceTheOutputDecodesAtLeastTheRoundedOutputFit() {
+        val outputs = listOf(DecodeSize(64, 64), DecodeSize(195, 252), DecodeSize(600, 800), DecodeSize(1080, 2048))
+        for (output in outputs) {
+            // The tightest case: one pixel past twice the box, so the divisor is 2.
+            val boundary = listOf(DecodeSize(output.width * 2 + 1, 2 * output.height - 1))
+            val headers =
+                boundary + (1..40).flatMap { i -> listOf(DecodeSize(97 * i, 61 * i), DecodeSize(53 * i, 149 * i)) }
+            for (header in headers) {
+                val fit = minOf(output.width.toDouble() / header.width, output.height.toDouble() / header.height, 1.0)
+                val decoded = decodeSize(header, DecodeSize(output.width * 2, output.height * 2))
+                assertThat(decoded.width).isAtLeast((header.width * fit).roundToInt().coerceAtLeast(1))
+                assertThat(decoded.height).isAtLeast((header.height * fit).roundToInt().coerceAtLeast(1))
+            }
+        }
+    }
+
+    @Test
     fun extremeAspectKeepsAtLeastOnePixel() {
         assertThat(decodeSize(16_777_216, 1)).isEqualTo(DecodeSize(1919, 1))
         assertThat(decodeSize(1, 16_777_216)).isEqualTo(DecodeSize(1, 1919))
@@ -99,10 +117,21 @@ class BoundedBitmapDecodeTest {
     }
 
     @Test
-    fun decodeReturnsBitmapWhenGateAccepts() {
-        val result = decodeBounded(rawBytes = STUB_INPUT, policy = policy(maxSide = 4096))
+    fun decodeReturnsBitmapAndTheGatedHeaderWhenGateAccepts() {
+        var gated: DecodeSize? = null
+        val recording =
+            BoundedDecodePolicy(
+                allocator = ImageDecoder.ALLOCATOR_SOFTWARE,
+                gate = { _, width, height -> null.also { gated = DecodeSize(width, height) } },
+                maxSize = null,
+                onMalformed = { Reason.Malformed },
+                onRuntimeFailure = { Reason.Malformed },
+                onOutOfMemory = null,
+            )
+        val result = decodeBounded(rawBytes = STUB_INPUT, policy = recording)
         assertThat(result).isInstanceOf(BoundedBitmap.Decoded::class.java)
         assertThat((result as BoundedBitmap.Decoded).bitmap).isNotNull()
+        assertThat(result.header).isEqualTo(gated)
     }
 
     @Test

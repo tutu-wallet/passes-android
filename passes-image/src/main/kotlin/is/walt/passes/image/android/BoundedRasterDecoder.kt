@@ -7,27 +7,14 @@ import android.os.SharedMemory
 import android.system.OsConstants
 import `is`.walt.passes.image.decode.BoundedBitmap
 import `is`.walt.passes.image.decode.BoundedDecodePolicy
+import `is`.walt.passes.image.decode.DecodeSize
 import `is`.walt.passes.image.decode.decodeBounded
 import `is`.walt.passes.isolation.readBoundedBytes
 import kotlin.math.roundToInt
 
 /**
- * Decodes an original user image to a bounded, Walt-produced ARGB_8888 raster *inside* the
- * `:imageDecoder` sandbox (wpass-6yp), with the wpass-i9x caps applied before the platform
- * decoder allocates a full-size bitmap. This is the dominant hostile-input surface
- * (CVE-2023-4863 libwebp / CVE-2020-16010 class), so it runs only here — never in the
- * caller's process — and every cap is a pre-allocation gate.
- *
- * The decode is the same `ImageDecoder` + `OnHeaderDecodedListener` lever (via the shared
- * `passes-image-decode` [decodeBounded]) that `passes-barcode` uses for symbol analysis and
- * `passes-ui` uses for in-process display, but here the produced bitmap is rescaled to a
- * bounded output and copied into [SharedMemory]; the source bytes and the full-size bitmap
- * never leave the sandbox. Only the rescaled pixel buffer crosses back over the binder.
- *
- * Reads via the shared [readBoundedBytes]; [image] stays open for [doDecode].
- *
- * Stays a top-level function (not a class) so its phases are unit-testable without a live
- * service: [headerRejection] against the cap table and [outputDims] against the scaling math.
+ * Decodes an original user image inside the sandbox to a bounded raster; only that raster crosses the
+ * binder. Every cap is checked before the platform decoder allocates the bitmap.
  */
 internal fun decodeRasterFromPfd(
     image: ParcelFileDescriptor,
@@ -35,9 +22,7 @@ internal fun decodeRasterFromPfd(
     maxHeightPx: Int,
     config: ImageDecodeConfig,
 ): ImageDecodeResult {
-    // Output-bound check before reading or allocating anything: a caller asking for a
-    // non-positive or over-cap output raster is refused up front (defence against the host
-    // requesting an arbitrarily large bitmap on the sandbox side; mirrors PdfRendererService).
+    // Refuses an over-cap output request before reading anything, as PdfRendererService does.
     if (!isOutputSizeValid(maxWidthPx, maxHeightPx, config.maxOutputPixels)) {
         return ImageDecodeResult.Rejected(ImageDecodeRejectedKind.DecodeFailed)
     }
@@ -54,16 +39,8 @@ internal fun isOutputSizeValid(maxWidthPx: Int, maxHeightPx: Int, maxOutputPixel
     maxWidthPx > 0 && maxHeightPx > 0 && maxWidthPx.toLong() * maxHeightPx.toLong() <= maxOutputPixels
 
 /**
- * The pure header-cap decision: given the container [mimeType] and decoded-but-not-allocated
- * [width]/[height] reported to the `OnHeaderDecodedListener`, return the reason to reject, or
- * null to proceed. Extracted so the cap math and the format allowlist are unit-testable
- * without driving the platform decoder (whose native decode the JVM test runtime cannot
- * exercise — that half is the instrumented suite).
- *
- * A container outside [ImageDecodeConfig.allowedMimeTypes] folds to
- * [ImageDecodeRejectedKind.NotAnImage]: from the caller's view an unsupported container is one
- * this decoder will not turn into pixels. Over-dimension or over-area folds to
- * [ImageDecodeRejectedKind.DimensionsTooLarge] — the decompression-bomb bucket.
+ * The header-cap decision, or null to decode: a container outside the allowlist is
+ * [ImageDecodeRejectedKind.NotAnImage], an oversized one [ImageDecodeRejectedKind.DimensionsTooLarge].
  */
 internal fun headerRejection(
     mimeType: String?,
@@ -78,13 +55,7 @@ internal fun headerRejection(
         else -> null
     }
 
-/**
- * Output raster dimensions: an aspect-preserving fit of the source [srcW] x [srcH] into the
- * requested [maxWidthPx] x [maxHeightPx] bound, never upscaled past the source (a tiny image
- * is returned at native size and the host scales it up cheaply for display). The source's own
- * aspect ratio is preserved, so the raster is never stretched at the source — the host applies
- * `ContentScale.Fit` and letterboxes inside its slot, exactly as the PDF page surface does.
- */
+/** [srcW] x [srcH] fitted into the bound, aspect kept and never enlarged past the source. */
 internal fun outputDims(srcW: Int, srcH: Int, maxWidthPx: Int, maxHeightPx: Int): OutputDims {
     val fit = minOf(maxWidthPx.toFloat() / srcW, maxHeightPx.toFloat() / srcH, 1f)
     val w = (srcW * fit).roundToInt().coerceIn(1, maxWidthPx)
@@ -95,13 +66,8 @@ internal fun outputDims(srcW: Int, srcH: Int, maxWidthPx: Int, maxHeightPx: Int)
 internal data class OutputDims(val widthPx: Int, val heightPx: Int)
 
 /**
- * Decode [rawBytes] under the [headerRejection] caps via the shared [decodeBounded] mechanism,
- * which fires the gate before the backing bitmap is allocated, then rescale to the bounded
- * output and pack into [SharedMemory]. Posture: a software allocator so the pixels can be read
- * back into the SharedMemory buffer (a hardware bitmap refuses `copyPixelsToBuffer`), and
- * containment of the decode failures the platform raises (OOM bucketed as a decompression-bomb
- * rejection). The platform-decode integration is the instrumented half; the cap decision and
- * the scaling math are unit-tested via [headerRejection] / [outputDims].
+ * Decodes under [rasterPolicy], then scales to the output and packs it into [SharedMemory]. Size and
+ * aspect come from the header, so the codec's whole-number division never shifts them.
  */
 internal fun decodeBoundedRaster(
     rawBytes: ByteArray,
@@ -109,36 +75,33 @@ internal fun decodeBoundedRaster(
     maxHeightPx: Int,
     config: ImageDecodeConfig,
 ): ImageDecodeResult =
-    when (
-        val decoded =
-            decodeBounded(
-                rawBytes = rawBytes,
-                policy =
-                    BoundedDecodePolicy(
-                        allocator = ImageDecoder.ALLOCATOR_SOFTWARE,
-                        gate = { mimeType, width, height -> headerRejection(mimeType, width, height, config) },
-                        // Scaled to the requested output after the decode.
-                        maxSize = null,
-                        onMalformed = { ImageDecodeRejectedKind.NotAnImage },
-                        onRuntimeFailure = { ImageDecodeRejectedKind.DecodeFailed },
-                        onOutOfMemory = { ImageDecodeRejectedKind.DimensionsTooLarge },
-                    ),
-            )
-    ) {
+    when (val decoded = decodeBounded(rawBytes, rasterPolicy(maxWidthPx, maxHeightPx, config))) {
         is BoundedBitmap.Rejected -> ImageDecodeResult.Rejected(decoded.reason)
-        is BoundedBitmap.Decoded -> packScaledRaster(decoded.bitmap, maxWidthPx, maxHeightPx)
+        is BoundedBitmap.Decoded -> packScaledRaster(decoded.bitmap, decoded.header, maxWidthPx, maxHeightPx)
     }
 
 /**
- * Rescale [bitmap] to the bounded output and copy it into a read-only [SharedMemory]. Owns and
- * recycles both the source bitmap and any scaled intermediate before returning, so no native
- * pixel buffer outlives this call inside the sandbox. A throw here (e.g. an OOM during the
- * scale, or a SharedMemory allocation failure) propagates to [doDecode]'s containment, which
- * folds it to [ImageDecodeRejectedKind.DecodeFailed].
+ * The sandbox's decode posture: a software allocator so the pixels can be copied out, the
+ * [headerRejection] caps, and OOM folded as a decompression bomb.
  */
-private fun packScaledRaster(bitmap: Bitmap, maxWidthPx: Int, maxHeightPx: Int): ImageDecodeResult {
-    val sourceAspect = bitmap.width.toFloat() / bitmap.height.toFloat()
-    val dims = outputDims(bitmap.width, bitmap.height, maxWidthPx, maxHeightPx)
+internal fun rasterPolicy(
+    maxWidthPx: Int,
+    maxHeightPx: Int,
+    config: ImageDecodeConfig,
+): BoundedDecodePolicy<ImageDecodeRejectedKind> =
+    BoundedDecodePolicy(
+        allocator = ImageDecoder.ALLOCATOR_SOFTWARE,
+        gate = { mimeType, width, height -> headerRejection(mimeType, width, height, config) },
+        // Twice the output, so the whole-number division still covers it and only a downscale follows.
+        maxSize = DecodeSize(maxWidthPx * 2, maxHeightPx * 2),
+        onMalformed = { ImageDecodeRejectedKind.NotAnImage },
+        onRuntimeFailure = { ImageDecodeRejectedKind.DecodeFailed },
+        onOutOfMemory = { ImageDecodeRejectedKind.DimensionsTooLarge },
+    )
+
+/** Scales [bitmap] to [header] fitted into the bound, copies it into read-only [SharedMemory], recycles both. */
+private fun packScaledRaster(bitmap: Bitmap, header: DecodeSize, maxWidthPx: Int, maxHeightPx: Int): ImageDecodeResult {
+    val dims = outputDims(header.width, header.height, maxWidthPx, maxHeightPx)
     val scaled =
         if (dims.widthPx == bitmap.width && dims.heightPx == bitmap.height) {
             bitmap
@@ -150,7 +113,7 @@ private fun packScaledRaster(bitmap: Bitmap, maxWidthPx: Int, maxHeightPx: Int):
             sharedMemory = packIntoSharedMemory(scaled, dims.widthPx, dims.heightPx),
             widthPx = dims.widthPx,
             heightPx = dims.heightPx,
-            sourceAspect = sourceAspect,
+            sourceAspect = header.width.toFloat() / header.height.toFloat(),
         )
     } finally {
         if (scaled !== bitmap) scaled.recycle()

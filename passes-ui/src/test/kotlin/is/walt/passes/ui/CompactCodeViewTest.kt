@@ -16,14 +16,8 @@ import org.junit.runner.RunWith
 import org.robolectric.annotation.Config
 
 /**
- * Robolectric-backed Compose smoke tests for [CompactCodeView] (wpass-tjc.2). Locks
- * the two behavioral contracts that matter at list scale:
- *
- *  1. A valid `(payload, format)` renders an image node carrying the caller-supplied
- *     [contentDescription] — the card face's dominant visual stays TalkBack-reachable.
- *  2. An encoder rejection renders the same-sized placeholder with the literal
- *     "Barcode failed to render" description (shared wording with [ScannableCardView])
- *     instead of throwing — a malformed payload cannot crash the wallet list.
+ * A valid code renders an image carrying the caller's description; an encoder rejection renders the shared
+ * "Barcode failed to render" placeholder instead of throwing.
  */
 @RunWith(AndroidJUnit4::class)
 @Config(sdk = [34])

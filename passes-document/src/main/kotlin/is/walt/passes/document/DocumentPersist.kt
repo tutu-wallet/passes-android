@@ -3,21 +3,8 @@ package `is`.walt.passes.document
 import `is`.walt.passes.core.ScannableFormat
 
 /**
- * What [DocumentImporter] hands its `persist` callback on the success path — a sealed
- * discriminator over the document kinds. The consumer's lambda maps this to
- * `passes-storage`'s `DocumentInsert` (PDF → `DocumentInsert.Pdf`, image →
- * `DocumentInsert.Image`, composite → `DocumentInsert.BarcodedImage`); the importer stays
- * storage-agnostic, exactly as `PdfImporter`'s callback keeps `passes-pdf` and `passes-storage`
- * independent peers.
- *
- * Modelled as a sealed interface (not a widened nullable parameter list) so the consumer's
- * mapping is exhaustive and a caller cannot persist an image with a page count or a PDF with
- * pixel dimensions.
- *
- * [bytes] is always the ORIGINAL document bytes (PDF bytes, or the original compressed image
- * bytes) — persist them verbatim; this is the "persist original" half of the import contract.
- * [thumbnailBytes] is a Walt-produced PNG: page-0 for a PDF, the bounded sandbox raster for an
- * image.
+ * What [DocumentImporter] hands `persist`: the original [bytes] to store verbatim, and [thumbnailBytes], a PNG the
+ * kernel encoded to fit [DocumentThumbnailBounds] (page 0 for a PDF, the sandbox raster scaled down for an image).
  */
 public sealed interface DocumentPersist {
     public val label: String

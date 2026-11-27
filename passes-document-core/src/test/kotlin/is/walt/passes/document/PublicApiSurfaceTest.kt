@@ -26,6 +26,12 @@ class PublicApiSurfaceTest {
     }
 
     @Test
+    fun storedThumbnailsFitTheSameBoxForEveryKind() {
+        assertThat(DocumentThumbnailBounds.MAX_WIDTH_PX).isEqualTo(600)
+        assertThat(DocumentThumbnailBounds.MAX_HEIGHT_PX).isEqualTo(800)
+    }
+
+    @Test
     fun pdfImportConfigDefaultGuardIsNoOp() {
         assertThat(PdfImportConfig().telemetryGuard).isSameInstanceAs(DocumentTelemetryGuard.NoOp)
     }

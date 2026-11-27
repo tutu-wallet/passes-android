@@ -7,6 +7,7 @@ import android.os.ParcelFileDescriptor
 import `is`.walt.passes.document.DocumentImportFailedEvent
 import `is`.walt.passes.document.DocumentImportSucceededEvent
 import `is`.walt.passes.document.DocumentRejectedKind
+import `is`.walt.passes.document.DocumentThumbnailBounds
 import `is`.walt.passes.document.PdfDocument
 import `is`.walt.passes.document.PdfDocumentId
 import `is`.walt.passes.document.PdfImportConfig
@@ -196,8 +197,15 @@ internal class DefaultPdfImporter(
                 is ProbeResult.Rejected -> return rejectAndReport(probe.kind, startedAt)
                 is ProbeResult.Ok -> probe.pageCount
             }
+        val render =
+            client.render(
+                pfd,
+                page = 0,
+                widthPx = DocumentThumbnailBounds.MAX_WIDTH_PX,
+                heightPx = DocumentThumbnailBounds.MAX_HEIGHT_PX,
+            )
         val thumbnailBytes =
-            when (val render = client.render(pfd, page = 0, widthPx = THUMB_WIDTH_PX, heightPx = THUMB_HEIGHT_PX)) {
+            when (render) {
                 is RenderResult.Rejected -> return rejectAndReport(render.kind, startedAt)
                 is RenderResult.Ok ->
                     runCatching { deps.thumbnailEncoder.encode(render) }
@@ -313,10 +321,6 @@ internal class DefaultPdfImporter(
         // Read buffer for the materialization loop. 64 KiB matches the InputStream.copyTo
         // default and keeps the read syscall count low without inflating per-import RAM.
         const val COPY_BUFFER_SIZE: Int = 64 * 1024
-
-        // Smoke-render size: 480 000 px, well under the renderer's PdfRendererService.MAX_PIXELS.
-        const val THUMB_WIDTH_PX: Int = 600
-        const val THUMB_HEIGHT_PX: Int = 800
 
         const val HEADER_BYTES: Int = 8
 
