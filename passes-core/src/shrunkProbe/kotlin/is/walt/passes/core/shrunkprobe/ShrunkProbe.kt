@@ -8,9 +8,8 @@ import `is`.walt.passes.core.internal.SignatureVerifyResult
 import `is`.walt.passes.core.internal.verifySignature
 
 /**
- * Stands in for a consuming app in the R8 run of `:passes-core:shrinkProbe`: the only kept
- * entry point, so the kernel is shrunk and renamed exactly as far as its own rules allow.
- * Verdicts are spelled out as literals because class names do not survive renaming.
+ * Stands in for a consuming app in the R8 run of `:passes-core:r8ShrunkProbe`, as its only kept
+ * entry point. Verdicts come from data-object `toString`, which survives renaming.
  */
 public object ShrunkProbe {
     /** Parses a whole pkpass through the public parser with the default config. */

@@ -33,13 +33,13 @@
 #
 # Keep the two provider packages whole, names included (the lookups are by
 # literal string name, so renaming breaks them just as removal does). This is
-# the established minimal-practical set for bcprov under R8 (ShrunkBuildSignatureTest runs
-# verification on an R8 output built with these rules and fails without them): it does NOT keep
+# the established minimal-practical set for bcprov under R8: it does NOT keep
 # org.bouncycastle.{asn1,crypto,math,cms,cert,operator}.** -- those are either
 # referenced directly from passes-core code or transitively from the kept
 # provider classes, so R8's normal reachability retains exactly the parts in use.
 -keep class org.bouncycastle.jcajce.provider.** { *; }
 -keep class org.bouncycastle.jce.provider.** { *; }
+# ShrunkBuildSignatureTest fails without the two keeps above.
 -dontwarn org.bouncycastle.**
 
 # Intentionally NOT included:

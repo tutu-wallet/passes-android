@@ -453,6 +453,28 @@ class SignatureVerifierTest {
         assertOk(result, SignatureStatus.AppleVerified)
     }
 
+    @Test
+    fun ecdsaSignedEnvelopeVerifies() {
+        // The bundled G3 root and G6 intermediate are ECDSA; every other synthetic chain is RSA.
+        val rootKey = newEcKeyPair()
+        val root = selfSignedCertificate(rootKey, "CN=Test EC Root")
+        val leafKey = newEcKeyPair()
+        val leaf = signLeafCertificate(leafKey.public, rootKey, root, "CN=Test EC Leaf")
+        val manifest = "{\"pass.json\":\"abcd\"}".toByteArray()
+        val signature = cmsDetachedSignature(manifest, leaf, leafKey.private, listOf(leaf, root))
+
+        val result =
+            verifySignatureAgainstAnchorsForTesting(
+                signature,
+                manifest,
+                ParserConfig(),
+                setOf(TrustAnchor(root, null)),
+                emptySet(),
+            )
+
+        assertOk(result, SignatureStatus.AppleVerified)
+    }
+
     /**
      * Control for the three tests below: proves the fixture really does reproduce the
      * wpass-x70 wire shape. Stock BouncyCastle re-encodes the attributes as sorted DER

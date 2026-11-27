@@ -14,11 +14,15 @@ dependencies {
     testImplementation(libs.truth)
 }
 
-// Shrunk-build check: R8 runs over this module, its dependencies and a probe standing in for
-// a consuming app, with only the kernel's own embedded rules. ShrunkBuildSignatureTest calls it.
+// Shrunk-build check: R8 (classfile mode, the JDK as library) runs over this module, its
+// dependencies and a probe, adding no keep rule but the probe's own. ShrunkBuildSignatureTest
+// runs on the output, so it covers keep rules at run time and nothing specific to Android.
 val shrunkProbe: SourceSet by sourceSets.creating
-detekt { source.setFrom("src/main/kotlin", "src/test/kotlin", "src/shrunkProbe/kotlin") }
-val r8: Configuration by configurations.creating
+val r8: Configuration by configurations.creating { isCanBeConsumed = false }
+val shrunkClasses = layout.buildDirectory.dir("shrunkProbe/classes")
+val shrunkTestPattern = "*.ShrunkBuild*"
+
+detekt { source.from("src/shrunkProbe/kotlin") }
 
 kotlin.target.compilations.named("shrunkProbe") {
     associateWith(kotlin.target.compilations.getByName("main"))
@@ -34,15 +38,16 @@ val shrunkProbeJar by tasks.registering(Jar::class) {
     from(shrunkProbe.output)
 }
 
-val shrinkProbe by tasks.registering(JavaExec::class) {
+val r8ShrunkProbe by tasks.registering(JavaExec::class) {
+    description = "Shrinks and renames this module, its dependencies and the probe with R8."
+    group = LifecycleBasePlugin.VERIFICATION_GROUP
     val program = files(tasks.jar, shrunkProbeJar, configurations.runtimeClasspath)
     val rules = layout.projectDirectory.file("src/shrunkProbe/probe.pro")
-    // A directory, not a jar: R8 copies BouncyCastle's jar signature files, which a class
-    // loader would reject against the rewritten classes.
-    val shrunkDir = layout.buildDirectory.dir("shrunkProbe/classes")
     inputs.files(program).withNormalizer(ClasspathNormalizer::class)
     inputs.file(rules)
-    outputs.dir(shrunkDir)
+    // A directory, not a jar: R8 copies BouncyCastle's jar signature files, which a class
+    // loader would reject against the rewritten classes.
+    outputs.dir(shrunkClasses)
     classpath = r8
     mainClass = "com.android.tools.r8.R8"
     argumentProviders.add(
@@ -51,11 +56,11 @@ val shrinkProbe by tasks.registering(JavaExec::class) {
                 "--classfile",
                 "--release",
                 "--lib",
-                System.getProperty("java.home"),
+                javaLauncher.get().metadata.installationPath.asFile.path,
                 "--pg-conf",
                 rules.asFile.path,
                 "--output",
-                shrunkDir.get().asFile.path,
+                shrunkClasses.get().asFile.path,
             ) + program.files.map { it.path }
         },
     )
@@ -63,7 +68,7 @@ val shrinkProbe by tasks.registering(JavaExec::class) {
     val log = layout.buildDirectory.file("shrunkProbe/r8.log")
     isIgnoreExitValue = true
     doFirst {
-        shrunkDir.get().asFile.apply {
+        shrunkClasses.get().asFile.apply {
             deleteRecursively()
             mkdirs()
         }
@@ -82,13 +87,16 @@ val shrunkTest by tasks.registering(Test::class) {
     group = LifecycleBasePlugin.VERIFICATION_GROUP
     testClassesDirs = sourceSets.test.get().output.classesDirs
     classpath = sourceSets.test.get().runtimeClasspath
-    filter { includeTestsMatching("*.ShrunkBuild*") }
-    inputs.files(shrinkProbe).withNormalizer(ClasspathNormalizer::class)
-    systemProperty("passes.shrunkClasses", shrinkProbe.get().outputs.files.singleFile.path)
+    filter { includeTestsMatching(shrunkTestPattern) }
+    inputs.files(r8ShrunkProbe).withNormalizer(ClasspathNormalizer::class)
+    // An argument provider, not systemProperty: the absolute path stays out of the cache key.
+    jvmArgumentProviders.add(
+        CommandLineArgumentProvider { listOf("-Dpasses.shrunkClasses=" + shrunkClasses.get().asFile.path) },
+    )
 }
 
 tasks.test {
-    filter { excludeTestsMatching("*.ShrunkBuild*") }
+    filter { excludeTestsMatching(shrunkTestPattern) }
 }
 
 tasks.check {

@@ -1,25 +1,29 @@
 package `is`.walt.passes.core.internal
 
 import com.google.common.truth.Truth.assertThat
-import org.junit.Assert.assertThrows
+import org.junit.AfterClass
 import org.junit.BeforeClass
 import org.junit.Test
 import java.io.File
 import java.net.URLClassLoader
+import java.security.Security
 
 /**
- * Signature verification inside the output of `:passes-core:shrinkProbe`: the kernel, its
- * dependencies and a probe, shrunk and renamed by R8 under the kernel's embedded rules alone.
- * Runs in `:passes-core:shrunkTest`, which builds that output. Fixtures are made out here and
- * cross as bytes, so nothing in this class keeps kernel code alive in the shrunk copy.
+ * Signature verification inside the R8 output of `:passes-core:r8ShrunkProbe`, on a desktop JVM.
+ * Fixtures are built here and cross as bytes, so this class keeps no kernel code alive there.
  */
 class ShrunkBuildSignatureTest {
     @Test
-    fun kernelClassesAreRenamedInTheShrunkOutput() {
-        // Guards the harness: an unrenamed copy would not exercise lookups by class name.
-        assertThrows(ClassNotFoundException::class.java) {
-            shrunk.loadClass("is.walt.passes.core.internal.DefaultPassParser")
-        }
+    fun onlyTheKeptKernelClassesKeepTheirNames() {
+        // Guards the harness: a run that stopped renaming, or a broad keep rule, shows up here.
+        val kernelRoot = shrunkClasses.resolve("is/walt/passes/core")
+        val named =
+            kernelRoot.walkTopDown()
+                .filter { it.extension == "class" }
+                .map { it.relativeTo(kernelRoot).invariantSeparatorsPath }
+                .toList()
+
+        assertThat(named).containsExactly("internal/AppleTrustAnchors.class", "shrunkprobe/ShrunkProbe.class")
     }
 
     @Test
@@ -32,6 +36,18 @@ class ShrunkBuildSignatureTest {
     @Test
     fun derSignedPassImports() {
         val pkpass = SyntheticPkpass.signedSelfSigned(PASS_JSON)
+
+        assertThat(parse(pkpass)).isEqualTo("Success(SelfSigned)")
+    }
+
+    @Test
+    fun ecdsaSignedPassImports() {
+        val key = newEcKeyPair()
+        val leaf = selfSignedCertificate(key, "CN=EC Signer")
+        val pkpass =
+            SyntheticPkpass.signedBy(PASS_JSON) { manifest ->
+                cmsDetachedSignature(manifest, leaf, key.private, listOf(leaf))
+            }
 
         assertThat(parse(pkpass)).isEqualTo("Success(SelfSigned)")
     }
@@ -73,6 +89,9 @@ class ShrunkBuildSignatureTest {
         method: String,
         vararg arguments: ByteArray,
     ): String {
+        // The fixture helpers register the unshrunk BouncyCastle as "BC" for the whole JVM;
+        // take it out so a lookup by name inside the shrunk copy could not borrow it.
+        Security.removeProvider("BC")
         val parameterTypes = Array(arguments.size) { ByteArray::class.java }
         return shrunk.loadClass(PROBE_CLASS).getMethod(method, *parameterTypes).invoke(null, *arguments) as String
     }
@@ -82,7 +101,8 @@ class ShrunkBuildSignatureTest {
         private const val PROBE_CLASS = "is.walt.passes.core.shrunkprobe.ShrunkProbe"
         private val PASS_JSON = SyntheticPkpass.minimalPassJson("eventTicket")
 
-        private lateinit var shrunk: ClassLoader
+        private lateinit var shrunkClasses: File
+        private lateinit var shrunk: URLClassLoader
 
         @BeforeClass
         @JvmStatic
@@ -91,8 +111,15 @@ class ShrunkBuildSignatureTest {
                 checkNotNull(System.getProperty(SHRUNK_CLASSES_PROPERTY)) {
                     "Run this class through :passes-core:shrunkTest, which sets $SHRUNK_CLASSES_PROPERTY."
                 }
+            shrunkClasses = File(path)
             // The platform loader as parent keeps the unshrunk test classpath out of reach.
-            shrunk = URLClassLoader(arrayOf(File(path).toURI().toURL()), ClassLoader.getPlatformClassLoader())
+            shrunk = URLClassLoader(arrayOf(shrunkClasses.toURI().toURL()), ClassLoader.getPlatformClassLoader())
+        }
+
+        @AfterClass
+        @JvmStatic
+        fun closeShrunkClasses() {
+            shrunk.close()
         }
     }
 }

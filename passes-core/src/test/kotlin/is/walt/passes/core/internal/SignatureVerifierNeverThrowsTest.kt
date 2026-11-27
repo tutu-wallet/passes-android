@@ -57,8 +57,16 @@ class SignatureVerifierNeverThrowsTest {
             setOf(chain.anchor) to emptySet<X509Certificate>()
         }
 
-        val first = verifySignatureWithTrustLoaderForTesting(chain.signature, chain.manifest, ParserConfig(), loader)
-        val second = verifySignatureWithTrustLoaderForTesting(chain.signature, chain.manifest, ParserConfig(), loader)
+        val verify = {
+            verifySignatureWithTrustLoaderForTesting(
+                chain.signature,
+                chain.manifest,
+                ParserConfig(),
+                loadTrust = loader,
+            )
+        }
+        val first = verify()
+        val second = verify()
 
         assertThat(first).isEqualTo(CRYPTO_FAILURE)
         assertThat(second).isEqualTo(SignatureVerifyResult.Ok(SignatureStatus.AppleVerified))
@@ -67,7 +75,7 @@ class SignatureVerifierNeverThrowsTest {
     @Test
     fun wireOrderFallbackFaultMapsToCryptoFailure() {
         // The altered manifest makes the DER path report a mismatch, so the fallback runs. A
-        // fallback that cannot run has not shown tampering, so the verdict is the crypto arm.
+        // fallback that cannot run has not shown a mismatch, so the verdict is the crypto arm.
         val chain = signedChain()
         val altered = chain.manifest.copyOf().also { it[1] = 0x20 }
         val faults =
@@ -76,13 +84,21 @@ class SignatureVerifierNeverThrowsTest {
                 NoSuchAlgorithmException("SHA256WITHRSA"),
                 NoClassDefFoundError("class removed by a shrinker"),
             )
+        var fallbackStarts = 0
         for (fault in faults) {
             val result =
-                verifySignatureWithWireOrderCheckForTesting(chain.signature, altered, ParserConfig()) { _, _, _, _ ->
-                    throw fault
-                }
+                verifySignatureWithTrustLoaderForTesting(
+                    chain.signature,
+                    altered,
+                    ParserConfig(),
+                    beforeWireOrderCheck = {
+                        fallbackStarts++
+                        throw fault
+                    },
+                ) { setOf(chain.anchor) to emptySet() }
             assertWithMessage(fault.toString()).that(result).isEqualTo(CRYPTO_FAILURE)
         }
+        assertThat(fallbackStarts).isEqualTo(faults.size)
     }
 
     @Test
@@ -90,11 +106,14 @@ class SignatureVerifierNeverThrowsTest {
         val chain = signedChain()
 
         val result =
-            verifySignatureWithWireOrderCheckForTesting(chain.signature, chain.manifest, ParserConfig()) { _, _, _, _ ->
-                error("fallback must not run")
-            }
+            verifySignatureWithTrustLoaderForTesting(
+                chain.signature,
+                chain.manifest,
+                ParserConfig(),
+                beforeWireOrderCheck = { error("fallback must not run") },
+            ) { setOf(chain.anchor) to emptySet() }
 
-        assertThat(result).isInstanceOf(SignatureVerifyResult.Ok::class.java)
+        assertThat(result).isEqualTo(SignatureVerifyResult.Ok(SignatureStatus.AppleVerified))
     }
 
     @Test

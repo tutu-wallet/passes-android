@@ -32,7 +32,10 @@ public sealed interface TamperReason {
     /** A file's SHA-1 hash in `manifest.json` did not match the file's actual contents. */
     public data object FileHashMismatch : TamperReason
 
-    /** The signature blob is structurally a PKCS#7 envelope but cryptographically malformed. */
+    /**
+     * The signature could not be verified: a malformed envelope, a verification step that could
+     * not run, or no signature under [ParserConfig.Strict]. Not evidence of a manifest mismatch.
+     */
     public data object SignatureCryptoFailure : TamperReason
 
     /**

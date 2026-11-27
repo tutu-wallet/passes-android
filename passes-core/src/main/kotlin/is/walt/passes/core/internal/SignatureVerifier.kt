@@ -58,11 +58,11 @@ import java.security.cert.X509Certificate
  *  1. CMS structurally well-formed and the signed math evaluates against
  *     `manifestBytes` to "doesn't match" — either [SignerInformation.verify] returns
  *     `false` or BC raises [CMSSignerDigestMismatchException] — **and** the
- *     wire-order fallback in [verifiesOverWireEncodedAttributes] also fails. →
+ *     wire-order fallback in [verifiesOverWireEncodedAttributes] also returns `false`. →
  *     [Failed] ([TamperReason.ManifestSignatureMismatch]).
  *  2. CMS structurally malformed, an unexpected BouncyCastle exception, or any
  *     cryptographic operation fails outside the digest-mismatch path, the wire-order
- *     fallback included: a check that could not run has not shown tampering. → [Failed]
+ *     fallback included: a check that could not run has not shown a mismatch. → [Failed]
  *     ([TamperReason.SignatureCryptoFailure]). The outer `runCatching` is the
  *     load-bearing safety net here: `verifySignature` must never propagate an
  *     exception out, since the parser-glue bead's `when` cannot surface one.
@@ -107,42 +107,29 @@ internal fun verifySignature(
 
 /**
  * **Test seam, DO NOT call from production code.** Lets a test inject a faulting
- * [loadTrust], which returns the trust anchors and known intermediates.
+ * [loadTrust], or a fault raised as the wire-order fallback starts ([beforeWireOrderCheck]).
  */
 internal fun verifySignatureWithTrustLoaderForTesting(
     signatureBytes: ByteArray,
     manifestBytes: ByteArray,
     config: ParserConfig,
+    beforeWireOrderCheck: () -> Unit = {},
     loadTrust: () -> Pair<Set<TrustAnchor>, Set<X509Certificate>>,
-): SignatureVerifyResult = verifyWithTrustLoader(signatureBytes, manifestBytes, config, loadTrust = loadTrust)
-
-/**
- * **Test seam, DO NOT call from production code.** Lets a test replace the wire-order
- * fallback with a faulting [wireOrderCheck]. No trust anchors are loaded.
- */
-internal fun verifySignatureWithWireOrderCheckForTesting(
-    signatureBytes: ByteArray,
-    manifestBytes: ByteArray,
-    config: ParserConfig,
-    wireOrderCheck: WireOrderCheck,
-): SignatureVerifyResult =
-    verifyWithTrustLoader(signatureBytes, manifestBytes, config, wireOrderCheck) {
-        emptySet<TrustAnchor>() to emptySet()
-    }
+): SignatureVerifyResult = verifyWithTrustLoader(signatureBytes, manifestBytes, config, beforeWireOrderCheck, loadTrust)
 
 /** The one `runCatching` every entrypoint shares. */
 private fun verifyWithTrustLoader(
     signatureBytes: ByteArray,
     manifestBytes: ByteArray,
     config: ParserConfig,
-    wireOrderCheck: WireOrderCheck = ::verifiesOverWireEncodedAttributes,
+    beforeWireOrderCheck: () -> Unit = {},
     loadTrust: () -> Pair<Set<TrustAnchor>, Set<X509Certificate>>,
 ): SignatureVerifyResult {
     // loadTrust stays inside: a stripped or corrupt bundled .cer throws there, and `by lazy`
     // re-throws on every call, so each call must still map to SignatureCryptoFailure.
     return runCatching {
         val (trustAnchors, knownIntermediates) = loadTrust()
-        val ctx = VerifyContext(config, trustAnchors, knownIntermediates, wireOrderCheck)
+        val ctx = VerifyContext(config, trustAnchors, knownIntermediates, beforeWireOrderCheck)
         verifyAndClassify(signatureBytes, manifestBytes, ctx)
     }.getOrElse { SignatureVerifyResult.Failed(TamperReason.SignatureCryptoFailure) }
 }
@@ -191,7 +178,7 @@ private fun finalizeVerification(
     manifestBytes: ByteArray,
     ctx: VerifyContext,
 ): SignatureVerifyResult {
-    if (!verifyMath(signerCert, signatureBytes, manifestBytes, ctx.wireOrderCheck)) {
+    if (!verifyMath(signerCert, signatureBytes, manifestBytes, ctx.beforeWireOrderCheck)) {
         return SignatureVerifyResult.Failed(TamperReason.ManifestSignatureMismatch)
     }
     val converter = JcaX509CertificateConverter().setProvider(BC_PROVIDER)
@@ -207,7 +194,7 @@ private fun finalizeVerification(
  * BouncyCastle 1.77 fork under the `"BC"` slot whose 105 services do not include
  * `Signature.SHA256withRSA`. Passing the string `"BC"` to BC builders resolves it via
  * [java.security.Security.getProvider], which returns Android's stripped instance
- * rather than the `bcprov-jdk18on:1.79` we ship in our APK; the verifier's
+ * rather than the `bcprov-jdk18on` we ship in our APK; the verifier's
  * `Signature.getInstance("SHA256withRSA", "BC")` lookup then throws
  * [java.security.NoSuchAlgorithmException], the outer `runCatching` absorbs it, and
  * every Apple-signed pkpass surfaces as [SignatureVerifyResult.Failed]
@@ -256,7 +243,7 @@ private fun verifyMath(
     signerCert: SignerWithHolder,
     signatureBytes: ByteArray,
     manifestBytes: ByteArray,
-    wireOrderCheck: WireOrderCheck,
+    beforeWireOrderCheck: () -> Unit,
 ): Boolean {
     val verifier =
         JcaSimpleSignerInfoVerifierBuilder()
@@ -271,13 +258,12 @@ private fun verifyMath(
             // back to a boolean keeps the policy mapping above readable.
             false
         }
+    if (derVerified) return true
     // Not caught here: a fallback that throws reaches the outer runCatching as
     // SignatureCryptoFailure, so a check that could not run is never reported as a mismatch.
-    return derVerified || wireOrderCheck(signerCert.signer, signerCert.holder, signatureBytes, manifestBytes)
+    beforeWireOrderCheck()
+    return verifiesOverWireEncodedAttributes(signerCert.signer, signerCert.holder, signatureBytes, manifestBytes)
 }
-
-/** The wire-order fallback's shape: signer, its certificate, the CMS blob, the manifest. */
-internal typealias WireOrderCheck = (SignerInformation, X509CertificateHolder, ByteArray, ByteArray) -> Boolean
 
 /**
  * Fallback for signers that computed the signature over the `SignedAttributes` SET in
@@ -482,5 +468,5 @@ private data class VerifyContext(
     val config: ParserConfig,
     val trustAnchors: Set<TrustAnchor>,
     val knownIntermediates: Set<X509Certificate>,
-    val wireOrderCheck: WireOrderCheck,
+    val beforeWireOrderCheck: () -> Unit,
 )

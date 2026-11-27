@@ -44,9 +44,9 @@ When the leaf expires, the fixture-based tests will downgrade from
      | awk '/subject:.*Pass Type ID/{found=1} found && /notAfter:/{print; exit}'
    ```
 4. Rerun `:passes-core:test --tests "*.SignatureVerifierTest.realAppleSignedPkpass*"`
-   and `:passes-core:shrunkTest` to confirm all four tests turn green again. The stripped-envelope test removes every
-   WWDR certificate from `signature`, so it assumes the replacement pass's intermediate
-   is one of those bundled in `AppleTrustAnchors`.
+   and `:passes-core:shrunkTest` to confirm all four tests turn green again. The
+   stripped-envelope test removes every WWDR certificate from `signature`, so it assumes
+   the replacement pass's intermediate is one of those bundled in `AppleTrustAnchors`.
 
 Snapshotting the PKIX path-build date to the CMS signing time would remove this
 maintenance loop; it is out of scope (see `SignatureVerifier.kt`'s docblock).
