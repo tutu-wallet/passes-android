@@ -206,9 +206,9 @@ bytes were imported or stored under. No parameter loosens the first three.
   ahead of the image data, every IDAT, and an empty IEND. Each of those kinds is
   decided by its first chunk alone: it is kept when its length is within the range the
   PNG format sets for the kind, and a later chunk of the kind is never looked at. A
-  colour profile (iCCP) is kept only when it is a whole stream that inflates to at most
-  262,144 bytes and opens with its own inflated length, as an ICC profile does.
-  Everything else is left
+  colour profile (iCCP) is kept only when its chunk is at most 263,168 bytes and holds
+  one whole stream, with nothing after it, that inflates to at most 262,144 bytes and
+  opens with its own inflated length, as an ICC profile does. Everything else is left
   out: text (tEXt, zTXt, iTXt), EXIF, animation, a gain map, nine-patch and unknown
   chunks, any chunk but image data once the image data has begun, and every byte after
   IEND. On API 34 and 36, where it was measured, the platform PNG reader holds a text
@@ -249,8 +249,8 @@ platform's, and was measured only for the cases named here:
   the codec.
 - A kept colour profile is parsed by the platform in the app process.
 - Each decode holds up to two more copies of the image's bytes while it builds the
-  picture, and inflates at most one colour profile into an 8 KiB scratch buffer,
-  stopping within 8 KiB past the cap, to measure it.
+  picture. To measure a colour profile it inflates at most one chunk of at most
+  263,168 bytes into an 8 KiB scratch buffer, stopping within 8 KiB past the cap.
 
 **How tested.**
 
@@ -265,7 +265,8 @@ platform's, and was measured only for the cases named here:
   kept ones come back byte for byte, both ends of each kind's length range, that a kind
   is decided by its first chunk even when that one is left out, that nothing but image
   data is kept once it has begun, the end at the first IEND, the profile cap at
-  262,144 bytes and one byte over, a profile that cannot be read or declares another
+  262,144 bytes and one byte over, the profile chunk cap at 263,168 bytes and one byte
+  over, a profile that cannot be read, has bytes after its stream or declares another
   length than it has, and the refusal of bytes that end inside a chunk or declare a
   chunk longer than the file.
 - `BoundedImageDecodeInstrumentedTest` runs the platform decoder (CI on API 28, 31, 34

@@ -5,6 +5,7 @@ import org.junit.Test
 import java.io.ByteArrayOutputStream
 import java.io.DataOutputStream
 import java.nio.ByteBuffer
+import java.util.zip.Adler32
 import java.util.zip.CRC32
 import java.util.zip.DeflaterOutputStream
 
@@ -116,6 +117,19 @@ class PngPictureTest {
     }
 
     @Test
+    fun dropsAColourProfileWhoseChunkIsLongerThanAnyProfileNeeds() {
+        // 203 stored blocks put a chunk within the profile cap at 263,168 bytes, and one byte more at one over.
+        val atTheChunkCap = storedProfileChunk(inflatedBytes = 262_142, blocks = 203)
+        val overTheChunkCap = storedProfileChunk(inflatedBytes = 262_143, blocks = 203)
+        val kept = png(listOf(IHDR, "iCCP" to atTheChunkCap, "IDAT" to byteArrayOf(1), IEND))
+        val dropped = png(listOf(IHDR, "iCCP" to overTheChunkCap, "IDAT" to byteArrayOf(1), IEND))
+
+        assertThat(atTheChunkCap.size).isEqualTo(263_168)
+        assertThat(PngPicture.of(kept)).isEqualTo(kept)
+        assertThat(PngPicture.of(dropped)).isEqualTo(png(listOf(IHDR, "IDAT" to byteArrayOf(1), IEND)))
+    }
+
+    @Test
     fun dropsAColourProfileItCannotRead() {
         val good = profileChunk(inflatedBytes = 512)
         val unterminatedName = ByteArray(80) { 'n'.code.toByte() } + good
@@ -126,7 +140,9 @@ class PngPictureTest {
 
         val declaresMore = profileChunk(inflatedBytes = 512, declaredBytes = 8_000_000)
         val declaresLess = profileChunk(inflatedBytes = 512, declaredBytes = 508)
-        val malformed = listOf(unterminatedName, unknownMethod, truncated, notDeflate, nameOnly, ByteArray(0))
+        val bytesAfterTheStream = good + ByteArray(4)
+        val malformed =
+            listOf(unterminatedName, unknownMethod, truncated, bytesAfterTheStream, notDeflate, nameOnly, ByteArray(0))
         val unreadable = malformed + listOf(declaresMore, declaresLess)
 
         for (profile in unreadable) {
@@ -198,6 +214,28 @@ class PngPictureTest {
                 DeflaterOutputStream(out).use { it.write(profile) }
             }.toByteArray()
         return PROFILE_NAME.toByteArray(Charsets.US_ASCII) + byteArrayOf(0, 0) + stream
+    }
+
+    // The same data with the profile split over [blocks] uncompressed blocks, each five bytes of framing.
+    private fun storedProfileChunk(
+        inflatedBytes: Int,
+        blocks: Int,
+    ): ByteArray {
+        val profile = ByteBuffer.allocate(inflatedBytes).putInt(0, inflatedBytes).array()
+        val blockBytes = inflatedBytes / blocks
+        val out = ByteArrayOutputStream()
+        out.write(PROFILE_NAME.toByteArray(Charsets.US_ASCII) + byteArrayOf(0, 0, 0x78, 0x01))
+        for (block in 0 until blocks) {
+            val isLast = block == blocks - 1
+            val start = block * blockBytes
+            val length = if (isLast) inflatedBytes - start else blockBytes
+            // Final flag, then the length and its complement, both little-endian.
+            out.write(byteArrayOf(if (isLast) 1 else 0, length.toByte(), (length shr 8).toByte()))
+            out.write(byteArrayOf(length.inv().toByte(), (length.inv() shr 8).toByte()))
+            out.write(profile, start, length)
+        }
+        DataOutputStream(out).writeInt(Adler32().apply { update(profile) }.value.toInt())
+        return out.toByteArray()
     }
 
     private companion object {

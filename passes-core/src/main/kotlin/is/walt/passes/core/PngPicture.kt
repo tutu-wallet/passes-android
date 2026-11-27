@@ -87,8 +87,8 @@ private fun profileFits(
 }
 
 /**
- * Inflates into a scratch buffer and keeps nothing. True for a whole stream of at most [limit]
- * bytes that opens, as an ICC profile does, with its own length.
+ * Inflates into a scratch buffer and keeps nothing. True for one whole stream and nothing after it,
+ * of at most [limit] bytes, that opens, as an ICC profile does, with its own length.
  */
 private fun isWholeProfile(
     bytes: ByteArray,
@@ -109,7 +109,7 @@ private fun isWholeProfile(
             count = inflater.inflate(scratch)
             total += count
         }
-        inflater.finished() && total <= limit && declared == total.toLong()
+        inflater.finished() && inflater.remaining == 0 && total <= limit && declared == total.toLong()
     } catch (_: DataFormatException) {
         false
     } finally {
@@ -130,7 +130,7 @@ private val PICTURE_CHUNK_LENGTHS: Map<Int, IntRange> =
         chunkType("sRGB") to 1..1,
         chunkType("gAMA") to 4..4,
         chunkType("cHRM") to 32..32,
-        ICCP to 0..Int.MAX_VALUE,
+        ICCP to 0..MAX_PROFILE_CHUNK_BYTES,
         chunkType("PLTE") to 3..768,
         chunkType("tRNS") to 1..256,
     )
@@ -141,6 +141,9 @@ private val EMPTY_IEND: ByteArray =
 
 private const val CHUNK_HEADER_BYTES = 2 * U32_BYTES
 private const val MAX_PROFILE_NAME_BYTES = 79
+
+// The cap, with room for the name, the stream's framing and a profile stored uncompressed.
+private const val MAX_PROFILE_CHUNK_BYTES = PngPicture.MAX_PROFILE_BYTES + 1024
 private const val INFLATE_SCRATCH_BYTES = 8 * 1024
 private const val NO_LENGTH = -1L
 private const val NUL: Byte = 0
