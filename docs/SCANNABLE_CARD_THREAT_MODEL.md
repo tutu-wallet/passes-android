@@ -226,9 +226,10 @@ three hold:
 3. Detail-surface provenance holds: the host's "Pass type" row below.
 
 **Accepted residual risk.** A user who scans straight from the list never meets the
-"Pass type" row for that use. Bounded because the user typed the code or chose to
-restore it (a restored card's content is the sender's; see the "Pass type" row
-section), the list-level class distinction is in view at scan time, and Walt is a
+"Pass type" row for that use. Bounded because the user typed the code, confirmed one
+decoded from their image, or chose to restore it and confirmed it under C4 where C4
+applies (a restored card's content is the sender's; see the "Pass type" row section),
+the list-level class distinction is in view at scan time, and Walt is a
 display device, not an issuer: the POS / recipient is the authority on whether the code
 is credit-worthy (Threat 9). Rendering a list-face code without the condition-2 class
 label, or pkpass barcodes at list scale, amends this row. Issuer artwork that depicts a
@@ -333,9 +334,10 @@ acceptable for a card the user typed.
 A card restored from a wallet file someone else exported was not authored by the user:
 its label and payload are the sender's. It passes the same create-boundary validation
 as a typed card (C3; `PassRepository.createScannableCard` validates and trial-encodes
-on every insert), so Threats 3 to 5 hold for it. Nothing on the card says who chose its
-content. Accepted residual risk: for such a card the class label and the row are the
-whole bound. What the restore flow tells the user is the consumer's.
+on every insert), so Threats 3 to 5 hold for it. Threat 2 holds only through C4, which
+the consumer runs on a restored code as on a typed one. Nothing on the card says who
+chose its content. Accepted residual risk: for such a card the class label and the row
+are the whole provenance bound. What the restore flow tells the user is the consumer's.
 
 **Bound of this row.** A host that shows a card's code at scan size, through
 `ScannableCardScreen` or `ScannableCardView` outside a list item, (a) renders a "Pass
@@ -404,8 +406,11 @@ The gate covers PDF417 and Aztec as well as QR: `QrPayloadKind.requiresCreateCon
 consults `ScannableFormat.canCarryActionablePayload()`, an exhaustive `when` in
 `passes-core`. A future roster member is a compile error at one kernel site rather than
 a gate that quietly stops covering a format, and the kernel owns the predicate for which
-symbologies need confirming. The consumer carries no parallel predicate: both create-time
-call sites let `requiresCreateConfirmation(format)` decide alone. The sheet's copy says
+symbologies need confirming. The consumer carries no parallel predicate: every path that
+persists a card lets `requiresCreateConfirmation(format)` decide alone, and a card it
+flags is not saved until the user confirms that code. That includes a card restored from
+a wallet file, whose payload the user did not type; the consumer pins it with a restore
+test. The sheet's copy says
 "this code", not "this QR", so a dialog about an Aztec boarding pass does not describe
 something other than what the user is saving.
 
@@ -485,7 +490,8 @@ Unrecognized-but-URI-shaped strings (`unknown-scheme://x`) take the fallback war
 rather than silent acceptance.
 
 **Status.** Mitigated, with the residual that a user who deliberately clicks through the
-preview is choosing to ship the URI. The mitigation is informed consent, not refusal.
+preview is choosing to ship the URI. The mitigation is informed consent, not refusal, and
+holds only where the consumer runs the C4 gate on every path that persists a card.
 
 ### 3. Bidi / control-character spoofing in display label - Spoofing
 
@@ -773,7 +779,7 @@ v2"; each is deliberately absent because it re-opens a threat row above.
 | C1      | `ScannableCardSurfaceTest.scannableCardDoesNotShareSupertypeWithPass`; storage `PublicApiSurfaceTest` `SCANNABLE_CARDS` assertion (separate table). Consumer list concession: expected consumer-side tests, listed at the end of that concession |
 | C2      | Consumer-side: a test that the details section renders a "Pass type" row, a test that no deep link, shortcut, widget or exported intent opens a detail or scan surface directly, and the list tests of the consumer list concession. Kernel: `scannableCardScreenHasExactlyFourUserVisibleParameters` (the surface's parameter shape). Colour row: `ScannableCardTrustSurfaceTest.faceTintDoesNotSuppressLabelOrPayload` (and its dark-tint twin), `codePanelIsLiterallyWhiteNotAThemeTokenOrTheFaceTint`, `inkOnClearsWcagAaAgainstEveryTintIncludingTheWorstCase`, `DocumentFaceTintTest.faceTintLeavesThePageRenderRequestUnchanged`; the shared tint gate by `passes-ui-core`'s `FaceTintTest` |
 | C3      | Length-cap, charset and Cf/Cc rejection unit tests; `theTwoDimensionalFormatsEncodeAtTheirValidatorCap`, `theTwoDimensionalFormatsRoundTripAtTheirValidatorCap`, `BarcodeEncoderRoundTripTest.nonAsciiPayloadsSurviveOnTheCharsetPinnedFormats`, `BarcodeEncoderCharsetTest`; `noFormatIsDecodeOnly` and `isCreatableAgreesWithWhatTheValidatorAccepts`; byte-capable charset rules in `ScannableFormatConstraintsTest` |
-| C4      | `QrPayloadClassifierTest`, `BarcodeCreateConfirmSheetTest` |
+| C4      | `QrPayloadClassifierTest`, `BarcodeCreateConfirmSheetTest`; consumer-side, a test that a restored code `requiresCreateConfirmation` flags is not saved unconfirmed |
 | C5      | Encoder integration test; decode confinement by the isolated-decode tests (`BarcodeDecodeServiceInstrumentedTest`, `YPlaneFrameDecodeTest`) and, consumer-side, an instrumented composite-import test (no host-process decode of source bytes) and a guard test that no CameraX `ImageCapture` appears in the consumer's `src/main` |
 | C6      | No test in this repo (no schema snapshot); closest is `ScannableCardSurfaceTest.scannableCardConstructorIsExercisedWithEveryShape` |
 

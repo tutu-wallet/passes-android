@@ -3,8 +3,8 @@
 For PDF import, the repository's trust claim ("every security-and-privacy-critical
 behavior Walt makes about pass handling lives in code you can read") decomposes into
 a per-threat enumeration plus three load-bearing controls. Where a mitigation is the
-consumer's (provenance on every document surface, display-label isolation), its row
-says so. Each threat lists where it lives in the format, the mitigating control, and
+consumer's (provenance on the list and the detail surface, display-label isolation),
+its row says so. Each threat lists where it lives in the format, the mitigating control, and
 for accepted risks the rationale.
 
 This is the security-side companion to ADR 0005 ("PDF document support"): the ADR
@@ -102,10 +102,12 @@ permission levels.
 
 **Mitigation.** Not verified. ADR 0005 D5. Every PDF imported into Walt
 carries `Provenance.UserProvided`, structurally distinct from PKPASS's
-`SignatureStatus.AppleVerified` / `SelfSigned` ladder, and no document
-surface draws a signature or verified affordance. The kernel draws no
-provenance signal on a document; the host's class label in its list and its
-"Pass type" row on the detail surface carry it (ADR 0005 D1.L, D5.T).
+`SignatureStatus.AppleVerified` / `SelfSigned` ladder, and neither the kernel
+nor the host draws a signature or verified affordance on a document surface.
+The kernel draws no provenance signal on a document; the host's class label in
+its list and its "Pass type" row on the detail surface carry it (ADR 0005
+D1.L, D5.T). A document's pages can still depict a verified affordance,
+including this app's own pkpass signature status (threat 12).
 
 **Rationale for not verifying.** A "Verified" UI signal that Walt cannot
 honestly back would dilute the PKPASS signature trust signal. There is no
@@ -226,10 +228,12 @@ elsewhere, trusts the scanner's intent, and lands on an attacker page.
 **Mitigation.** None applicable from Walt. The barcode is rasterized
 content the user is responsible for sourcing, and Walt makes no claim
 about the contents of an unverified document. The provenance signal (the
-host's class label and "Pass type" row) is the user-facing one; the
-structural absence of a "Verified" pill prevents false-confidence escalation.
-At full screen, where a gate scan happens, the kernel shows the document
-alone: a user who never expanded the row meets no provenance signal there.
+host's class label and "Pass type" row) is the user-facing one, and no
+surface draws a "Verified" pill for a document. Nothing stops the document
+depicting one: a screenshot of a verified pass, this app's own included. At
+full screen, where a gate scan happens, the kernel shows the document alone,
+so a user who never expanded the row meets no provenance signal there and
+nothing contradicts what the document shows.
 
 **Status.** Accepted-risk for v1; the provenance signal is the user-facing
 mitigation.
