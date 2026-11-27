@@ -189,24 +189,39 @@ code review.
 
 **What the user sees.** Pass images (logo, icon, strip, background, thumbnail,
 footer, plus their @2x and @3x variants) are decoded and displayed at the size the
-layout calls for. A maliciously oversized image is silently replaced with a
-placeholder.
+layout calls for. An image larger than the caller's bounds is scaled down to fit. An
+image the decoder refuses draws nothing.
 
-**Trust claim.** A hostile pass archive cannot OOM-crash the host process via a
-multi-gigabyte bitmap allocation. The decode pipeline applies `ImageRenderBounds`
-at decode-header time, so the decoder never allocates a backing bitmap larger than
-the configured ceiling. The host's process stays alive even when handed a 50000 x
-50000 PNG.
+**Trust claim.** Two limits apply to every pass image. Both are decided from the image
+header, before the bitmap is allocated:
+
+- **Source ceiling.** An image declaring more than 4096 x 4096 pixels of area
+  (16,777,216, the parser's default `maxImagePixelCount`) is refused. `BoundedImage`
+  applies the ceiling itself, whatever configuration the bytes were imported under, and
+  no parameter raises it.
+- **Output bound.** The bitmap handed to the UI never exceeds the caller's
+  `ImageRenderBounds` (default 1920 x 1920). A larger source is downsampled at decode
+  time with its aspect ratio kept, and a smaller one is never upscaled. A list passes
+  its tile's pixel size, so each item decodes a tile-sized bitmap.
+
+**Residual risk.** A downsampled decode still feeds the whole compressed image through
+the platform codec in the app process. The memory the codec uses while it parses the
+header and reads the image is the platform's and is not measured here; the source
+ceiling bounds the image it is asked to read, not that memory.
 
 **How tested.**
 
-- `PublicApiSurfaceTest` pins `ImageRenderBounds.Default` to 1920 x 1920 / 4 MP and
-  rejects non-positive dimensions at construction.
-- `TrustClaimSurfaceTest` drives the bounded decoder with tight bounds and asserts an
-  `ExceedsWidth`, `ExceedsHeight` or `ExceedsArea` rejection. That Robolectric test
-  runs against a stub decoder; the real no-full-allocation check is
-  `passes-image-decode`'s `BoundedBitmapDecodeInstrumentedTest.rejectsOverCapImageByGateWithoutFullAllocation`
-  (CI on API 28, 31, 34 and 36).
+- `BoundedImageDecodeTest` pins the ceiling's value and its parity with the parser
+  default, the ceiling decision and the fit arithmetic, on the JVM.
+- `BoundedImageDecodeInstrumentedTest` runs the platform decoder (CI on API 28, 31, 34
+  and 36): an image over the bounds comes back inside them and reports nothing, an
+  image inside them keeps its size, a 4096 x 4096 image decodes to 1920 x 1920, and an
+  image one column over the ceiling is refused at any bounds.
+- `passes-image-decode`'s `BoundedBitmapDecodeInstrumentedTest` pins the shared
+  mechanism: a target size is honoured, never enlarges the source, and never rescues an
+  image the header gate refused.
+- `PublicApiSurfaceTest` pins `ImageRenderBounds.Default` to 1920 x 1920 and rejects
+  non-positive dimensions at construction.
 - Coil's default decoder is not used for pass images; only the
   `ImageDecoder.setOnHeaderDecodedListener` path is.
 

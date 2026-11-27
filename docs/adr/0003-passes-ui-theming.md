@@ -73,10 +73,10 @@ deliberately omit the parameters that would let a caller suppress them:
 - `B3UrlConfirmSheet`, `PhoneConfirmSheet`, `EmailConfirmSheet` do not accept a
   `skipConfirmation: Boolean` shortcut. The host's outbound `Intent` fires
   inside `onConfirm`, which the user's tap is the only thing that calls.
-- `BoundedImage` does not accept `bounds: ImageRenderBounds? = null`. The
-  default is the only way to take the default; opting out requires explicitly
-  constructing an `ImageRenderBounds(...)` with higher caps, which is a visible
-  signal at the call site.
+- `BoundedImage` does not accept `bounds: ImageRenderBounds? = null`, and no
+  parameter reaches its source ceiling. `bounds` sets only the size of the bitmap
+  produced, so an `ImageRenderBounds(...)` above the default is a visible signal at
+  the call site and still never yields a bitmap larger than its source.
 - `PassBack` does not default the `onUrlIntent` / `onPhoneIntent` /
   `onEmailIntent` callbacks. The host must wire all three; missing any one is
   a compile error, not a runtime no-op.
@@ -119,7 +119,7 @@ Events and the signal each carries:
 - `onPassRendered(type, signatureBand)`: baseline.
 - `onPassBackOpened(type)`: pass-back-tap rate.
 - `onSecuritySheetShown` / `Confirmed` / `Dismissed(intentKind, type)`: shown is the denominator, confirmed and dismissed the numerators. A spike in dismissals is the phishing signal: users open the sheet and bail.
-- `onImageDecodeRejected(reason)`: bound-violation rate; a spike means malformed archives in the wild or a bound that needs tuning.
+- `onImageDecodeRejected(reason)`: refused-image rate, one event per decode attempt. An image that is only larger than its bounds is downsampled and fires nothing, so a spike means malformed or over-ceiling images in the wild.
 - `onImportConfirmShown` / `Confirmed` / `Dismissed(type, band)`, `onImportRejected(kind)`, and `onBarcodeCreateGateShown` / `Confirmed` / `Dismissed(kind)`: the import-confirm and barcode-create gates.
 
 `NoopUiTelemetryGuard` is provided for hosts that have not wired a guard.

@@ -238,10 +238,8 @@ class PublicApiSurfaceTest {
     }
 
     @Test
-    fun imageDecodeRejectionCoversFiveBuckets() {
+    fun imageDecodeRejectionCoversThreeBuckets() {
         assertThat(ImageDecodeRejection.entries.map { it.name }).containsExactly(
-            "ExceedsWidth",
-            "ExceedsHeight",
             "ExceedsArea",
             "Malformed",
             "Other",
@@ -251,7 +249,7 @@ class PublicApiSurfaceTest {
     @Test
     fun imageRenderBoundsRejectsNonPositiveDimensions() {
         try {
-            ImageRenderBounds(maxWidthPx = 0, maxHeightPx = 100, maxAreaPx = 1_000L)
+            ImageRenderBounds(maxWidthPx = 0, maxHeightPx = 100)
             error("expected IllegalArgumentException")
         } catch (expected: IllegalArgumentException) {
             assertThat(expected.message).contains("maxWidthPx")
@@ -259,11 +257,10 @@ class PublicApiSurfaceTest {
     }
 
     @Test
-    fun imageRenderBoundsDefaultIs1920SquareWith4Megapixels() {
+    fun imageRenderBoundsDefaultIs1920Square() {
         val defaults = ImageRenderBounds.Default
         assertThat(defaults.maxWidthPx).isEqualTo(1920)
         assertThat(defaults.maxHeightPx).isEqualTo(1920)
-        assertThat(defaults.maxAreaPx).isEqualTo(4_000_000L)
     }
 
     @Test

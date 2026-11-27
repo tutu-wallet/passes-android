@@ -8,18 +8,8 @@ import org.junit.runner.RunWith
 import org.robolectric.annotation.Config
 
 /**
- * JVM coverage for the shared bounded-decode dispatch and the OOM-containment decision.
- *
- * Two halves, split by what is deterministically observable off-device:
- * - [containOutOfMemory] is pure, so the propagate-vs-contain split — the security-relevant
- *   branch that differs between the in-process display caller (null fold, propagate) and the
- *   sandbox callers (fold, contain) — is asserted directly, without forcing a real OOM.
- * - [decodeBounded] is exercised through Robolectric's `ImageDecoder` shadow, which returns a
- *   ~100x100 stub for arbitrary bytes rather than decoding or rejecting. That is enough to
- *   pin the gate dispatch (tight caps reject, generous caps decode) across two different
- *   rejection taxonomies [R], proving the generic carries the caller's type. The real native
- *   decode of malformed/oversized bytes is the instrumented half
- *   ([BoundedBitmapDecodeInstrumentedTest]).
+ * The pure halves, plus the gate dispatch through Robolectric's `ImageDecoder` stub (about 100 x 100
+ * for any bytes). The platform decode itself is [BoundedBitmapDecodeInstrumentedTest]'s.
  */
 @RunWith(AndroidJUnit4::class)
 @Config(sdk = [34])
@@ -35,6 +25,7 @@ class BoundedBitmapDecodeTest {
     ) = BoundedDecodePolicy(
         allocator = ImageDecoder.ALLOCATOR_SOFTWARE,
         gate = { _, w, h -> if (w > maxSide || h > maxSide) Reason.TooLarge else null },
+        target = null,
         onMalformed = { Reason.Malformed },
         onRuntimeFailure = { Reason.RuntimeFailure },
         onOutOfMemory = onOutOfMemory,
@@ -61,6 +52,37 @@ class BoundedBitmapDecodeTest {
         assertThat(contained).isEqualTo(BoundedBitmap.Rejected(Reason.TooLarge))
     }
 
+    private val header = DecodeSize(64, 32)
+
+    @Test
+    fun noTargetDecodesAtTheHeaderSize() {
+        assertThat(decodeSize(header, rejected = false, target = null)).isEqualTo(header)
+        assertThat(decodeSize(header, rejected = false, target = { _, _ -> null })).isEqualTo(header)
+    }
+
+    @Test
+    fun targetInsideTheSourceIsKept() {
+        assertThat(decodeSize(header, rejected = false, target = { w, h -> DecodeSize(w / 2, h / 2) }))
+            .isEqualTo(DecodeSize(32, 16))
+    }
+
+    @Test
+    fun targetLargerThanTheSourceIsClampedToIt() {
+        assertThat(decodeSize(header, rejected = false, target = { _, _ -> DecodeSize(4096, 4096) })).isEqualTo(header)
+    }
+
+    @Test
+    fun nonPositiveTargetIsClampedToOnePixel() {
+        assertThat(decodeSize(header, rejected = false, target = { _, _ -> DecodeSize(0, -5) }))
+            .isEqualTo(DecodeSize(1, 1))
+    }
+
+    @Test
+    fun rejectedImageDecodesAtOnePixelWhateverTheTarget() {
+        assertThat(decodeSize(header, rejected = true, target = { w, h -> DecodeSize(w, h) }))
+            .isEqualTo(DecodeSize(1, 1))
+    }
+
     @Test
     fun decodeRejectsWhenGateTripsOnStubDimensions() {
         // Robolectric's stub bitmap exceeds a 1px cap, so the gate rejects with the caller's reason.
@@ -82,6 +104,7 @@ class BoundedBitmapDecodeTest {
             BoundedDecodePolicy<String>(
                 allocator = ImageDecoder.ALLOCATOR_DEFAULT,
                 gate = { _, _, _ -> "too-big" },
+                target = null,
                 onMalformed = { "malformed" },
                 onRuntimeFailure = { "runtime" },
                 onOutOfMemory = null,

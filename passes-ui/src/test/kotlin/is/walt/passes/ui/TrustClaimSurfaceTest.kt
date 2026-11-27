@@ -565,27 +565,6 @@ class TrustClaimSurfaceTest {
         assertThat(bareLocalPartNodes).isEmpty()
     }
 
-    @Test
-    fun boundedImageDecoderRejectsOversizedInput() {
-        // Tests the decoder driver directly rather than going through the composable,
-        // since Robolectric's coroutine harness does not progress `LaunchedEffect`
-        // dispatched onto `Dispatchers.IO` to completion within `waitForIdle()`. The
-        // composable is exercised on a real device by the implementation bead's
-        // instrumentation tests; here we lock the JVM-pure decode-and-classify logic
-        // that the composable wraps.
-        //
-        // Robolectric's ImageDecoder shadow returns a stub bitmap (typically 100 x 100
-        // for arbitrary input rather than rejecting the malformed bytes), so we use
-        // pathologically tight bounds (1 x 1 / 1 px area) to force the bounds-check
-        // path. Any non-empty bitmap exceeds these caps; the rejection reason should
-        // be one of the bounds arms, not Malformed or Other.
-        val anyBytes = ByteArray(64) { (it * 31).toByte() }
-        val tightBounds = ImageRenderBounds(maxWidthPx = 1, maxHeightPx = 1, maxAreaPx = 1L)
-        val (_, rejection) = decodeBoundedBitmap(anyBytes, tightBounds)
-        assertThat(rejection).isNotNull()
-        assertThat(rejection!!.name).matches("ExceedsWidth|ExceedsHeight|ExceedsArea")
-    }
-
     // wpass-38y: pass.strings substitution must apply symmetrically on the front and
     // the back. The chroniques (pass.com.tixly) regression had the back rendering raw
     // `#LABELKEY#` placeholders; the parallel concern is that organizationName, which

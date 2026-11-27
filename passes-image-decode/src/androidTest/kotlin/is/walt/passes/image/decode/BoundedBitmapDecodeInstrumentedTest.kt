@@ -8,28 +8,17 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import java.io.ByteArrayOutputStream
 
-/**
- * Instrumented coverage for [decodeBounded] against the REAL platform `ImageDecoder` — the
- * part the JVM suite cannot exercise, since Robolectric's shadow returns a stub bitmap and
- * never decodes, rejects, or throws on malformed input ([BoundedBitmapDecodeTest] explains the
- * split). These pin the native decode-failure containment and the 1x1-on-reject downsize that
- * the module exists to audit: a malformed container folds to the caller's `onMalformed`, an
- * over-cap image is rejected by the gate without a full-size allocation, and the software
- * allocator yields a readable (non-hardware) bitmap.
- *
- * Runs in CI's connected-tests job. The OOM propagate-vs-contain split is covered off-device by
- * [BoundedBitmapDecodeTest.containOutOfMemoryPropagatesWhenNoFold], since a real
- * [OutOfMemoryError] cannot be forced reliably.
- */
+/** [decodeBounded] against the platform `ImageDecoder`, which the JVM suite only stubs. */
 @RunWith(AndroidJUnit4::class)
 class BoundedBitmapDecodeInstrumentedTest {
 
     private enum class Reason { TooLarge, Malformed, RuntimeFailure, Oom }
 
-    private fun policy(maxSide: Int) =
+    private fun policy(maxSide: Int, target: DecodeTarget? = null) =
         BoundedDecodePolicy(
             allocator = ImageDecoder.ALLOCATOR_SOFTWARE,
             gate = { _, w, h -> if (w > maxSide || h > maxSide) Reason.TooLarge else null },
+            target = target,
             onMalformed = { Reason.Malformed },
             onRuntimeFailure = { Reason.RuntimeFailure },
             onOutOfMemory = { Reason.Oom },
@@ -51,6 +40,40 @@ class BoundedBitmapDecodeInstrumentedTest {
         // A 16x16 image under a 1px cap trips the gate; the listener forces a 1x1 decode so the
         // rejected path allocates nothing of size.
         val result = decodeBounded(rawBytes = pngOf(width = 16, height = 16), policy = policy(maxSide = 1))
+        assertThat(result).isEqualTo(BoundedBitmap.Rejected(Reason.TooLarge))
+    }
+
+    @Test
+    fun decodesAnAcceptedImageAtItsTarget() {
+        val result =
+            decodeBounded(
+                rawBytes = pngOf(width = 64, height = 32),
+                policy = policy(maxSide = 64, target = { _, _ -> DecodeSize(32, 16) }),
+            )
+        val bitmap = (result as BoundedBitmap.Decoded).bitmap
+        assertThat(bitmap.width).isEqualTo(32)
+        assertThat(bitmap.height).isEqualTo(16)
+    }
+
+    @Test
+    fun neverUpscalesToATargetLargerThanTheSource() {
+        val result =
+            decodeBounded(
+                rawBytes = pngOf(width = 16, height = 16),
+                policy = policy(maxSide = 64, target = { _, _ -> DecodeSize(4096, 4096) }),
+            )
+        val bitmap = (result as BoundedBitmap.Decoded).bitmap
+        assertThat(bitmap.width).isEqualTo(16)
+        assertThat(bitmap.height).isEqualTo(16)
+    }
+
+    @Test
+    fun rejectsOverCapImageWhateverTheTarget() {
+        val result =
+            decodeBounded(
+                rawBytes = pngOf(width = 16, height = 16),
+                policy = policy(maxSide = 1, target = { _, _ -> DecodeSize(16, 16) }),
+            )
         assertThat(result).isEqualTo(BoundedBitmap.Rejected(Reason.TooLarge))
     }
 
