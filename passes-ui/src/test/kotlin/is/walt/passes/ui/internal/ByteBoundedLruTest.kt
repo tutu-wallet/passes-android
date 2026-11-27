@@ -9,6 +9,8 @@ class ByteBoundedLruTest {
     // Each value weighs its own length.
     private fun lru(maxBytes: Int) = ByteBoundedLru<String, String>(maxBytes) { _, value -> value.length }
 
+    private fun ByteBoundedLru<String, String>.put(key: String, value: String) = putIfAbsent(key, value, generation)
+
     @Test
     fun keepsEntriesWhileTheyFit() {
         val cache = lru(maxBytes = 10)
@@ -48,14 +50,27 @@ class ByteBoundedLruTest {
     }
 
     @Test
-    fun replacingAKeyCountsOnlyTheNewValue() {
+    fun theFirstValueKeptForAKeyWinsAndIsReturned() {
         val cache = lru(maxBytes = 10)
-        cache.put("a", "xxxx")
+        assertThat(cache.put("a", "xxxx")).isNull()
 
-        cache.put("a", "yyyyyyyy")
+        val held = cache.put("a", "yyyyyyyy")
 
-        assertThat(cache.get("a")).isEqualTo("yyyyyyyy")
-        assertThat(cache.bytes).isEqualTo(8)
+        assertThat(held).isEqualTo("xxxx")
+        assertThat(cache.get("a")).isEqualTo("xxxx")
+        assertThat(cache.bytes).isEqualTo(4)
+    }
+
+    @Test
+    fun aValueFromBeforeAClearIsNotKept() {
+        val cache = lru(maxBytes = 10)
+        val before = cache.generation
+
+        cache.clear()
+        cache.putIfAbsent("a", "xxxx", before)
+
+        assertThat(cache.get("a")).isNull()
+        assertThat(cache.bytes).isEqualTo(0)
     }
 
     @Test

@@ -263,14 +263,19 @@ class PublicApiSurfaceTest {
     }
 
     @Test
-    fun passImageCacheOffersTheHostOnlyClear() {
+    fun passImageCacheOffersTheHostOnlyABudgetAndClear() {
         // Internal members compile to public JVM methods with a `$module` suffix.
-        val hostVisible =
-            PassImageCache::class.java.declaredMethods
+        fun Class<*>.hostMethods() =
+            declaredMethods
                 .filter { java.lang.reflect.Modifier.isPublic(it.modifiers) && !it.isSynthetic && '$' !in it.name }
                 .map { it.name }
+        // Kotlin adds a no-argument constructor when every parameter has a default.
+        val constructors =
+            PassImageCache::class.java.constructors.filter { !it.isSynthetic }.map { it.parameterTypes.toList() }
 
-        assertThat(hostVisible).containsExactly("clear")
+        assertThat(PassImageCache::class.java.hostMethods()).containsExactly("clear")
+        assertThat(PassImageCache.Companion::class.java.hostMethods()).isEmpty()
+        assertThat(constructors).containsExactly(emptyList<Class<*>>(), listOf(Int::class.javaPrimitiveType))
         assertThat(PassImageCache.DEFAULT_MAX_BYTES).isEqualTo(32 * 1024 * 1024)
     }
 

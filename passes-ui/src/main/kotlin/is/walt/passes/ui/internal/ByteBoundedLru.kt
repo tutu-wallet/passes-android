@@ -20,14 +20,20 @@ internal class ByteBoundedLru<K : Any, V : Any>(
         @Synchronized get
         private set
 
+    /** Advanced by [clear], so a value computed from before a clear is not kept after it. */
+    var generation: Long = 0L
+        @Synchronized get
+        private set
+
     @Synchronized
     fun get(key: K): V? = entries[key]?.value
 
+    /** Returns the value already held for [key], else keeps [value] unless [clear] ran since [generation]. */
     @Synchronized
-    fun put(key: K, value: V) {
-        entries.remove(key)?.let { bytes -= it.weight }
+    fun putIfAbsent(key: K, value: V, generation: Long): V? {
+        entries[key]?.let { return it.value }
         val weight = weigh(key, value)
-        if (weight > maxBytes) return
+        if (generation != this.generation || weight > maxBytes) return null
         entries[key] = Weighted(value, weight)
         bytes += weight
         val eldest = entries.values.iterator()
@@ -35,12 +41,14 @@ internal class ByteBoundedLru<K : Any, V : Any>(
             bytes -= eldest.next().weight
             eldest.remove()
         }
+        return null
     }
 
     @Synchronized
     fun clear() {
         entries.clear()
         bytes = 0L
+        generation++
     }
 
     private companion object {

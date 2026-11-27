@@ -25,9 +25,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /**
- * The only path from pass image bytes to pixels: a bounded `ImageDecoder` decode of a PNG to at most
- * [bounds]. A refused image draws nothing and reports to [telemetry]; an [OutOfMemoryError] propagates.
- * With a [cache], an image it holds draws at once and is neither decoded nor reported again.
+ * The only path from pass image bytes to pixels: a bounded decode of a PNG to at most [bounds], kept in
+ * [cache] if given. A refusal draws nothing and reports to [telemetry]; an [OutOfMemoryError] propagates.
  */
 @Composable
 @Suppress("LongParameterList")
@@ -41,11 +40,12 @@ public fun BoundedImage(
     cache: PassImageCache? = null,
 ) {
     // Read during composition, so a cached image draws in the first frame.
-    val cached = remember(bytes, bounds, cache) { cache?.get(bytes, bounds) }
+    val lookup = remember(bytes, bounds, cache) { cache?.lookup(bytes, bounds) }
+    val cached = remember(lookup) { lookup?.cached() }
     var bitmap by remember(bytes, bounds, cache) { mutableStateOf((cached as? PassImage.Decoded)?.bitmap) }
 
     LaunchedEffect(bytes, bounds, cache) {
-        when (val image = cached ?: loadPassImage(bytes, bounds, cache)) {
+        when (val image = cached ?: loadPassImage(bytes, bounds, lookup)) {
             is PassImage.Decoded -> bitmap = image.bitmap
             is PassImage.Refused -> if (image.claimReport()) telemetry.onImageDecodeRejected(image.reason)
         }
@@ -72,19 +72,19 @@ internal const val DECODE_PARALLELISM: Int = 2
 internal val passImageDecodeDispatcher: CoroutineDispatcher = Dispatchers.IO.limitedParallelism(DECODE_PARALLELISM)
 
 /**
- * Decodes off the caller's thread and stores the result in [cache] there, so a decode that has started
- * is kept when its caller leaves. One still queued when its caller leaves never runs.
+ * Decodes off the caller's thread and keeps the result there, so a decode that has started is kept
+ * when its caller leaves. One still queued when its caller leaves never runs.
  */
 internal suspend fun loadPassImage(
     bytes: ImageBytes,
     bounds: ImageRenderBounds,
-    cache: PassImageCache?,
+    lookup: PassImageCache.Lookup?,
     dispatcher: CoroutineDispatcher = passImageDecodeDispatcher,
     decode: (ByteArray, ImageRenderBounds) -> PassImage = ::decodePassImage,
 ): PassImage =
     withContext(dispatcher) {
-        // Again here: a decode of the same image queued ahead of this one may have stored it.
-        cache?.get(bytes, bounds) ?: decode(bytes.bytes, bounds).also { cache?.put(bytes, bounds, it) }
+        // Again here: a decode of the same image queued ahead of this one may have kept it.
+        lookup?.cached() ?: decode(bytes.bytes, bounds).let { lookup?.keep(it) ?: it }
     }
 
 /**

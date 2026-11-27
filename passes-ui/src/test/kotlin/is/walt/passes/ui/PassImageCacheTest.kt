@@ -14,13 +14,17 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.google.common.truth.Truth.assertThat
 import `is`.walt.passes.core.ImageBytes
 import `is`.walt.passes.core.ImageRole
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExecutorCoroutineDispatcher
 import kotlinx.coroutines.asCoroutineDispatcher
+import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import org.junit.After
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -39,16 +43,19 @@ class PassImageCacheTest {
     val composeRule = createComposeRule()
 
     private val bounds = ImageRenderBounds(maxWidthPx = 100, maxHeightPx = 100)
-    private val decodeThread = Executors.newSingleThreadExecutor().asCoroutineDispatcher()
+    private val executors = mutableListOf<ExecutorCoroutineDispatcher>()
+    private val decodeThread = threads(1)
+
+    @After
+    fun closeThreads() = executors.forEach { it.close() }
 
     @Test
     fun aCachedImageIsNotDecodedAgain() = runBlocking {
         val cache = PassImageCache()
         val decodes = AtomicInteger()
-        val decode = countingDecode(decodes)
 
-        val first = loadPassImage(image(1), bounds, cache, decodeThread, decode)
-        val second = loadPassImage(image(1), bounds, cache, decodeThread, decode)
+        val first = load(1, cache, countingDecode(decodes))
+        val second = load(1, cache, countingDecode(decodes))
 
         assertThat(decodes.get()).isEqualTo(1)
         assertThat(second).isSameInstanceAs(first)
@@ -58,10 +65,9 @@ class PassImageCacheTest {
     fun theSameBytesAtOtherBoundsAreAnotherEntry() = runBlocking {
         val cache = PassImageCache()
         val decodes = AtomicInteger()
-        val decode = countingDecode(decodes)
 
-        loadPassImage(image(1), bounds, cache, decodeThread, decode)
-        loadPassImage(image(1), ImageRenderBounds.Default, cache, decodeThread, decode)
+        load(1, cache, countingDecode(decodes))
+        load(1, cache, countingDecode(decodes), bounds = ImageRenderBounds.Default)
 
         assertThat(decodes.get()).isEqualTo(2)
     }
@@ -69,32 +75,57 @@ class PassImageCacheTest {
     @Test
     fun withoutACacheEveryLoadDecodes() = runBlocking {
         val decodes = AtomicInteger()
-        val decode = countingDecode(decodes)
 
-        loadPassImage(image(1), bounds, cache = null, decodeThread, decode)
-        loadPassImage(image(1), bounds, cache = null, decodeThread, decode)
+        load(1, cache = null, decode = countingDecode(decodes))
+        load(1, cache = null, decode = countingDecode(decodes))
 
         assertThat(decodes.get()).isEqualTo(2)
     }
 
     @Test
-    fun aDecodeThatStartedLandsInTheCacheWhenItsCallerLeaves() = runBlocking {
+    fun twoLoadsOfOneImageAtOnceShareTheFirstResultKept() = runBlocking {
         val cache = PassImageCache()
-        val started = CountDownLatch(1)
-        val release = CountDownLatch(1)
+        val bothDecoding = CountDownLatch(2)
         val decode = { _: ByteArray, _: ImageRenderBounds ->
-            started.countDown()
-            release.await(5, TimeUnit.SECONDS)
+            bothDecoding.countDown()
+            bothDecoding.await(5, TimeUnit.SECONDS)
             refused()
         }
+        val twoThreads = threads(2)
 
-        val caller = launch(Dispatchers.Default) { loadPassImage(image(1), bounds, cache, decodeThread, decode) }
+        val results = List(2) { async { load(1, cache, decode, twoThreads) } }.map { it.await() }
+
+        assertThat(bothDecoding.count).isEqualTo(0)
+        assertThat(results[1]).isSameInstanceAs(results[0])
+        assertThat(cached(cache, 1)).isSameInstanceAs(results[0])
+    }
+
+    @Test
+    fun aDecodeThatStartedIsKeptWhenItsCallerLeaves() = runBlocking {
+        val cache = PassImageCache()
+        val (started, release, decode) = blockingDecode()
+
+        val caller = launch(Dispatchers.Default) { load(1, cache, decode) }
         started.await(5, TimeUnit.SECONDS)
         caller.cancel()
         release.countDown()
         caller.join()
 
-        assertThat(cache.get(image(1), bounds)).isNotNull()
+        assertThat(cached(cache, 1)).isNotNull()
+    }
+
+    @Test
+    fun aClearDuringADecodeDropsItsResult() = runBlocking {
+        val cache = PassImageCache()
+        val (started, release, decode) = blockingDecode()
+
+        val result = async(Dispatchers.Default) { load(1, cache, decode) }
+        started.await(5, TimeUnit.SECONDS)
+        cache.clear()
+        release.countDown()
+
+        assertThat(result.await()).isInstanceOf(PassImage.Refused::class.java)
+        assertThat(cached(cache, 1)).isNull()
     }
 
     @Test
@@ -110,19 +141,15 @@ class PassImageCacheTest {
             refused()
         }
 
-        val first = launch(start = CoroutineStart.UNDISPATCHED) {
-            loadPassImage(image(1), bounds, cache, decodeThread, decode)
-        }
+        val first = launch(start = CoroutineStart.UNDISPATCHED) { load(1, cache, decode) }
         running.await(5, TimeUnit.SECONDS)
-        val queued = launch(start = CoroutineStart.UNDISPATCHED) {
-            loadPassImage(image(2), bounds, cache, decodeThread, decode)
-        }
+        val queued = launch(start = CoroutineStart.UNDISPATCHED) { load(2, cache, decode) }
         queued.cancel()
         release.countDown()
         joinAll(first, queued)
 
         assertThat(decoded).containsExactly(1)
-        assertThat(cache.get(image(2), bounds)).isNull()
+        assertThat(cached(cache, 2)).isNull()
     }
 
     @Test
@@ -140,7 +167,8 @@ class PassImageCacheTest {
         }
 
         coroutineScope {
-            List(8) { launch { loadPassImage(image(it), bounds, cache = null, decode = decode) } }.joinAll()
+            List(8) { launch { load(it, cache = null, decode = decode, dispatcher = passImageDecodeDispatcher) } }
+                .joinAll()
         }
 
         assertThat(DECODE_PARALLELISM).isEqualTo(2)
@@ -150,31 +178,42 @@ class PassImageCacheTest {
     @Test
     fun aDecodedImageCountsItsPixelsAgainstTheBudget() {
         val pixels = Bitmap.createBitmap(100, 100, Bitmap.Config.ARGB_8888)
-        val pixelBytes = pixels.allocationByteCount
+        val rest = image(1).bytes.size + PassImageCache.ENTRY_OVERHEAD_BYTES
 
-        val tight = PassImageCache(maxBytes = pixelBytes)
-        tight.put(image(1), bounds, PassImage.Decoded(pixels))
-        val roomy = PassImageCache(maxBytes = pixelBytes * 2)
-        roomy.put(image(1), bounds, PassImage.Decoded(pixels))
+        val tight = PassImageCache(maxBytes = pixels.allocationByteCount + rest - 1)
+        tight.lookup(image(1), bounds).keep(PassImage.Decoded(pixels))
+        val exact = PassImageCache(maxBytes = pixels.allocationByteCount + rest)
+        exact.lookup(image(1), bounds).keep(PassImage.Decoded(pixels))
 
-        assertThat(tight.get(image(1), bounds)).isNull()
-        assertThat(roomy.get(image(1), bounds)).isNotNull()
+        assertThat(cached(tight, 1)).isNull()
+        assertThat(cached(exact, 1)).isNotNull()
+    }
+
+    @Test
+    fun refusalsCountTheirBytesAgainstTheBudget() {
+        val cache = PassImageCache(maxBytes = 2 * (image(1).bytes.size + PassImageCache.ENTRY_OVERHEAD_BYTES))
+
+        for (seed in 1..3) cache.lookup(image(seed), bounds).keep(refused())
+
+        assertThat(cached(cache, 1)).isNull()
+        assertThat(cached(cache, 2)).isNotNull()
+        assertThat(cached(cache, 3)).isNotNull()
     }
 
     @Test
     fun clearDropsEveryEntry() {
         val cache = PassImageCache()
-        cache.put(image(1), bounds, refused())
+        cache.lookup(image(1), bounds).keep(refused())
 
         cache.clear()
 
-        assertThat(cache.get(image(1), bounds)).isNull()
+        assertThat(cached(cache, 1)).isNull()
     }
 
     @Test
     fun aCachedImageDrawsInTheFirstFrame() {
         val cache = PassImageCache()
-        cache.put(image(1), bounds, PassImage.Decoded(Bitmap.createBitmap(8, 8, Bitmap.Config.ARGB_8888)))
+        cache.lookup(image(1), bounds).keep(PassImage.Decoded(Bitmap.createBitmap(8, 8, Bitmap.Config.ARGB_8888)))
         // With the clock held, a state written after the first composition is never drawn.
         composeRule.mainClock.autoAdvance = false
 
@@ -186,6 +225,16 @@ class PassImageCacheTest {
     @Test
     fun aRefusalIsReportedOnceWhileTheCacheHoldsIt() {
         val reports = showTwice(PassImageCache())
+
+        assertThat(reports).containsExactly(ImageDecodeRejection.NotPng)
+    }
+
+    @Test
+    fun aRefusalKeptForARowThatLeftIsReportedByTheNextToShowIt() {
+        val cache = PassImageCache()
+        cache.lookup(image(1), bounds).keep(refused())
+
+        val reports = showTwice(cache)
 
         assertThat(reports).containsExactly(ImageDecodeRejection.NotPng)
     }
@@ -214,12 +263,12 @@ class PassImageCacheTest {
         composeRule.waitForIdle()
         shown = true
         composeRule.waitForIdle()
-        if (cache == null) composeRule.waitUntil(WAIT_MS) { reports.size == 2 } else drainDecodes()
+        if (cache == null) composeRule.waitUntil(WAIT_MS) { reports.size == 2 } else settleDecodes()
         return reports.toList()
     }
 
-    // Anything queued on the decode dispatcher before this call has run when it returns.
-    private fun drainDecodes() = runBlocking {
+    // Lets anything queued on the decode dispatcher start and finish before the reports are read.
+    private fun settleDecodes() = runBlocking {
         List(DECODE_PARALLELISM) { launch(passImageDecodeDispatcher) { Thread.sleep(50) } }.joinAll()
         composeRule.waitForIdle()
     }
@@ -237,6 +286,16 @@ class PassImageCacheTest {
         )
     }
 
+    private suspend fun load(
+        seed: Int,
+        cache: PassImageCache?,
+        decode: (ByteArray, ImageRenderBounds) -> PassImage,
+        dispatcher: CoroutineDispatcher = decodeThread,
+        bounds: ImageRenderBounds = this.bounds,
+    ): PassImage = loadPassImage(image(seed), bounds, cache?.lookup(image(seed), bounds), dispatcher, decode)
+
+    private fun cached(cache: PassImageCache, seed: Int): PassImage? = cache.lookup(image(seed), bounds).cached()
+
     // Not a PNG, so the decode refuses it from the bytes without the platform decoder.
     private fun image(seed: Int) = ImageBytes(ByteArray(16) { seed.toByte() })
 
@@ -246,6 +305,19 @@ class PassImageCacheTest {
         count.incrementAndGet()
         refused()
     }
+
+    /** A decode that signals its start and waits for release. */
+    private fun blockingDecode(): Triple<CountDownLatch, CountDownLatch, (ByteArray, ImageRenderBounds) -> PassImage> {
+        val started = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        return Triple(started, release) { _, _ ->
+            started.countDown()
+            release.await(5, TimeUnit.SECONDS)
+            refused()
+        }
+    }
+
+    private fun threads(count: Int) = Executors.newFixedThreadPool(count).asCoroutineDispatcher().also { executors += it }
 
     private companion object {
         const val DESCRIPTION = "logo"

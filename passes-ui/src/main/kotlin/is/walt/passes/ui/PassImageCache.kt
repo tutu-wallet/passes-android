@@ -6,34 +6,48 @@ import `is`.walt.passes.ui.internal.ByteBoundedLru
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * Decode results that [BoundedImage] keeps for every image shown with this cache, refusals included,
- * up to [maxBytes] of pixels and image bytes. Hoist one per list. The host can only clear it.
+ * What [BoundedImage] decoded or refused, kept up to [maxBytes] of pixels and image bytes. Hoist one per
+ * list with `remember { PassImageCache() }` and clear it when a pass is deleted; the host can only clear it.
  */
 public class PassImageCache(maxBytes: Int = DEFAULT_MAX_BYTES) {
-    private val entries = ByteBoundedLru<Key, PassImage>(maxBytes) { key, image -> weightOf(key, image) }
+    private val entries = ByteBoundedLru<Key, PassImage>(maxBytes, ::weightOf)
 
-    /** Drops every entry; an image shown afterwards is decoded again. */
+    /** Drops every entry, and the result of any decode already under way; nothing is recycled. */
     public fun clear(): Unit = entries.clear()
 
-    internal fun get(bytes: ImageBytes, bounds: ImageRenderBounds): PassImage? = entries.get(Key(bytes, bounds))
+    internal fun lookup(bytes: ImageBytes, bounds: ImageRenderBounds): Lookup = Lookup(Key(bytes, bounds))
 
-    internal fun put(bytes: ImageBytes, bounds: ImageRenderBounds, image: PassImage): Unit =
-        entries.put(Key(bytes, bounds), image)
+    /** One image at one bounds, hashed once. A [clear] after it is taken drops what it would keep. */
+    internal inner class Lookup internal constructor(private val key: Key) {
+        private val generation = entries.generation
 
-    // The key holds the image bytes, so they count against the budget with the pixels.
-    private data class Key(val bytes: ImageBytes, val bounds: ImageRenderBounds)
+        fun cached(): PassImage? = entries.get(key)
 
-    private fun weightOf(key: Key, image: PassImage): Int {
-        val pixels = (image as? PassImage.Decoded)?.bitmap?.allocationByteCount ?: 0
-        return pixels + key.bytes.bytes.size + ENTRY_OVERHEAD_BYTES
+        /** Keeps [image], or returns the result already held, so every caller shares one. */
+        fun keep(image: PassImage): PassImage = entries.putIfAbsent(key, image, generation) ?: image
+    }
+
+    // Holds the image bytes, which count against the budget with the pixels.
+    internal class Key(val bytes: ImageBytes, val bounds: ImageRenderBounds) {
+        private val hash = 31 * bytes.hashCode() + bounds.hashCode()
+
+        override fun hashCode(): Int = hash
+
+        override fun equals(other: Any?): Boolean =
+            other is Key && hash == other.hash && bounds == other.bounds && bytes == other.bytes
     }
 
     public companion object {
-        /** 32 MiB: at least fifty 8-bit images decoded into a 342 x 442 px box, twice a small list tile. */
+        /** 32 MiB: about fifty small images decoded into a 342 x 442 px box, twice a small list tile. */
         public const val DEFAULT_MAX_BYTES: Int = 32 * 1024 * 1024
 
         // Keeps entries that hold no pixels, such as refusals, bounded in number.
-        private const val ENTRY_OVERHEAD_BYTES = 1024
+        internal const val ENTRY_OVERHEAD_BYTES: Int = 1024
+
+        private fun weightOf(key: Key, image: PassImage): Int {
+            val pixels = (image as? PassImage.Decoded)?.bitmap?.allocationByteCount ?: 0
+            return pixels + key.bytes.bytes.size + ENTRY_OVERHEAD_BYTES
+        }
     }
 }
 

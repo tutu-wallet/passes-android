@@ -260,13 +260,13 @@ class BoundedImageDecodeInstrumentedTest {
     fun aDecodedBitmapCountsItsPixelsAgainstTheCacheBudget() {
         val png = pngOf(width = 100, height = 100)
         val image = decodePassImage(png, ImageRenderBounds.Default)
-        // At least a byte a pixel, whatever config and allocator the platform chose.
-        val cache = PassImageCache(maxBytes = 100 * 100)
+        // One byte short of a byte a pixel beside the image bytes, whatever config the platform chose.
+        val cache = PassImageCache(maxBytes = 100 * 100 + png.size + PassImageCache.ENTRY_OVERHEAD_BYTES - 1)
 
-        cache.put(ImageBytes(png), ImageRenderBounds.Default, image)
+        cache.lookup(ImageBytes(png), ImageRenderBounds.Default).keep(image)
 
         assertThat(image).isInstanceOf(PassImage.Decoded::class.java)
-        assertThat(cache.get(ImageBytes(png), ImageRenderBounds.Default)).isNull()
+        assertThat(cache.lookup(ImageBytes(png), ImageRenderBounds.Default).cached()).isNull()
     }
 
     @Test
