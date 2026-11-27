@@ -85,12 +85,12 @@ permitted strictly when all five hold:
      its `PassType` in host words the host uses for no other class.
 4. No list item draws artifact imagery (issuer artwork, document page, image or code),
    with one exception: a pkpass item's pass tile may show one image from the pass file,
-   on the pass file's `backgroundColor` or on the item's class colour. Those pixels and
-   the file's colour are the issuer's and can imitate any mark the host draws, so the
-   exception is bound:
-   - Image and colour are taken from the pass file alone and are the same for every
-     signature status. Showing or withholding them by verification outcome would make
-     them a verified affordance (condition 1).
+   on the pass file's `backgroundColor` or on the item's class or user colour. Those
+   pixels and the file's colour are the issuer's and can imitate any mark the host
+   draws, so the exception is bound:
+   - The image, and the colour when it is the file's, are taken from the pass file
+     alone and are the same for every signature status. Showing or withholding them by
+     verification outcome would make them a verified affordance (condition 1).
    - The pass tile has a host-fixed size and position, the same on every pkpass item.
      No pixel or colour from the pass file, or derived from it, reaches outside it.
    - The pass mark, the item's text (issuer text included) and its controls sit on the
@@ -101,7 +101,7 @@ permitted strictly when all five hold:
    - The image decodes in the app process through the kernel's `BoundedImage`, at
      `ImageRenderBounds.Default` or tighter, which caps the dimensions of each decoded
      bitmap. That is the path the kernel provides for pass images, not the isolated
-     process that images a user imports decode in (C5; ADR 0005 D3).
+     process that images a user imports decode in (C5; ADR 0005 D3 and section I).
 
    Every other pixel source stays out of the list: a document page or image, a
    user-chosen image on any item, and a code outside the list-face code render
@@ -192,9 +192,9 @@ tests are expected to pin that:
   every signature status;
 - every user-created and document item shows its class label and speaks its class,
   and supplied text of any length or glyph height neither moves nor covers the label;
-- every pkpass item shows the pass mark clear of any pass tile and speaks its
-  `PassType`, and supplied text of any length or glyph height neither moves nor covers
-  the mark;
+- every pkpass item shows the pass mark with host surface between it and any pass
+  tile and speaks its `PassType`, and supplied text of any length or glyph height
+  neither moves nor covers the mark;
 - no item of another class draws the mark, and the mark's position holds only
   host-drawn content on every class;
 - no item draws artifact imagery outside a pass tile or a list-face code render, no
@@ -454,10 +454,10 @@ reduction in defense-in-depth is accepted deliberately.
 `HostedTypeRow` concessions, the C1 list-level distinction carries the load: a class
 label on every user-created and document item, the pass mark on every pkpass item, no
 verified affordance on any item of any class, and artifact imagery nowhere but a pass
-tile or a list-face code render. Colour distinguishes nothing on its own and is not relied on to, and the class
-label and the pass mark name a class without proving what an item claims (residual risk
-of the consumer list concession). This is the load-bearing concern of the feature; every
-control traces back to this row.
+tile or a list-face code render. Colour distinguishes nothing on its own and is not
+relied on to, and the class label and the pass mark name a class without proving what
+an item claims (residual risk of the consumer list concession). This is the
+load-bearing concern of the feature; every control traces back to this row.
 
 ### 2. Hostile URI payload encoded into a QR that another device auto-acts on - Spoofing / Elevation of privilege
 
