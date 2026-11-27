@@ -15,6 +15,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.painter.BitmapPainter
 import `is`.walt.passes.core.ImageBytes
 import `is`.walt.passes.core.ImageRole
+import `is`.walt.passes.core.PngHeader
 import `is`.walt.passes.image.decode.BoundedBitmap
 import `is`.walt.passes.image.decode.BoundedDecodePolicy
 import `is`.walt.passes.image.decode.DecodeSize
@@ -23,8 +24,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /**
- * The only path from pass image bytes to pixels: a bounded `ImageDecoder` decode to at most [bounds].
- * A refused image draws nothing and reports to [telemetry]; an [OutOfMemoryError] propagates.
+ * The only path from pass image bytes to pixels: a bounded `ImageDecoder` decode of a PNG to at most
+ * [bounds]. A refused image draws nothing and reports to [telemetry]; an [OutOfMemoryError] propagates.
  */
 @Composable
 public fun BoundedImage(
@@ -59,35 +60,56 @@ public fun BoundedImage(
 
 /**
  * Source pixel count above which an image is refused from its header, before the bitmap is
- * allocated. Equal to the parser's default cap, so a PNG a default import admits can render.
+ * allocated. Equal to the parser's default cap, so a non-interlaced PNG a default import admits can render.
  */
 internal const val MAX_SOURCE_PIXELS: Long = 4096L * 4096L
 
-internal fun sourceRejection(width: Int, height: Int): ImageDecodeRejection? =
-    if (width.toLong() * height.toLong() > MAX_SOURCE_PIXELS) ImageDecodeRejection.ExceedsArea else null
+/**
+ * The lower ceiling of an interlaced PNG, which the platform codec holds whole at any output
+ * size: the area of [ImageRenderBounds.Default].
+ */
+internal const val MAX_INTERLACED_SOURCE_PIXELS: Long = 1920L * 1920L
+
+private const val PNG_MIME_TYPE = "image/png"
+
+/** The refusal read from the bytes themselves. A refused image is never given to the platform decoder. */
+internal fun pngRejection(rawBytes: ByteArray): ImageDecodeRejection? {
+    val header = PngHeader.read(rawBytes) ?: return ImageDecodeRejection.NotPng
+    val ceiling = if (header.interlaced) MAX_INTERLACED_SOURCE_PIXELS else MAX_SOURCE_PIXELS
+    return if (header.exceedsPixelCount(ceiling)) ImageDecodeRejection.ExceedsArea else null
+}
+
+/** The refusal again, from the type and size the platform decoder reports. It cannot see interlacing. */
+internal fun sourceRejection(mimeType: String?, width: Int, height: Int): ImageDecodeRejection? =
+    when {
+        mimeType != PNG_MIME_TYPE -> ImageDecodeRejection.NotPng
+        width.toLong() * height.toLong() > MAX_SOURCE_PIXELS -> ImageDecodeRejection.ExceedsArea
+        else -> null
+    }
 
 /** The decode behind [BoundedImage], split out so tests can drive it without a composition. */
 internal fun decodeBoundedBitmap(
     rawBytes: ByteArray,
     bounds: ImageRenderBounds,
-): Pair<Bitmap?, ImageDecodeRejection?> =
-    when (
-        val decoded =
-            decodeBounded(
-                rawBytes = rawBytes,
-                policy =
-                    BoundedDecodePolicy(
-                        // Display only, so a hardware bitmap is fine.
-                        allocator = ImageDecoder.ALLOCATOR_DEFAULT,
-                        gate = { _, width, height -> sourceRejection(width, height) },
-                        maxSize = DecodeSize(bounds.maxWidthPx, bounds.maxHeightPx),
-                        onMalformed = { ImageDecodeRejection.Malformed },
-                        onRuntimeFailure = { ImageDecodeRejection.Other },
-                        // The host has no rejection bucket for an OOM, so it propagates.
-                        onOutOfMemory = null,
-                    ),
-            )
-    ) {
+): Pair<Bitmap?, ImageDecodeRejection?> {
+    pngRejection(rawBytes)?.let { return null to it }
+    val decoded =
+        decodeBounded(
+            rawBytes = rawBytes,
+            policy =
+                BoundedDecodePolicy(
+                    // Display only, so a hardware bitmap is fine.
+                    allocator = ImageDecoder.ALLOCATOR_DEFAULT,
+                    gate = ::sourceRejection,
+                    maxSize = DecodeSize(bounds.maxWidthPx, bounds.maxHeightPx),
+                    onMalformed = { ImageDecodeRejection.Malformed },
+                    onRuntimeFailure = { ImageDecodeRejection.Other },
+                    // The host has no rejection bucket for an OOM, so it propagates.
+                    onOutOfMemory = null,
+                ),
+        )
+    return when (decoded) {
         is BoundedBitmap.Decoded -> decoded.bitmap to null
         is BoundedBitmap.Rejected -> null to decoded.reason
     }
+}

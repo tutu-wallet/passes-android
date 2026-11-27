@@ -86,40 +86,40 @@ class BoundedBitmapDecodeInstrumentedTest {
         // Just under twice the box, where a scale that is not a whole number decodes at full size first.
         val side = 3839
         val png = blackPngOf(side)
-        val baseline = Debug.getNativeHeapAllocatedSize()
-        val sampling = CountDownLatch(1)
-        val done = AtomicBoolean(false)
-        var peak = baseline
-        val sampler =
-            Thread {
-                sampling.countDown()
-                while (!done.get()) peak = maxOf(peak, Debug.getNativeHeapAllocatedSize())
-            }
-        sampler.start()
-        sampling.await()
 
-        val result =
-            try {
+        val (result, peak) =
+            peakNativeGrowth {
                 decodeBounded(rawBytes = png, policy = policy(maxSide = side, maxSize = DecodeSize(1920, 1920)))
-            } finally {
-                done.set(true)
-                sampler.join()
             }
 
         val bitmap = (result as BoundedBitmap.Decoded).bitmap
-        peak = maxOf(peak, Debug.getNativeHeapAllocatedSize())
         assertThat(bitmap.width).isEqualTo(1919)
         assertThat(bitmap.height).isEqualTo(1919)
         // The lower bound shows the probe sees bitmap memory at all on this API level.
-        assertThat(peak - baseline).isAtLeast(bitmap.allocationByteCount * 9L / 10)
-        assertThat(peak - baseline).isLessThan(side.toLong() * side * 4 / 2)
+        assertThat(peak).isAtLeast(bitmap.allocationByteCount * 9L / 10)
+        assertThat(peak).isLessThan(side.toLong() * side * 4 / 2)
         bitmap.recycle()
     }
 
     @Test
+    fun refusedImageIsNotDecoded() {
+        // The platform codec holds an interlaced image whole at any output size, so a decode shows.
+        val side = 3000
+        val png = blackPngOf(side, interlaced = true)
+
+        val (accepted, acceptedPeak) = peakNativeGrowth { decodeBounded(png, policy(maxSide = side)) }
+        (accepted as BoundedBitmap.Decoded).bitmap.recycle()
+        val (refused, refusedPeak) = peakNativeGrowth { decodeBounded(png, policy(maxSide = 1)) }
+
+        assertThat(refused).isEqualTo(BoundedBitmap.Rejected(Reason.TooLarge))
+        // The accepted arm shows the probe sees this image's decode at all on this API level.
+        assertThat(acceptedPeak).isAtLeast(side.toLong() * side)
+        assertThat(refusedPeak).isLessThan(REFUSED_PEAK_BYTES)
+    }
+
+    @Test
     fun foldsMalformedContainerToOnMalformed() {
-        // Random bytes are not a decodable container; with no gate rejection in flight the
-        // thrown failure folds to the caller's onMalformed value.
+        // Random bytes are not a decodable container, so the failure folds to onMalformed.
         val garbage = ByteArray(256) { (it * 37 + 13).toByte() }
         val result = decodeBounded(rawBytes = garbage, policy = policy(maxSide = 64))
         assertThat(result).isEqualTo(BoundedBitmap.Rejected(Reason.Malformed))
@@ -134,21 +134,46 @@ class BoundedBitmapDecodeInstrumentedTest {
         }
     }
 
+    /** Runs [block] and returns its result with the peak native heap growth seen while it ran. */
+    private fun <T> peakNativeGrowth(block: () -> T): Pair<T, Long> {
+        val baseline = Debug.getNativeHeapAllocatedSize()
+        val sampling = CountDownLatch(1)
+        val done = AtomicBoolean(false)
+        var peak = baseline
+        val sampler =
+            Thread {
+                sampling.countDown()
+                while (!done.get()) peak = maxOf(peak, Debug.getNativeHeapAllocatedSize())
+            }
+        sampler.start()
+        sampling.await()
+        val result =
+            try {
+                block()
+            } finally {
+                done.set(true)
+                sampler.join()
+            }
+        return result to maxOf(peak, Debug.getNativeHeapAllocatedSize()) - baseline
+    }
+
     // A valid all-black greyscale square, streamed so the fixture itself allocates almost nothing.
-    private fun blackPngOf(side: Int): ByteArray {
+    private fun blackPngOf(side: Int, interlaced: Boolean = false): ByteArray {
         val header =
             ByteArrayOutputStream().also {
                 DataOutputStream(it).apply {
                     writeInt(side)
                     writeInt(side)
-                    write(byteArrayOf(8, 0, 0, 0, 0))
+                    write(byteArrayOf(8, 0, 0, 0, if (interlaced) 1 else 0))
                 }
             }.toByteArray()
         val pixels =
             ByteArrayOutputStream().also { out ->
                 DeflaterOutputStream(out).use { deflater ->
-                    val row = ByteArray(side + 1)
-                    repeat(side) { deflater.write(row) }
+                    for ((rows, rowBytes) in scanlinesOf(side, interlaced)) {
+                        val row = ByteArray(rowBytes)
+                        repeat(rows) { deflater.write(row) }
+                    }
                 }
             }.toByteArray()
         return ByteArrayOutputStream().also { out ->
@@ -159,6 +184,14 @@ class BoundedBitmapDecodeInstrumentedTest {
         }.toByteArray()
     }
 
+    // Row count and bytes per row (filter byte included) of each pass: one, or Adam7's seven.
+    private fun scanlinesOf(side: Int, interlaced: Boolean): List<Pair<Int, Int>> {
+        if (!interlaced) return listOf(side to side + 1)
+        return ADAM7.map { (xStart, yStart, xStep, yStep) ->
+            (side - yStart + yStep - 1) / yStep to (side - xStart + xStep - 1) / xStep + 1
+        }.filter { (rows, rowBytes) -> rows > 0 && rowBytes > 1 }
+    }
+
     private fun ByteArrayOutputStream.writeChunk(type: String, data: ByteArray) {
         val typed = type.toByteArray(Charsets.US_ASCII) + data
         DataOutputStream(this).apply {
@@ -166,5 +199,21 @@ class BoundedBitmapDecodeInstrumentedTest {
             write(typed)
             writeInt(CRC32().apply { update(typed) }.value.toInt())
         }
+    }
+
+    private companion object {
+        const val REFUSED_PEAK_BYTES = 1L * 1024 * 1024
+
+        // xStart, yStart, xStep, yStep of each Adam7 pass.
+        val ADAM7 =
+            listOf(
+                listOf(0, 0, 8, 8),
+                listOf(4, 0, 8, 8),
+                listOf(0, 4, 4, 8),
+                listOf(2, 0, 4, 4),
+                listOf(0, 2, 2, 4),
+                listOf(1, 0, 2, 2),
+                listOf(0, 1, 1, 2),
+            )
     }
 }

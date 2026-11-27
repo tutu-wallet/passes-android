@@ -11,6 +11,7 @@ import `is`.walt.passes.core.ParserConfig
 import `is`.walt.passes.core.PassLocale
 import `is`.walt.passes.core.PassParser
 import `is`.walt.passes.core.PassSource
+import `is`.walt.passes.core.PngHeader
 import `is`.walt.passes.core.ResourceLimit
 import `is`.walt.passes.core.SignatureStatus
 import `is`.walt.passes.core.TamperReason
@@ -21,7 +22,7 @@ import `is`.walt.passes.core.toKind
 /**
  * The single concrete [PassParser] implementation. Stitches the four security-critical
  * slices ([extractSafely], [verifyManifest], [verifySignature], [decodePassJson]) plus
- * [parseStrings] and [readPngDimensions] into a non-throwing pipeline whose every error
+ * [parseStrings] and [PngHeader.read] into a non-throwing pipeline whose every error
  * path lands on a [ParseResult] arm.
  *
  * **Pipeline order is load-bearing.** The shape mirrors the trust hierarchy the public
@@ -103,11 +104,12 @@ internal class DefaultPassParser(private val config: ParserConfig) : PassParser 
         return PipelineOutcome(
             result =
                 ParseResult.Success(
-                    pass = pass.copy(images = images, locales = locales.locales),
+                    pass = pass.copy(images = images.images, locales = locales.locales),
                     signatureStatus = signatureStatus,
                 ),
             archiveBytes = archiveBytes,
             droppedLocales = locales.dropped,
+            droppedImages = images.dropped,
         )
     }
 
@@ -175,53 +177,36 @@ internal class DefaultPassParser(private val config: ParserConfig) : PassParser 
         return failure?.let { Phase.Halt(it) } ?: Phase.Continue(ParsedLocales(map, dropped))
     }
 
-    private fun collectImages(entries: Map<String, ByteArray>): Phase<Map<ImageRole, ImageBytes>> {
-        // Pre-filter to top-level role images so the loop body has a single jump
-        // statement (the break-on-failure). Localized images (under `<locale>.lproj/`)
-        // are silently dropped — ADR 0001 does not yet model locale-aware image
-        // binding, and the renderer consumes only the top-level role images today.
+    /**
+     * An entry under an image name that is not a PNG is left out, not fatal: its bytes already
+     * passed the manifest check, and no decoder is given them. A PNG over the pixel cap fails the pass.
+     */
+    private fun collectImages(entries: Map<String, ByteArray>): Phase<ParsedImages> {
+        // Top-level role images only; ADR 0001 does not model the localized ones under `<locale>.lproj/`.
         val candidates =
             entries.entries.mapNotNull { (name, bytes) ->
                 val role = topLevelImageRole(name) ?: return@mapNotNull null
                 role to bytes
             }
         val map = LinkedHashMap<ImageRole, ImageBytes>(candidates.size)
-        var failure: ParseResult? = null
+        var dropped = 0
+        var overLimit = false
         for ((role, bytes) in candidates) {
-            if (failure != null) break
-            val limitTrip = pngPixelLimitFailure(bytes)
-            if (limitTrip != null) failure = limitTrip else map[role] = ImageBytes(bytes)
+            if (overLimit) break
+            val header = PngHeader.read(bytes)
+            when {
+                header == null -> dropped++
+                header.exceedsPixelCount(config.maxImagePixelCount.toLong()) -> overLimit = true
+                else -> map[role] = ImageBytes(bytes)
+            }
         }
-        return failure?.let { Phase.Halt(it) } ?: Phase.Continue(map)
+        if (!overLimit) return Phase.Continue(ParsedImages(map, dropped))
+        return Phase.Halt(ParseResult.Malformed(MalformedReason.ResourceLimitExceeded(ResourceLimit.ImagePixelCount)))
     }
 
     private fun topLevelImageRole(name: String): ImageRole? {
         val isTopLevelPng = '/' !in name && name.endsWith(PNG_EXTENSION, ignoreCase = true)
         return if (isTopLevelPng) imageRoleForBasename(name) else null
-    }
-
-    private fun pngPixelLimitFailure(bytes: ByteArray): ParseResult? {
-        // A PNG whose IHDR is unreadable is treated as "skip the pixel cap" rather
-        // than malformed: the bytes are inert here (the renderer will surface a decode
-        // failure downstream), and per-entry size is already bounded by maxEntryBytes
-        // upstream. Rejecting on unreadable IHDR would force the parser to police PNG
-        // structural validity, which is outside its remit.
-        val dim = readPngDimensions(bytes) ?: return null
-        val limit = config.maxImagePixelCount.toLong()
-        // Defense against u32 IHDR width × height overflowing Long. A signed-Long
-        // multiplication of two values near u32 max would wrap silently — and a
-        // wrapped (negative) result would compare ≤ limit, bypassing the cap. The
-        // axis-pre-check rules out that path: if either axis already exceeds the
-        // cap, the product certainly does. Otherwise both axes are ≤ limit ≤
-        // Int.MAX_VALUE (the field's declared type is `Int`), so the product is at
-        // most ~4.6×10¹⁸, comfortably under Long.MAX_VALUE ≈ 9.22×10¹⁸.
-        val exceedsAxis = dim.width > limit || dim.height > limit
-        val exceedsProduct = !exceedsAxis && dim.width * dim.height > limit
-        return if (exceedsAxis || exceedsProduct) {
-            ParseResult.Malformed(MalformedReason.ResourceLimitExceeded(ResourceLimit.ImagePixelCount))
-        } else {
-            null
-        }
     }
 
     private fun emit(
@@ -240,6 +225,7 @@ internal class DefaultPassParser(private val config: ParserConfig) : PassParser 
                         imageCount = result.pass.images.size,
                         localeCount = result.pass.locales.size,
                         droppedLocaleCount = outcome.droppedLocales,
+                        droppedImageCount = outcome.droppedImages,
                     ),
                 )
             else ->
@@ -269,10 +255,14 @@ internal class DefaultPassParser(private val config: ParserConfig) : PassParser 
         val result: ParseResult,
         val archiveBytes: Long,
         val droppedLocales: Int = 0,
+        val droppedImages: Int = 0,
     )
 
     /** Parsed locales plus how many were dropped for an unparseable `.strings` file. */
     private data class ParsedLocales(val locales: LocaleMap, val dropped: Int)
+
+    /** Kept images plus how many were dropped for not being a PNG. */
+    private data class ParsedImages(val images: Map<ImageRole, ImageBytes>, val dropped: Int)
 
     /**
      * Continuation outcome of any pipeline stage that can short-circuit with a

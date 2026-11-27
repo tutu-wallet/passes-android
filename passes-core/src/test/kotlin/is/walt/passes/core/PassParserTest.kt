@@ -364,6 +364,32 @@ class PassParserTest {
     }
 
     @Test
+    fun imageThatIsNotAPngIsLeftOutAndThePassKept() {
+        val png = SyntheticPkpass.fakePng(widthDeclared = 1, heightDeclared = 1)
+        val jpeg = byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte(), 0xE0.toByte()) + ByteArray(64)
+        val recorder = RecordingTelemetryGuard()
+        val zip =
+            SyntheticPkpass.signedSelfSigned(
+                passJson = SyntheticPkpass.minimalPassJson("generic"),
+                extraEntries =
+                    mapOf(
+                        "icon.png" to png,
+                        "logo.png" to jpeg,
+                        "strip.png" to png.copyOf(16),
+                        "thumbnail.png" to ByteArray(0),
+                    ),
+            )
+        val result = PassParser.create(ParserConfig(telemetryGuard = recorder)).parse(PassSource.Bytes(zip))
+
+        val success = result as ParseResult.Success
+        assertThat(success.signatureStatus).isEqualTo(SignatureStatus.SelfSigned)
+        assertThat(success.pass.images.keys).containsExactly(ImageRole.Icon)
+        val event = (recorder.events[1] as RecordedEvent.Succeeded).event
+        assertThat(event.imageCount).isEqualTo(1)
+        assertThat(event.droppedImageCount).isEqualTo(3)
+    }
+
+    @Test
     fun telemetryEmitsStartedThenSucceededInOrderOnHappyPath() {
         val recorder = RecordingTelemetryGuard()
         val zip = SyntheticPkpass.unsigned(SyntheticPkpass.minimalPassJson("generic"))
@@ -438,16 +464,13 @@ class PassParserTest {
 
     @Test
     fun pngPixelCountLimitTripsForU32MaxIhdrWithoutOverflowing() {
-        // Regression: an IHDR declaring near-u32-max width and height would, with a
-        // naive `dim.width * dim.height` over signed Long, wrap negative and slip past
-        // the cap. The axis-pre-check forces the trip without even multiplying.
+        // An IHDR declaring sides near the 32-bit maximum must trip the cap, not wrap past it.
         val attackPng = SyntheticPkpass.fakePng(widthDeclared = Int.MAX_VALUE, heightDeclared = Int.MAX_VALUE)
         val zip =
             SyntheticPkpass.unsigned(
                 passJson = SyntheticPkpass.minimalPassJson("generic"),
                 extraEntries = mapOf("icon.png" to attackPng),
             )
-        // Default cap; both axes already exceed it, so overflow never gets a chance.
         val result = PassParser.create().parse(PassSource.Bytes(zip))
         assertThat(result)
             .isEqualTo(

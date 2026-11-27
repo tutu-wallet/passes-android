@@ -21,33 +21,35 @@ public fun <R : Any> decodeBounded(
                 decoder.allocator = policy.allocator
                 val header = DecodeSize(info.size.width, info.size.height)
                 rejection = policy.gate.evaluate(info.mimeType, header.width, header.height)
+                // Thrown before the platform decodes a pixel, so a refused image is never decoded.
+                if (rejection != null) throw HeaderRefused()
                 // An image already at its target keeps the platform's unscaled decode.
-                val target = decodeSize(header, rejected = rejection != null, policy.maxSize)
+                val target = decodeSize(header, policy.maxSize)
                 if (target != header) decoder.setTargetSize(target.width, target.height)
             }
-        rejection?.let {
-            bitmap.recycle()
-            BoundedBitmap.Rejected(it)
-        } ?: BoundedBitmap.Decoded(bitmap)
+        BoundedBitmap.Decoded(bitmap)
+    } catch (_: HeaderRefused) {
+        BoundedBitmap.Rejected(checkNotNull(rejection))
     } catch (_: IOException) {
-        // A gate rejection already in flight wins over every fold below.
-        BoundedBitmap.Rejected(rejection ?: policy.onMalformed())
+        BoundedBitmap.Rejected(policy.onMalformed())
     } catch (_: IllegalArgumentException) {
         // setTargetSize, or a header with a non-positive side.
-        BoundedBitmap.Rejected(rejection ?: policy.onMalformed())
+        BoundedBitmap.Rejected(policy.onMalformed())
     } catch (oom: OutOfMemoryError) {
-        containOutOfMemory(rejection, policy) ?: throw oom
+        containOutOfMemory(policy) ?: throw oom
     } catch (_: RuntimeException) {
-        BoundedBitmap.Rejected(rejection ?: policy.onRuntimeFailure())
+        BoundedBitmap.Rejected(policy.onRuntimeFailure())
     }
 }
 
+/** Ends a decode from the header listener when the caller's gate refuses the image. */
+private class HeaderRefused : RuntimeException(null, null, false, false)
+
 /**
- * The size to decode at: 1x1 for a rejected image, else [header] divided by the smallest whole
- * number that fits [maxSize]. The codec samples at that number; no full-size bitmap is scaled down.
+ * The size to decode at: [header] divided by the smallest whole number that fits [maxSize]. The
+ * codec samples at that number; no full-size bitmap is scaled down.
  */
-internal fun decodeSize(header: DecodeSize, rejected: Boolean, maxSize: DecodeSize?): DecodeSize {
-    if (rejected) return DecodeSize(1, 1)
+internal fun decodeSize(header: DecodeSize, maxSize: DecodeSize?): DecodeSize {
     val box = maxSize ?: header
     val divisor = maxOf(ceilDiv(header.width, box.width), ceilDiv(header.height, box.height))
     return DecodeSize(maxOf(1, header.width / divisor), maxOf(1, header.height / divisor))
@@ -56,14 +58,9 @@ internal fun decodeSize(header: DecodeSize, rejected: Boolean, maxSize: DecodeSi
 // Both operands are positive, as DecodeSize requires.
 private fun ceilDiv(dividend: Int, divisor: Int): Int = (dividend - 1) / divisor + 1
 
-/**
- * The contained rejection when [policy] folds an OOM (a [pendingRejection] from the gate wins),
- * or null when the caller's posture is to let the error propagate.
- */
-internal fun <R : Any> containOutOfMemory(
-    pendingRejection: R?,
-    policy: BoundedDecodePolicy<R>,
-): BoundedBitmap<R>? = policy.onOutOfMemory?.let { BoundedBitmap.Rejected(pendingRejection ?: it()) }
+/** The contained rejection when [policy] folds an OOM, or null when it lets the error propagate. */
+internal fun <R : Any> containOutOfMemory(policy: BoundedDecodePolicy<R>): BoundedBitmap<R>? =
+    policy.onOutOfMemory?.let { BoundedBitmap.Rejected(it()) }
 
 /**
  * One call site's decode posture. [maxSize] null decodes at source size; [onOutOfMemory] null lets
