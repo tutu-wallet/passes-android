@@ -47,7 +47,7 @@ public fun BoundedImage(
     LaunchedEffect(bytes, bounds, cache) {
         when (val image = cached ?: loadPassImage(bytes, bounds, lookup)) {
             is PassImage.Decoded -> bitmap = image.bitmap
-            is PassImage.Refused -> if (image.claimReport()) telemetry.onImageDecodeRejected(image.reason)
+            is PassImage.Refused -> telemetry.onImageDecodeRejected(image.reason)
         }
     }
 
@@ -121,14 +121,14 @@ internal fun decodePassImage(
     rawBytes: ByteArray,
     bounds: ImageRenderBounds,
 ): PassImage {
-    val refusal = pngRejection(rawBytes)
+    pngRejection(rawBytes)?.let { return PassImage.Refused(it) }
     // Only the chunks that draw reach the platform reader, so a metadata chunk costs the decode nothing.
-    val picture = if (refusal == null) PngPicture.of(rawBytes) else null
+    val picture = PngPicture.of(rawBytes)
     val decoded =
-        when {
-            refusal != null -> BoundedBitmap.Rejected(refusal)
-            picture == null -> BoundedBitmap.Rejected(ImageDecodeRejection.Malformed)
-            else -> decodeBounded(rawBytes = picture, policy = displayPolicy(bounds))
+        if (picture == null) {
+            BoundedBitmap.Rejected(ImageDecodeRejection.Malformed)
+        } else {
+            decodeBounded(rawBytes = picture, policy = displayPolicy(bounds))
         }
     return when (decoded) {
         is BoundedBitmap.Decoded -> PassImage.Decoded(decoded.bitmap)

@@ -3,11 +3,10 @@ package `is`.walt.passes.ui
 import android.graphics.Bitmap
 import `is`.walt.passes.core.ImageBytes
 import `is`.walt.passes.ui.internal.ByteBoundedLru
-import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * What [BoundedImage] decoded or refused, kept up to [maxBytes] of pixels and image bytes. Hoist one per
- * list with `remember { PassImageCache() }` and clear it when a pass is deleted; the host can only clear it.
+ * What [BoundedImage] decoded or refused, kept up to [maxBytes] of pixels and image bytes. Hoist one per list
+ * with `remember { PassImageCache() }`; clear it once a deleted pass has left the list. Only clearing is public.
  */
 public class PassImageCache(maxBytes: Int = DEFAULT_MAX_BYTES) {
     private val entries = ByteBoundedLru<Key, PassImage>(maxBytes, ::weightOf)
@@ -38,7 +37,7 @@ public class PassImageCache(maxBytes: Int = DEFAULT_MAX_BYTES) {
     }
 
     public companion object {
-        /** 32 MiB: about fifty small images decoded into a 342 x 442 px box, twice a small list tile. */
+        /** 32 MiB: about fifty images filling a 342 x 442 px box (twice a small list tile). */
         public const val DEFAULT_MAX_BYTES: Int = 32 * 1024 * 1024
 
         // Keeps entries that hold no pixels, such as refusals, bounded in number.
@@ -51,14 +50,10 @@ public class PassImageCache(maxBytes: Int = DEFAULT_MAX_BYTES) {
     }
 }
 
-/** One decode's result. Not data classes: a [Bitmap] has identity, and each refusal is reported once. */
+/** One decode's result. */
 internal sealed interface PassImage {
+    // Not a data class: a Bitmap has identity, not value, equality.
     class Decoded(val bitmap: Bitmap) : PassImage
 
-    class Refused(val reason: ImageDecodeRejection) : PassImage {
-        private val reported = AtomicBoolean(false)
-
-        /** True for the first caller only. */
-        fun claimReport(): Boolean = reported.compareAndSet(false, true)
-    }
+    data class Refused(val reason: ImageDecodeRejection) : PassImage
 }

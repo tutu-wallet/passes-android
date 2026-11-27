@@ -281,9 +281,9 @@ public fun ExpiredOverlay(
  * picture; text, metadata and unknown chunks are left out. A refused image (not a
  * PNG, over its source ceiling, or undecodable) is not decoded, draws nothing and
  * fires `telemetry.onImageDecodeRejected`. An `OutOfMemoryError` from the decode
- * propagates. With a [cache], an image it holds draws at once and is neither
- * decoded nor reported again. At most two pass image decodes run at once in the
- * process.
+ * propagates. With a [cache], an image it holds draws at once and is not decoded
+ * again; a refusal it holds is still reported. At most two pass image decodes run
+ * at once in the process.
  *
  * Coil's default decoder must NOT be used for these images:
  * the bounds enforcement is the trust claim, and a third-party loader would have
@@ -301,11 +301,15 @@ public fun BoundedImage(
 )
 
 /**
- * What [BoundedImage] decoded or refused, kept up to [maxBytes] of pixels and image bytes. Hoist one per
- * list with `remember { PassImageCache() }` and clear it when a pass is deleted; the host can only clear it.
+ * What [BoundedImage] decoded or refused, kept up to [maxBytes] of pixels and image bytes. Hoist one per list
+ * with `remember { PassImageCache() }`; clear it once a deleted pass has left the list. Only clearing is public.
  */
 public class PassImageCache(maxBytes: Int = DEFAULT_MAX_BYTES) {
     public fun clear()
+
+    public companion object {
+        public const val DEFAULT_MAX_BYTES: Int = 32 * 1024 * 1024
+    }
 }
 ```
 

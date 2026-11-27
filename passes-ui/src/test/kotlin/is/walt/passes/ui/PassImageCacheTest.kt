@@ -1,6 +1,7 @@
 package `is`.walt.passes.ui
 
 import android.graphics.Bitmap
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -225,20 +226,26 @@ class PassImageCacheTest {
     }
 
     @Test
-    fun aRefusalIsReportedOnceWhileTheCacheHoldsIt() {
+    fun aCachedRefusalIsReportedOnEachEntry() {
         val reports = showTwice(PassImageCache())
 
-        assertThat(reports).containsExactly(ImageDecodeRejection.NotPng)
+        assertThat(reports).containsExactly(ImageDecodeRejection.NotPng, ImageDecodeRejection.NotPng)
     }
 
     @Test
-    fun aRefusalKeptForARowThatLeftIsReportedByTheNextToShowIt() {
+    fun twoRowsShowingOneCachedRefusalEachReportIt() {
         val cache = PassImageCache()
         cache.lookup(image(1), bounds).keep(refused())
+        val reports = CopyOnWriteArrayList<ImageDecodeRejection>()
 
-        val reports = showTwice(cache)
+        composeRule.setContent {
+            Column {
+                repeat(2) { TestImage(image(1), cache, reportingTo(reports)) }
+            }
+        }
+        composeRule.waitUntil(WAIT_MS) { reports.size == 2 }
 
-        assertThat(reports).containsExactly(ImageDecodeRejection.NotPng)
+        assertThat(reports).containsExactly(ImageDecodeRejection.NotPng, ImageDecodeRejection.NotPng)
     }
 
     @Test
@@ -251,12 +258,7 @@ class PassImageCacheTest {
     /** Shows bytes that are not a PNG, takes them out of composition and shows them again. */
     private fun showTwice(cache: PassImageCache?): List<ImageDecodeRejection> {
         val reports = CopyOnWriteArrayList<ImageDecodeRejection>()
-        val telemetry =
-            object : UiTelemetryGuard by NoopUiTelemetryGuard {
-                override fun onImageDecodeRejected(reason: ImageDecodeRejection) {
-                    reports += reason
-                }
-            }
+        val telemetry = reportingTo(reports)
         var shown by mutableStateOf(true)
         composeRule.setContent { if (shown) TestImage(image(1), cache, telemetry) }
         composeRule.waitUntil(WAIT_MS) { reports.isNotEmpty() }
@@ -265,15 +267,16 @@ class PassImageCacheTest {
         composeRule.waitForIdle()
         shown = true
         composeRule.waitForIdle()
-        if (cache == null) composeRule.waitUntil(WAIT_MS) { reports.size == 2 } else settleDecodes()
+        composeRule.waitUntil(WAIT_MS) { reports.size == 2 }
         return reports.toList()
     }
 
-    // Lets anything queued on the decode dispatcher start and finish before the reports are read.
-    private fun settleDecodes() = runBlocking {
-        List(DECODE_PARALLELISM) { launch(passImageDecodeDispatcher) { Thread.sleep(50) } }.joinAll()
-        composeRule.waitForIdle()
-    }
+    private fun reportingTo(reports: MutableList<ImageDecodeRejection>) =
+        object : UiTelemetryGuard by NoopUiTelemetryGuard {
+            override fun onImageDecodeRejected(reason: ImageDecodeRejection) {
+                reports += reason
+            }
+        }
 
     @Composable
     private fun TestImage(bytes: ImageBytes, cache: PassImageCache?, telemetry: UiTelemetryGuard) {

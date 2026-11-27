@@ -38,6 +38,20 @@ class ByteBoundedLruTest {
     }
 
     @Test
+    fun oneEntryCanEvictSeveral() {
+        val cache = lru(maxBytes = 10)
+        cache.put("a", "xxx")
+        cache.put("b", "yyy")
+        cache.put("c", "zzz")
+
+        cache.put("d", "wwwwwwwww")
+
+        assertThat(listOf("a", "b", "c").map { cache.get(it) }).containsExactly(null, null, null)
+        assertThat(cache.get("d")).isEqualTo("wwwwwwwww")
+        assertThat(cache.bytes).isEqualTo(9)
+    }
+
+    @Test
     fun anEntryHeavierThanTheBudgetIsNotKeptAndEvictsNothing() {
         val cache = lru(maxBytes = 10)
         cache.put("a", "xxxx")

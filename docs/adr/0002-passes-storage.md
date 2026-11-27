@@ -10,7 +10,7 @@
 - **Persist** parsed `Pass` values from `passes-core` so the wallet UI does not re-parse on every cold start.
 - **Encrypt** that data at rest with a hardware-backed key, so a stolen device or a physical-recovery attempt cannot recover pass content without breaking the device's hardware key store.
 - **Exclude** the passes database from Android Auto Backup and device-to-device transfer, so cloud-side compromise of a backup blob does not surface pass content.
-- **Delete irreversibly** with no soft-delete, no trash bin, no undo, and with cached decoded data wiped in the same operation.
+- **Delete irreversibly** with no soft-delete, no trash bin, no undo, and with cached decoded data wiped in the same operation (scope: addendum below).
 - **Surface** trust-relevant storage events (`PassImported`, `PassDeleted`, `KeyUnwrapFailed`) through a `StorageTelemetryGuard` whose method signatures structurally forbid PII, mirroring the `passes-core` `TelemetryGuard` discipline.
 
 Out of scope: pass acquisition (`passes-core`), rendering and confirmation dialogs (`passes-ui`), Hilt wiring (the consumer app).
@@ -193,4 +193,4 @@ The kernel defines no wallet backup container, sidecar schema or file encryption
 
 ## Addendum: what the wipe at delete covers
 
-The wipe covers what `passes-storage` holds: the rows and the data the database caches beside them. A pass image the app keeps decoded in memory through `passes-ui`'s `PassImageCache` is outside it; the app clears that cache when a pass is deleted (`passes-ui/TRUST_CLAIMS.md` section 6).
+The wipe covers what `passes-storage` holds: the rows and the data the database caches beside them. A pass image a host keeps decoded in memory through `passes-ui`'s `PassImageCache` is outside it; such a host clears that cache once a deleted pass has left its list (`passes-ui/TRUST_CLAIMS.md` section 6).

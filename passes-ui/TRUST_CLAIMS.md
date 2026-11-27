@@ -240,16 +240,20 @@ and drops the least recently used entry once the decoded pixels and image bytes 
 holds pass a budget the host sets (32 MiB by default). An entry over the budget is not
 kept. The host can construct the cache and clear it, nothing else: it cannot put a
 bitmap in, take one out or change the limits above, which every decode meets before
-its result is kept. A cached image is drawn without a decode. Two rows that decode the
-same image at the same moment share the first result kept, so a cached refusal is
-reported to telemetry at most once, by the first row to show it. A decode that has
-started is kept when its row leaves composition, unless the cache was cleared since
-the row asked for it; one still waiting for a decode slot then never runs.
+its result is kept. A cached image is drawn without a decode. A cached refusal is not
+decoded again but is reported to telemetry each time a row shows it, as a fresh one
+is, so a host can draw its own fallback from the event and deduplicates if it wants a
+count per image. Two rows that decode the same image at the same moment share the
+first result kept. A decode that has started is kept when its row leaves composition,
+unless the cache was cleared since the row asked for it; one still waiting for a
+decode slot then never runs.
 
-**What the app must do.** Clear the cache when a pass is deleted. A `PassImageCache`
-keeps a deleted pass's image bytes and decoded pixels in memory until then, and the
-kernel cannot see a deletion. The app's test: deleting a pass clears the cache its list
-holds.
+**What a host that keeps a cache must do.** Clear it once a deleted pass has left the
+list. A `PassImageCache` keeps a deleted pass's image bytes and decoded pixels in
+memory until then, and the kernel cannot see a deletion. A row that composes after the
+clear but before the list drops the pass decodes and keeps the image again, so the
+clear comes after the list update. The host's test: once a deleted pass is gone from
+the list, the list's cache has been cleared.
 
 **Residual risk.** The picture chunks of an accepted PNG are fed through the platform's
 PNG codec in the app process, not in an isolated one. What the codec buffers is the
@@ -314,8 +318,8 @@ platform's, and was measured only for the cases named here:
   kept when its caller leaves, dropped when the cache is cleared during it, and never
   run when cancelled while waiting; at most two decodes run at once; pixels, image
   bytes and the per-entry overhead count against the budget; a cached image draws in
-  the first composition; a refusal is reported once while cached, also when kept for
-  a row that left, and on each entry without a cache. `ByteBoundedLruTest` pins the
+  the first composition; a refusal is reported on each entry, with a cache or without
+  one, and by each of two rows showing the same cached refusal. `ByteBoundedLruTest` pins the
   eviction order, the budget arithmetic, the first value winning and a value from
   before a clear being dropped. Two tests in `BoundedImageDecodeInstrumentedTest` run
   on the platform decoder: a decoded bitmap counts at least a byte a pixel against the
