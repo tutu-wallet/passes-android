@@ -1,7 +1,10 @@
 package `is`.walt.passes.image.android
 
 import android.graphics.Bitmap
+import android.graphics.Canvas
 import android.graphics.ImageDecoder
+import android.graphics.Paint
+import android.graphics.Rect
 import android.os.ParcelFileDescriptor
 import android.os.SharedMemory
 import android.system.OsConstants
@@ -99,26 +102,34 @@ internal fun rasterPolicy(
         onOutOfMemory = { ImageDecodeRejectedKind.DimensionsTooLarge },
     )
 
-/** Scales [bitmap] to [header] fitted into the bound, copies it into read-only [SharedMemory], recycles both. */
+/** Draws [bitmap] at [header] fitted into the bound, copies it into read-only [SharedMemory], recycles both. */
 private fun packScaledRaster(bitmap: Bitmap, header: DecodeSize, maxWidthPx: Int, maxHeightPx: Int): ImageDecodeResult {
     val dims = outputDims(header.width, header.height, maxWidthPx, maxHeightPx)
-    val scaled =
-        if (dims.widthPx == bitmap.width && dims.heightPx == bitmap.height) {
-            bitmap
-        } else {
-            Bitmap.createScaledBitmap(bitmap, dims.widthPx, dims.heightPx, true)
-        }
     return try {
-        ImageDecodeResult.Ok(
-            sharedMemory = packIntoSharedMemory(scaled, dims.widthPx, dims.heightPx),
-            widthPx = dims.widthPx,
-            heightPx = dims.heightPx,
-            sourceAspect = header.width.toFloat() / header.height.toFloat(),
-        )
+        val raster = outputRaster(bitmap, dims)
+        try {
+            ImageDecodeResult.Ok(
+                sharedMemory = packIntoSharedMemory(raster, dims.widthPx, dims.heightPx),
+                widthPx = dims.widthPx,
+                heightPx = dims.heightPx,
+                sourceAspect = header.width.toFloat() / header.height.toFloat(),
+            )
+        } finally {
+            raster.recycle()
+        }
     } finally {
-        if (scaled !== bitmap) scaled.recycle()
         bitmap.recycle()
     }
+}
+
+/**
+ * [bitmap] drawn at [dims] into a new sRGB ARGB_8888 bitmap. The codec picks its own layout (8
+ * bytes per pixel for a 16-bit PNG, a wide colour space), and only this one crosses the binder.
+ */
+private fun outputRaster(bitmap: Bitmap, dims: OutputDims): Bitmap {
+    val raster = Bitmap.createBitmap(dims.widthPx, dims.heightPx, Bitmap.Config.ARGB_8888)
+    Canvas(raster).drawBitmap(bitmap, null, Rect(0, 0, dims.widthPx, dims.heightPx), Paint(Paint.FILTER_BITMAP_FLAG))
+    return raster
 }
 
 private fun packIntoSharedMemory(bitmap: Bitmap, widthPx: Int, heightPx: Int): SharedMemory {
