@@ -7,11 +7,14 @@ import android.content.Intent
 import android.content.ServiceConnection
 import android.graphics.Bitmap
 import android.graphics.Color
+import android.graphics.ColorSpace
+import android.graphics.ImageDecoder
 import android.os.Build
 import android.os.IBinder
 import android.os.Parcel
 import android.os.ParcelFileDescriptor
 import android.os.Process
+import android.os.SharedMemory
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.google.common.truth.Truth.assertThat
@@ -23,10 +26,12 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import java.io.ByteArrayOutputStream
 import java.io.File
+import java.nio.ByteBuffer
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.zip.CRC32
 import java.util.zip.Deflater
+import kotlin.math.abs
 
 /**
  * On-device half of the wpass-6yp security suite: what only a real device can prove — that the
@@ -90,6 +95,78 @@ class ImageDecodeServiceInstrumentedTest {
         assertThat(ok.widthPx).isEqualTo(1000)
         assertThat(ok.heightPx).isEqualTo(666)
         assertThat(ok.sourceAspect).isEqualTo(3001f / 2000f)
+        ok.sharedMemory.close()
+    }
+
+    @Test
+    fun sixteenBitPngComesBackAsAnArgb8888Raster() {
+        val png = sixteenBitPng(width = 64, height = 32, red = 0xFFFF, green = 0x8080, blue = 0x4040)
+        val platform =
+            ImageDecoder.decodeBitmap(ImageDecoder.createSource(ByteBuffer.wrap(png))) { decoder, _, _ ->
+                decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
+            }
+        val wider = platform.config == Bitmap.Config.RGBA_F16
+        platform.recycle()
+        // Without a wider platform decode, the test below would show nothing.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            assertThat(wider).isTrue()
+        } else {
+            assumeTrue(wider)
+        }
+        val file = File.createTempFile("sixteen-bit", ".png", context.cacheDir).apply { writeBytes(png) }
+
+        // Once at source size, once scaled down.
+        for ((box, width, height) in listOf(Triple(64, 64, 32), Triple(16, 16, 8))) {
+            val result =
+                ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
+                    .use { decode(it, maxWidthPx = box, maxHeightPx = box) }
+
+            assertWithMessage("decode into a $box px box").that(result).isInstanceOf(ImageDecodeResult.Ok::class.java)
+            val ok = result as ImageDecodeResult.Ok
+            assertThat(ok.widthPx to ok.heightPx).isEqualTo(width to height)
+            assertThat(ok.sharedMemory.size).isEqualTo(width * height * 4)
+            // Mid-range channels, so a raster left in a linear colour space shows.
+            val pixel = hostPixel(ok)
+            assertThat(Color.alpha(pixel)).isEqualTo(255)
+            assertThat(abs(Color.red(pixel) - 255)).isAtMost(1)
+            assertThat(abs(Color.green(pixel) - 128)).isAtMost(1)
+            assertThat(abs(Color.blue(pixel) - 64)).isAtMost(1)
+            ok.sharedMemory.close()
+        }
+    }
+
+    @Test
+    fun wideGamutPngComesBackInSrgb() {
+        val color = Color.rgb(255, 128, 64)
+        // setPixel takes sRGB, so the file holds this colour's Display P3 values.
+        val source =
+            Bitmap.createBitmap(32, 32, Bitmap.Config.ARGB_8888, true, ColorSpace.get(ColorSpace.Named.DISPLAY_P3))
+                .apply { for (y in 0 until 32) for (x in 0 until 32) setPixel(x, y, color) }
+        val png = ByteArrayOutputStream().also { source.compress(Bitmap.CompressFormat.PNG, 100, it) }.toByteArray()
+        source.recycle()
+        val platform =
+            ImageDecoder.decodeBitmap(ImageDecoder.createSource(ByteBuffer.wrap(png))) { decoder, _, _ ->
+                decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
+            }
+        val heldInP3 = platform.colorSpace == ColorSpace.get(ColorSpace.Named.DISPLAY_P3)
+        platform.recycle()
+        // Without a Display P3 decode, the test below would show nothing.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            assertThat(heldInP3).isTrue()
+        } else {
+            assumeTrue(heldInP3)
+        }
+        val file = File.createTempFile("wide-gamut", ".png", context.cacheDir).apply { writeBytes(png) }
+
+        val result =
+            ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
+                .use { decode(it, maxWidthPx = 64, maxHeightPx = 64) }
+
+        val ok = result as ImageDecodeResult.Ok
+        val pixel = hostPixel(ok)
+        assertThat(abs(Color.red(pixel) - 255)).isAtMost(1)
+        assertThat(abs(Color.green(pixel) - 128)).isAtMost(1)
+        assertThat(abs(Color.blue(pixel) - 64)).isAtMost(1)
         ok.sharedMemory.close()
     }
 
@@ -310,6 +387,34 @@ class ImageDecodeServiceInstrumentedTest {
         return ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
     }
 
+    /** The centre pixel of [ok], read back the way the host reads every raster. */
+    private fun hostPixel(ok: ImageDecodeResult.Ok): Int {
+        val bitmap = Bitmap.createBitmap(ok.widthPx, ok.heightPx, Bitmap.Config.ARGB_8888)
+        val mapped = ok.sharedMemory.mapReadOnly()
+        try {
+            bitmap.copyPixelsFromBuffer(mapped)
+        } finally {
+            SharedMemory.unmap(mapped)
+        }
+        return bitmap.getPixel(ok.widthPx / 2, ok.heightPx / 2).also { bitmap.recycle() }
+    }
+
+    /** An opaque RGBA PNG at 16 bits per channel, every pixel the given channel values. */
+    private fun sixteenBitPng(width: Int, height: Int, red: Int, green: Int, blue: Int): ByteArray {
+        val pixel =
+            intArrayOf(red, green, blue, 0xFFFF)
+                .flatMap { listOf((it ushr 8).toByte(), it.toByte()) }
+                .toByteArray()
+        val scanlines =
+            ByteArrayOutputStream().apply {
+                repeat(height) {
+                    write(0) // filter: none
+                    repeat(width) { write(pixel) }
+                }
+            }.toByteArray()
+        return rgbaPng(width, height, bitDepth = 16, scanlines = scanlines)
+    }
+
     /** A JPEG of [bitmap] with an EXIF APP1 segment carrying only [exifOrientation], inserted after SOI. */
     private fun jpegFd(name: String, bitmap: Bitmap, exifOrientation: Int): ParcelFileDescriptor {
         val jpeg = ByteArrayOutputStream().also { bitmap.compress(Bitmap.CompressFormat.JPEG, 90, it) }.toByteArray()
@@ -334,26 +439,28 @@ class ImageDecodeServiceInstrumentedTest {
     }
 
     /**
-     * Craft raw PNG bytes whose IHDR declares a [width] x [height] canvas with a minimal IDAT.
-     * The header listener rejects on dimensions before the IDAT is consumed, so the body only
-     * has to be well-formed enough to reach that header callback — which keeps the fixture a few
-     * hundred bytes instead of a multi-hundred-MB allocation.
+     * A [width] x [height] canvas with a minimal IDAT: the header listener rejects it before the
+     * IDAT is read, so the fixture stays a few hundred bytes instead of a multi-hundred-MB bitmap.
      */
-    private fun hugeCanvasPng(width: Int, height: Int): ByteArray {
-        val out = ByteArrayOutputStream()
-        out.write(PNG_SIGNATURE)
+    private fun hugeCanvasPng(width: Int, height: Int): ByteArray =
+        rgbaPng(width, height, bitDepth = 8, scanlines = byteArrayOf(0, 0, 0, 0))
+
+    /** An RGBA PNG whose single IDAT holds [scanlines], deflated. */
+    private fun rgbaPng(width: Int, height: Int, bitDepth: Int, scanlines: ByteArray): ByteArray {
         val ihdr =
             ByteArrayOutputStream().apply {
                 writeIntBe(width)
                 writeIntBe(height)
-                write(8) // bit depth
+                write(bitDepth)
                 write(6) // color type: RGBA
                 write(0) // compression
                 write(0) // filter
                 write(0) // interlace
             }.toByteArray()
+        val out = ByteArrayOutputStream()
+        out.write(PNG_SIGNATURE)
         writeChunk(out, "IHDR", ihdr)
-        writeChunk(out, "IDAT", deflate(byteArrayOf(0, 0, 0, 0)))
+        writeChunk(out, "IDAT", deflate(scanlines))
         writeChunk(out, "IEND", ByteArray(0))
         return out.toByteArray()
     }

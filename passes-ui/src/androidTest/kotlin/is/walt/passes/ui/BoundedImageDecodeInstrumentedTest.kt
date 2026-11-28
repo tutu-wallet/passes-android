@@ -211,6 +211,24 @@ class BoundedImageDecodeInstrumentedTest {
     }
 
     @Test
+    fun sixteenBitPngDecodesAtSourceSizeAndDownsampled() {
+        val software =
+            ImageDecoder.decodeBitmap(ImageDecoder.createSource(ByteBuffer.wrap(sixteenBitPng(width = 8)))) { d, _, _ ->
+                d.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
+            }
+        val wider = software.config == Bitmap.Config.RGBA_F16
+        software.recycle()
+        // Without a wider platform decode, the test below would show nothing.
+        expectFromApi(Build.VERSION_CODES.UPSIDE_DOWN_CAKE, wider)
+        for ((width, decodedSize) in listOf(360 to (360 to 100), 2000 to (1000 to 50))) {
+            val (bitmap, rejection) = decoded(sixteenBitPng(width), ImageRenderBounds.Default)
+
+            assertThat(rejection).isNull()
+            assertThat(bitmap!!.width to bitmap.height).isEqualTo(decodedSize)
+        }
+    }
+
+    @Test
     fun oversizedImageDrawsAndReportsNoRejection() {
         val rejections = CopyOnWriteArrayList<ImageDecodeRejection>()
         val png = pngOf(width = 2000, height = 100)
@@ -399,20 +417,29 @@ class BoundedImageDecodeInstrumentedTest {
         return result to maxOf(peak, Debug.getNativeHeapAllocatedSize()) - baseline
     }
 
-    // A valid all-black greyscale PNG, streamed so a 16 MP fixture costs the test a few kilobytes.
-    private fun pngOf(width: Int, height: Int, interlaced: Boolean = false): ByteArray {
+    private fun sixteenBitPng(width: Int): ByteArray = pngOf(width, height = 100, bitDepth = 16, colorType = RGB)
+
+    // A valid all-black PNG, greyscale or RGB, streamed so a 16 MP fixture costs the test a few kilobytes.
+    private fun pngOf(
+        width: Int,
+        height: Int,
+        interlaced: Boolean = false,
+        bitDepth: Int = 8,
+        colorType: Int = GREYSCALE,
+    ): ByteArray {
         val header =
             ByteArrayOutputStream().also {
                 DataOutputStream(it).apply {
                     writeInt(width)
                     writeInt(height)
-                    write(byteArrayOf(8, 0, 0, 0, if (interlaced) 1 else 0))
+                    write(byteArrayOf(bitDepth.toByte(), colorType.toByte(), 0, 0, if (interlaced) 1 else 0))
                 }
             }.toByteArray()
+        val pixelBytes = bitDepth / 8 * if (colorType == RGB) 3 else 1
         val pixels =
             ByteArrayOutputStream().also { out ->
                 DeflaterOutputStream(out).use { deflater ->
-                    for ((rows, rowBytes) in scanlinesOf(width, height, interlaced)) {
+                    for ((rows, rowBytes) in scanlinesOf(width, height, interlaced, pixelBytes)) {
                         val row = ByteArray(rowBytes)
                         repeat(rows) { deflater.write(row) }
                     }
@@ -427,10 +454,10 @@ class BoundedImageDecodeInstrumentedTest {
     }
 
     // Row count and bytes per row (filter byte included) of each pass: one, or Adam7's seven.
-    private fun scanlinesOf(width: Int, height: Int, interlaced: Boolean): List<Pair<Int, Int>> {
-        if (!interlaced) return listOf(height to width + 1)
+    private fun scanlinesOf(width: Int, height: Int, interlaced: Boolean, pixelBytes: Int): List<Pair<Int, Int>> {
+        if (!interlaced) return listOf(height to width * pixelBytes + 1)
         return ADAM7.map { (xStart, yStart, xStep, yStep) ->
-            (height - yStart + yStep - 1) / yStep to (width - xStart + xStep - 1) / xStep + 1
+            (height - yStart + yStep - 1) / yStep to (width - xStart + xStep - 1) / xStep * pixelBytes + 1
         }.filter { (rows, rowBytes) -> rows > 0 && rowBytes > 1 }
     }
 
@@ -450,6 +477,8 @@ class BoundedImageDecodeInstrumentedTest {
 
         // Signature, then the IHDR chunk with its length, type, data and CRC.
         const val PNG_HEADER_BYTES = 33
+        const val GREYSCALE = 0
+        const val RGB = 2
 
         // Length, type and CRC of a chunk with no data, which is what IEND is.
         const val EMPTY_CHUNK_BYTES = 12

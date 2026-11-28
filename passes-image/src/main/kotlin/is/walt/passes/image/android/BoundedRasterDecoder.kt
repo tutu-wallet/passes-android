@@ -1,7 +1,10 @@
 package `is`.walt.passes.image.android
 
 import android.graphics.Bitmap
+import android.graphics.Canvas
 import android.graphics.ImageDecoder
+import android.graphics.Paint
+import android.graphics.Rect
 import android.os.ParcelFileDescriptor
 import android.os.SharedMemory
 import android.system.OsConstants
@@ -99,24 +102,25 @@ internal fun rasterPolicy(
         onOutOfMemory = { ImageDecodeRejectedKind.DimensionsTooLarge },
     )
 
-/** Scales [bitmap] to [header] fitted into the bound, copies it into read-only [SharedMemory], recycles both. */
+/** Draws [bitmap] at [header] fitted into the bound, copies it into read-only [SharedMemory], recycles both. */
 private fun packScaledRaster(bitmap: Bitmap, header: DecodeSize, maxWidthPx: Int, maxHeightPx: Int): ImageDecodeResult {
     val dims = outputDims(header.width, header.height, maxWidthPx, maxHeightPx)
-    val scaled =
-        if (dims.widthPx == bitmap.width && dims.heightPx == bitmap.height) {
-            bitmap
-        } else {
-            Bitmap.createScaledBitmap(bitmap, dims.widthPx, dims.heightPx, true)
-        }
     return try {
-        ImageDecodeResult.Ok(
-            sharedMemory = packIntoSharedMemory(scaled, dims.widthPx, dims.heightPx),
-            widthPx = dims.widthPx,
-            heightPx = dims.heightPx,
-            sourceAspect = header.width.toFloat() / header.height.toFloat(),
-        )
+        // sRGB ARGB_8888 whatever layout and colour space the codec chose, such as RGBA_F16 for a 16-bit PNG.
+        val raster = Bitmap.createBitmap(dims.widthPx, dims.heightPx, Bitmap.Config.ARGB_8888)
+        try {
+            val target = Rect(0, 0, dims.widthPx, dims.heightPx)
+            Canvas(raster).drawBitmap(bitmap, null, target, Paint(Paint.FILTER_BITMAP_FLAG))
+            ImageDecodeResult.Ok(
+                sharedMemory = packIntoSharedMemory(raster, dims.widthPx, dims.heightPx),
+                widthPx = dims.widthPx,
+                heightPx = dims.heightPx,
+                sourceAspect = header.width.toFloat() / header.height.toFloat(),
+            )
+        } finally {
+            raster.recycle()
+        }
     } finally {
-        if (scaled !== bitmap) scaled.recycle()
         bitmap.recycle()
     }
 }

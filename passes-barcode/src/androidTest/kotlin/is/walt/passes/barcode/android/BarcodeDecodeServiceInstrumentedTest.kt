@@ -7,6 +7,8 @@ import android.content.Intent
 import android.content.ServiceConnection
 import android.graphics.Bitmap
 import android.graphics.Color
+import android.graphics.ImageDecoder
+import android.os.Build
 import android.os.IBinder
 import android.os.Parcel
 import android.os.ParcelFileDescriptor
@@ -21,10 +23,12 @@ import `is`.walt.passes.core.BarcodeDecodeResult
 import `is`.walt.passes.core.DecodeFailureReason
 import `is`.walt.passes.core.ScannableFormat
 import kotlinx.coroutines.runBlocking
+import org.junit.Assume.assumeTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.io.ByteArrayOutputStream
 import java.io.File
+import java.nio.ByteBuffer
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.zip.CRC32
@@ -62,6 +66,30 @@ class BarcodeDecodeServiceInstrumentedTest {
 
         assertThat(result)
             .isEqualTo(BarcodeDecodeResult.DecodedBarcode("WALT-PASS-9", ScannableFormat.Qr))
+    }
+
+    @Test
+    fun sixteenBitPngQrDecodesToPayloadAndFormat() {
+        val matrix = MultiFormatWriter().encode("WALT-PASS-16", BarcodeFormat.QR_CODE, 480, 480)
+        val png = sixteenBitPng(matrix.width, matrix.height) { x, y -> matrix.get(x, y) }
+        val platform =
+            ImageDecoder.decodeBitmap(ImageDecoder.createSource(ByteBuffer.wrap(png))) { decoder, _, _ ->
+                decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
+            }
+        val wider = platform.config == Bitmap.Config.RGBA_F16
+        platform.recycle()
+        // Without a wider platform decode, the test below would show nothing.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            assertThat(wider).isTrue()
+        } else {
+            assumeTrue(wider)
+        }
+        val file = File.createTempFile("sixteen-bit-qr", ".png", context.cacheDir).apply { writeBytes(png) }
+        val result =
+            ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY).use { decode(it) }
+
+        assertThat(result)
+            .isEqualTo(BarcodeDecodeResult.DecodedBarcode("WALT-PASS-16", ScannableFormat.Qr))
     }
 
     @Test
@@ -298,6 +326,36 @@ class BarcodeDecodeServiceInstrumentedTest {
             }.toByteArray()
         writeChunk(out, "IHDR", ihdr)
         writeChunk(out, "IDAT", deflate(byteArrayOf(0, 0, 0, 0)))
+        writeChunk(out, "IEND", ByteArray(0))
+        return out.toByteArray()
+    }
+
+    /** An RGB PNG at 16 bits per channel: black where [isBlack], white elsewhere. */
+    private fun sixteenBitPng(width: Int, height: Int, isBlack: (Int, Int) -> Boolean): ByteArray {
+        val ihdr =
+            ByteArrayOutputStream().apply {
+                writeIntBe(width)
+                writeIntBe(height)
+                write(16) // bit depth
+                write(2) // color type: RGB
+                write(0) // compression
+                write(0) // filter
+                write(0) // interlace
+            }.toByteArray()
+        val scanlines =
+            ByteArrayOutputStream().apply {
+                for (y in 0 until height) {
+                    write(0) // filter: none
+                    for (x in 0 until width) {
+                        val sample = if (isBlack(x, y)) 0 else 0xFF
+                        repeat(6) { write(sample) }
+                    }
+                }
+            }.toByteArray()
+        val out = ByteArrayOutputStream()
+        out.write(PNG_SIGNATURE)
+        writeChunk(out, "IHDR", ihdr)
+        writeChunk(out, "IDAT", deflate(scanlines))
         writeChunk(out, "IEND", ByteArray(0))
         return out.toByteArray()
     }
