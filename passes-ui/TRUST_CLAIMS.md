@@ -4,7 +4,7 @@ The trust claim that this repository carries is "every security-and-privacy-crit
 behavior Walt makes about pass handling lives in code you can read." For `passes-ui`,
 that decomposes into six surfaces. Each lists what the user sees, the trust claim, and
 how tests pin it. Where a surface leaves a control to the host, its section says what
-the host must do and the test that pins it.
+the host must do.
 
 ## 1. Signature trust badge
 
