@@ -106,8 +106,11 @@ internal fun rasterPolicy(
 private fun packScaledRaster(bitmap: Bitmap, header: DecodeSize, maxWidthPx: Int, maxHeightPx: Int): ImageDecodeResult {
     val dims = outputDims(header.width, header.height, maxWidthPx, maxHeightPx)
     return try {
-        val raster = outputRaster(bitmap, dims)
+        // sRGB ARGB_8888 whatever layout and colour space the codec chose, such as RGBA_F16 for a 16-bit PNG.
+        val raster = Bitmap.createBitmap(dims.widthPx, dims.heightPx, Bitmap.Config.ARGB_8888)
         try {
+            val target = Rect(0, 0, dims.widthPx, dims.heightPx)
+            Canvas(raster).drawBitmap(bitmap, null, target, Paint(Paint.FILTER_BITMAP_FLAG))
             ImageDecodeResult.Ok(
                 sharedMemory = packIntoSharedMemory(raster, dims.widthPx, dims.heightPx),
                 widthPx = dims.widthPx,
@@ -120,16 +123,6 @@ private fun packScaledRaster(bitmap: Bitmap, header: DecodeSize, maxWidthPx: Int
     } finally {
         bitmap.recycle()
     }
-}
-
-/**
- * [bitmap] drawn at [dims] into a new sRGB ARGB_8888 bitmap. The codec picks its own layout (8
- * bytes per pixel for a 16-bit PNG, a wide colour space), and only this one crosses the binder.
- */
-private fun outputRaster(bitmap: Bitmap, dims: OutputDims): Bitmap {
-    val raster = Bitmap.createBitmap(dims.widthPx, dims.heightPx, Bitmap.Config.ARGB_8888)
-    Canvas(raster).drawBitmap(bitmap, null, Rect(0, 0, dims.widthPx, dims.heightPx), Paint(Paint.FILTER_BITMAP_FLAG))
-    return raster
 }
 
 private fun packIntoSharedMemory(bitmap: Bitmap, widthPx: Int, heightPx: Int): SharedMemory {

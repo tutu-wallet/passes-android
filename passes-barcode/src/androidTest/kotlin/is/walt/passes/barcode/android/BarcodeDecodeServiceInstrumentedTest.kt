@@ -23,6 +23,7 @@ import `is`.walt.passes.core.BarcodeDecodeResult
 import `is`.walt.passes.core.DecodeFailureReason
 import `is`.walt.passes.core.ScannableFormat
 import kotlinx.coroutines.runBlocking
+import org.junit.Assume.assumeTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.io.ByteArrayOutputStream
@@ -75,11 +76,14 @@ class BarcodeDecodeServiceInstrumentedTest {
             ImageDecoder.decodeBitmap(ImageDecoder.createSource(ByteBuffer.wrap(png))) { decoder, _, _ ->
                 decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
             }
+        val wider = platform.config == Bitmap.Config.RGBA_F16
+        platform.recycle()
         // Without a wider platform decode, the test below would show nothing.
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            assertThat(platform.config).isEqualTo(Bitmap.Config.RGBA_F16)
+            assertThat(wider).isTrue()
+        } else {
+            assumeTrue(wider)
         }
-        platform.recycle()
         val file = File.createTempFile("sixteen-bit-qr", ".png", context.cacheDir).apply { writeBytes(png) }
         val result =
             ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY).use { decode(it) }

@@ -51,9 +51,8 @@ internal data class BarcodeDecodeConfig(
         const val DEFAULT_MAX_DIMENSION_PX: Int = 12_000
 
         /**
-         * Megapixel header cap catching the small-file-huge-canvas bomb that stays under
-         * [maxDimensionPx] per axis. ~50 MP bounds the decoded bitmap to ~200 MB, or ~400 MB for
-         * a 16-bit colour PNG, which decodes at 8 bytes per pixel.
+         * Megapixel header cap for the small-file-huge-canvas bomb under [maxDimensionPx] per axis.
+         * ~50 MP bounds the bitmap to ~200 MB (~400 MB for a 16-bit colour PNG).
          */
         const val DEFAULT_MAX_AREA_PX: Long = 50_000_000L
 

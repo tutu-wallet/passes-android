@@ -105,11 +105,14 @@ class ImageDecodeServiceInstrumentedTest {
             ImageDecoder.decodeBitmap(ImageDecoder.createSource(ByteBuffer.wrap(png))) { decoder, _, _ ->
                 decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
             }
+        val wider = platform.config == Bitmap.Config.RGBA_F16
+        platform.recycle()
         // Without a wider platform decode, the test below would show nothing.
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            assertThat(platform.config).isEqualTo(Bitmap.Config.RGBA_F16)
+            assertThat(wider).isTrue()
+        } else {
+            assumeTrue(wider)
         }
-        platform.recycle()
         val file = File.createTempFile("sixteen-bit", ".png", context.cacheDir).apply { writeBytes(png) }
 
         // Once at source size, once scaled down.
@@ -398,16 +401,6 @@ class ImageDecodeServiceInstrumentedTest {
 
     /** An opaque RGBA PNG at 16 bits per channel, every pixel the given channel values. */
     private fun sixteenBitPng(width: Int, height: Int, red: Int, green: Int, blue: Int): ByteArray {
-        val ihdr =
-            ByteArrayOutputStream().apply {
-                writeIntBe(width)
-                writeIntBe(height)
-                write(16) // bit depth
-                write(6) // color type: RGBA
-                write(0) // compression
-                write(0) // filter
-                write(0) // interlace
-            }.toByteArray()
         val pixel =
             intArrayOf(red, green, blue, 0xFFFF)
                 .flatMap { listOf((it ushr 8).toByte(), it.toByte()) }
@@ -419,12 +412,7 @@ class ImageDecodeServiceInstrumentedTest {
                     repeat(width) { write(pixel) }
                 }
             }.toByteArray()
-        val out = ByteArrayOutputStream()
-        out.write(PNG_SIGNATURE)
-        writeChunk(out, "IHDR", ihdr)
-        writeChunk(out, "IDAT", deflate(scanlines))
-        writeChunk(out, "IEND", ByteArray(0))
-        return out.toByteArray()
+        return rgbaPng(width, height, bitDepth = 16, scanlines = scanlines)
     }
 
     /** A JPEG of [bitmap] with an EXIF APP1 segment carrying only [exifOrientation], inserted after SOI. */
@@ -451,26 +439,28 @@ class ImageDecodeServiceInstrumentedTest {
     }
 
     /**
-     * Craft raw PNG bytes whose IHDR declares a [width] x [height] canvas with a minimal IDAT.
-     * The header listener rejects on dimensions before the IDAT is consumed, so the body only
-     * has to be well-formed enough to reach that header callback — which keeps the fixture a few
-     * hundred bytes instead of a multi-hundred-MB allocation.
+     * A [width] x [height] canvas with a minimal IDAT: the header listener rejects it before the
+     * IDAT is read, so the fixture stays a few hundred bytes instead of a multi-hundred-MB bitmap.
      */
-    private fun hugeCanvasPng(width: Int, height: Int): ByteArray {
-        val out = ByteArrayOutputStream()
-        out.write(PNG_SIGNATURE)
+    private fun hugeCanvasPng(width: Int, height: Int): ByteArray =
+        rgbaPng(width, height, bitDepth = 8, scanlines = byteArrayOf(0, 0, 0, 0))
+
+    /** An RGBA PNG whose single IDAT holds [scanlines], deflated. */
+    private fun rgbaPng(width: Int, height: Int, bitDepth: Int, scanlines: ByteArray): ByteArray {
         val ihdr =
             ByteArrayOutputStream().apply {
                 writeIntBe(width)
                 writeIntBe(height)
-                write(8) // bit depth
+                write(bitDepth)
                 write(6) // color type: RGBA
                 write(0) // compression
                 write(0) // filter
                 write(0) // interlace
             }.toByteArray()
+        val out = ByteArrayOutputStream()
+        out.write(PNG_SIGNATURE)
         writeChunk(out, "IHDR", ihdr)
-        writeChunk(out, "IDAT", deflate(byteArrayOf(0, 0, 0, 0)))
+        writeChunk(out, "IDAT", deflate(scanlines))
         writeChunk(out, "IEND", ByteArray(0))
         return out.toByteArray()
     }

@@ -37,8 +37,8 @@ internal data class ImageDecodeConfig(
         const val DEFAULT_MAX_DIMENSION_PX: Int = 12_000
 
         /**
-         * Megapixel header cap catching the small-file-huge-canvas bomb that stays under
-         * [maxDimensionPx] per axis. The decode itself is held to twice the output box.
+         * Megapixel header cap for the small-file-huge-canvas bomb under [maxDimensionPx] per axis. It
+         * bounds the codec's buffers, which hold an interlaced PNG whole; the bitmap fits twice the output box.
          */
         const val DEFAULT_MAX_AREA_PX: Long = 50_000_000L
 

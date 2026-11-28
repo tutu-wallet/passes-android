@@ -309,8 +309,11 @@ platform's, and was measured only for the cases named here:
   and 36): an image over the bounds comes back inside them and reports nothing, an
   image inside them keeps its size, a 4096 x 4096 image decodes to 1365 x 1365, an
   image one column over the ceiling is refused at bounds below, at and above the
-  default, real JPEG, WebP and GIF files are refused as not PNG, and an interlaced
-  PNG decodes at its ceiling and is refused one column over it. Three tests cover the
+  default, real JPEG, WebP and GIF files are refused as not PNG, an interlaced PNG
+  decodes at its ceiling and is refused one column over it, and a 16-bit RGB PNG
+  decodes at source size and downsampled; that fixture must decode to 8 bytes per
+  pixel on API 34 and up, and the test skips on a lower level where it does not.
+  Three tests cover the
   picture chunks. A PNG carrying 32 MB of inflated text decodes for under 4 MB; the
   platform's own decode of it must cost over 16 MB on API 34 and up, and the test
   skips on a lower level where it does not. A Display P3 PNG with metadata decodes to

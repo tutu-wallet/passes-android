@@ -52,10 +52,8 @@ public interface ImageDecodeBinder {
 }
 
 /**
- * Outcome of a single image decode. [Ok.sharedMemory] is read-only after construction; the
- * pixel layout is ARGB_8888 in sRGB, packed row-major with no padding, whatever the source's
- * bit depth or colour space. That is the shape `passes-pdf`'s `RenderResult.Ok` uses, so the
- * host's existing SharedMemory-to-Bitmap unwrap is reused unchanged.
+ * Outcome of a single image decode. [Ok.sharedMemory] is read-only sRGB ARGB_8888, row-major and unpadded,
+ * whatever the source's bit depth or colour space: the shape of `passes-pdf`'s `RenderResult.Ok`.
  */
 public sealed interface ImageDecodeResult {
     public data class Ok(

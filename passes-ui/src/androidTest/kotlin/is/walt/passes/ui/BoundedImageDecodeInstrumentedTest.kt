@@ -216,16 +216,15 @@ class BoundedImageDecodeInstrumentedTest {
             ImageDecoder.decodeBitmap(ImageDecoder.createSource(ByteBuffer.wrap(sixteenBitPng(width = 8)))) { d, _, _ ->
                 d.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
             }
-        // Without a wider platform decode, the test below would show nothing.
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            assertThat(software.config).isEqualTo(Bitmap.Config.RGBA_F16)
-        }
+        val wider = software.config == Bitmap.Config.RGBA_F16
         software.recycle()
-        for ((width, decodedWidth) in listOf(360 to 360, 2000 to 1000)) {
+        // Without a wider platform decode, the test below would show nothing.
+        expectFromApi(Build.VERSION_CODES.UPSIDE_DOWN_CAKE, wider)
+        for ((width, decodedSize) in listOf(360 to (360 to 100), 2000 to (1000 to 50))) {
             val (bitmap, rejection) = decoded(sixteenBitPng(width), ImageRenderBounds.Default)
 
             assertThat(rejection).isNull()
-            assertThat(bitmap!!.width).isEqualTo(decodedWidth)
+            assertThat(bitmap!!.width to bitmap.height).isEqualTo(decodedSize)
         }
     }
 
