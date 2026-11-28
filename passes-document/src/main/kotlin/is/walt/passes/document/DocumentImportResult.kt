@@ -3,8 +3,8 @@ package `is`.walt.passes.document
 import `is`.walt.passes.image.android.ImageDecodeRejectedKind
 
 /**
- * The outcome of [DocumentImporter.import]. Each reject arm keeps its backend's own taxonomy, since no
- * PDF reject applies to an image or the reverse; [StorageHandoffFailed] means `persist` threw.
+ * The outcome of [DocumentImporter.import]. Each reject arm keeps its backend's own taxonomy (ADR 0005 I2);
+ * [StorageHandoffFailed] means `persist` threw.
  */
 public sealed interface DocumentImportResult {
     public data class ImportedPdf(public val doc: PdfDocument) : DocumentImportResult

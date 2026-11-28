@@ -38,7 +38,7 @@ Both paths call one implementation: `decodeLuminance(LuminanceSource): BarcodeDe
 ## Load-bearing constraints
 
 1. **Raw-YUV `ImageAnalysis` only.** Never `ImageCapture` / JPEG on the in-process path (D3). Violating this silently reintroduces the native codec surface in the unsandboxed process.
-2. **Faithful payload return, no auto-act.** The decode layer emits only `{payload, ScannableFormat}` (`BarcodeDecodeResult`). A malicious decoded URL or crafted string is the same threat for static and live capture and is mitigated downstream by classification, validation and explicit user confirmation, never in the capture layer.
+2. **Faithful payload return, no auto-act.** The decode layer emits only `{payload, ScannableFormat}` (`BarcodeDecodeResult`). A malicious decoded URL or crafted string is the same threat for static and live capture and is mitigated downstream by classification, validation and explicit user confirmation, never in the capture layer. A composite restored from a wallet file re-decodes on the static path without that confirmation, an accepted residual (`SCANNABLE_CARD_THREAT_MODEL.md`, Threat 14).
 3. **Foreground-only camera use** (self-imposed).
 4. **Pure-JVM ZXing, not ML Kit.** Even bundled ML Kit is closed source and fails the auditability posture of the degoogled audience.
 

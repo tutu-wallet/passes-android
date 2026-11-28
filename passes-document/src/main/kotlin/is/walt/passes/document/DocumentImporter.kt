@@ -9,8 +9,8 @@ import `is`.walt.passes.core.ScannableFormat
  */
 public interface DocumentImporter {
     /**
-     * Calls [persist] once before any `Imported*` arm, never on a rejection; a throw is StorageHandoffFailed.
-     * A non-null [confirmBarcode] runs the barcode decode, then accepts or declines its reading (ADR 0005 C3).
+     * Calls [persist] once before any `Imported*` arm; a throw other than cancellation is StorageHandoffFailed.
+     * With a [confirmBarcode] hook an image also gets the isolated barcode decode; the hook accepts or declines it.
      */
     public suspend fun import(
         source: DocumentImportSource,

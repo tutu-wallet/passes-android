@@ -441,9 +441,10 @@ format that flags the stored payload; the consumer is expected to pin both with 
 Where many codes arrive at once, as in a restore, one confirmation that lists every
 flagged code with its scheme and its bidi-isolated payload qualifies; codes the user
 does not confirm are not saved. A composite document's code is not a card's and is
-outside this rule; Threat 14 says what confirms it, and where nothing does. The sheet's
-copy says "this code", not "this QR", so a dialog about an Aztec boarding pass does not
-describe something other than what the user is saving.
+outside this rule; Threat 14 says what confirms it on import and records the restore
+path, where nothing does. The sheet's copy says "this code", not "this QR", so a dialog
+about an Aztec boarding pass does not describe something other than what the user is
+saving.
 
 **C5. Untrusted-byte barcode decoding is confined.** The kernel uses `com.google.zxing:core`
 (Apache 2.0, pure JVM) to encode a bit matrix from a user-typed payload and format, and
@@ -464,9 +465,10 @@ path:
   ZXing. This is the one place untrusted bytes reach a barcode decoder in-process.
 
 The decoder core (`MultiFormatReader`) is in the dependency closure, so Threat 6's
-upgrade cadence covers decoder advisories on these two paths. The decoded payload is
-never a usable code until the consumer's confirmation surface (C4 gate / image-keep
-confirm) clears it, so a misread cannot silently become a scannable artifact (Threat 14).
+upgrade cadence covers decoder advisories on these two paths. On the user's own import
+the consumer is expected to show a decoded code before it is saved, with the C4 sheet for
+a flagged one, so a misread does not silently become a scannable artifact; a composite
+restored from a wallet file is the accepted exception (Threat 14).
 Encoder bugs remain a concern (Threat 6), but encoder input is the user's own keystrokes
 after C3 validation.
 
@@ -723,22 +725,25 @@ data enters the system that the type-it-yourself ScannableCard lacks:
   condition 4). The imported bytes never decode in the app process.
 - **Live auto-detect** decodes in-process but only first-party sensor YUV (no still-image
   codec; C5) and produces a code-only artifact; no image is retained on that path.
-- **On the user's own import, the decoded code is not saved until the user has seen it.**
-  The importer hands the decoded `(payload, format)` to the consumer's `confirmBarcode`
-  hook before anything is saved, for every decoded symbology. The hook can accept or
-  decline that reading but not change it, so through `DocumentImporter` a saved code is
-  always the isolated decoder's reading of the image's own pixels. On an import from the
-  gallery, a file or the camera, the consumer is expected to show the decoded code before
-  saving and to raise the C4 sheet for a code `requiresCreateConfirmation` flags. Decode
-  is not the trust boundary; that confirmation is. A misread the user does not recognise
-  is the residual risk, bounded as Threat 9 bounds a typo: Walt is a display device, the
-  POS is the authority.
+- **On the user's own import, the consumer is expected to show the decoded code before
+  saving it.** The importer hands the decoded `(payload, format)` to the consumer's
+  `confirmBarcode` hook before anything is saved, for every decoded symbology. The hook can
+  accept or decline that reading but not change it, so the code `DocumentImporter` hands
+  the consumer to save is always the isolated decoder's reading of the image's own pixels.
+  On an import through the gallery, the file picker or the camera, the consumer is to
+  show that code before saving and raise the C4 sheet for a code
+  `requiresCreateConfirmation` flags. Decode is not the trust boundary; that confirmation
+  is. A misread the user does not recognise is the residual risk, bounded as Threat 9
+  bounds a typo: Walt is a display device, the POS is the authority.
 - **A restored composite's code is saved unconfirmed (accepted).** On a wallet-file
   restore the consumer may accept a decoded code without asking the user, so a file
-  someone else produced can add a composite whose code the user never saw, a URI-shaped
-  one included. No use-time sheet protects Threat 2's victim, the device that scans it.
-  The kernel cannot tell a hook that asks the user from one that does not, and this path
-  is accepted rather than gated.
+  someone else produced can add a composite whose code the user never confirmed, a
+  URI-shaped one included. No use-time sheet protects Threat 2's victim, the device that
+  scans it. Why accepted: unlike a restored card, whose code exists only as text until the
+  kernel draws it, this code was read from the restored image, so the image already shows
+  it to any scanner, and an image document showing a code takes no C4 sheet on any path.
+  The composite adds a crisper rendering of a code the file already carries. The kernel
+  cannot tell a hook that asks the user from one that does not.
 - **Transient camera stills are swept** to at most one in the consumer's cache; the
   persisted image lives only in SQLCipher (Threats 7, 8 inherited).
 - **The symbology allowlist bounds both sub-threats.** `DECODE_HINTS` pins
@@ -766,9 +771,10 @@ The image-codec RCE class is the kernel's to contain (isolated process); the man
 rule (system camera, never CameraX `ImageCapture`) and the confirmation surfaces are the
 consumer's, recorded consumer-side.
 
-**Status.** Mitigated by isolation (static bytes), a no-codec path (live frames) and
-confirmation on the user's own import. A composite restored from a wallet file is saved
-with no confirmation: accepted residual risk.
+**Status.** Mitigated by isolation (static bytes) and a no-codec path (live frames). The
+confirmation on the user's own import holds only where the consumer shows the code before
+saving it. A composite restored from a wallet file is saved with no confirmation of its
+code: accepted residual risk.
 
 ## Inventory: PKPASS controls and ScannableCard equivalents
 
@@ -796,7 +802,7 @@ v2"; each is deliberately absent because it re-opens a threat row above.
 - **No unifying `DisplayableArtifact` interface and no kernel list surface.** Re-opens
   row 1. A consumer's list stands under the consumer list concession.
 - **No OCR payload entry.** Camera and image entry exist only as barcode decodes,
-  through the confined paths in C5 and the confirmation gate in Threat 14; text
+  through the confined paths in C5 and the import confirmation in Threat 14; text
   recognition re-opens a parser surface this document does not cover.
 - **No "Verified" or "Trusted" badge on any ScannableCard surface** under any combination
   of consumer theming. C2 forbids it.
@@ -829,7 +835,7 @@ v2"; each is deliberately absent because it re-opens a threat row above.
 | C1      | `ScannableCardSurfaceTest.scannableCardDoesNotShareSupertypeWithPass`; storage `PublicApiSurfaceTest` `SCANNABLE_CARDS` assertion (separate table). Consumer list concession: expected consumer-side tests, listed at the end of that concession |
 | C2      | Consumer-side: a test that the details section renders a "Pass type" row, a test that no deep link, shortcut, widget or exported intent opens a detail or scan surface directly, and the list tests of the consumer list concession. Kernel: `scannableCardScreenHasExactlyFourUserVisibleParameters` (the surface's parameter shape). Colour row: `ScannableCardTrustSurfaceTest.faceTintDoesNotSuppressLabelOrPayload` (and its dark-tint twin), `codePanelIsLiterallyWhiteNotAThemeTokenOrTheFaceTint`, `inkOnClearsWcagAaAgainstEveryTintIncludingTheWorstCase`, `DocumentFaceTintTest.faceTintLeavesThePageRenderRequestUnchanged`; the shared tint gate by `passes-ui-core`'s `FaceTintTest` |
 | C3      | Length-cap, charset and Cf/Cc rejection unit tests; `theTwoDimensionalFormatsEncodeAtTheirValidatorCap`, `theTwoDimensionalFormatsRoundTripAtTheirValidatorCap`, `BarcodeEncoderRoundTripTest.nonAsciiPayloadsSurviveOnTheCharsetPinnedFormats`, `BarcodeEncoderCharsetTest`; `noFormatIsDecodeOnly` and `isCreatableAgreesWithWhatTheValidatorAccepts`; byte-capable charset rules in `ScannableFormatConstraintsTest` |
-| C4      | `QrPayloadClassifierTest`, `BarcodeCreateConfirmSheetTest`; consumer-side (expected), tests that a card code `requiresCreateConfirmation` flags is not saved unconfirmed on restore or on a format change |
+| C4      | `QrPayloadClassifierTest`, `BarcodeCreateConfirmSheetTest`; consumer-side (expected), tests that a card code `requiresCreateConfirmation` flags is not saved unconfirmed on restore or on a format change, and that a composite's code from the user's own import is shown before it is saved, with the C4 sheet for a flagged one |
 | C5      | Encoder integration test; decode confinement by the isolated-decode tests (`BarcodeDecodeServiceInstrumentedTest`, `YPlaneFrameDecodeTest`); the stored list thumbnail by `ImageThumbnailInstrumentedTest` (fits the 600 x 800 box), `PdfImporterTest` (page 0 requested at 600 x 800) and `BoundedImageDecodeInstrumentedTest.aStoredDocumentThumbnailDecodesAtTileBounds` (PNGs encoded as the importers encode them decode at tile bounds); and, consumer-side, an instrumented composite-import test (no host-process decode of source bytes) and a guard test that no CameraX `ImageCapture` appears in the consumer's `src/main` |
 | C6      | No test in this repo (no schema snapshot); closest is `ScannableCardSurfaceTest.scannableCardConstructorIsExercisedWithEveryShape` |
 
