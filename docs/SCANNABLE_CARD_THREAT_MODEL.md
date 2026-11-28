@@ -739,11 +739,7 @@ data enters the system that the type-it-yourself ScannableCard lacks:
   restore the consumer may accept a decoded code without asking the user, so a file
   someone else produced can add a composite whose code the user never confirmed, a
   URI-shaped one included. No use-time sheet protects Threat 2's victim, the device that
-  scans it. Why accepted: unlike a restored card, whose code exists only as text until the
-  kernel draws it, this code was read from the restored image, so the image already shows
-  it to any scanner, and an image document showing a code takes no C4 sheet on any path.
-  The composite adds a crisper rendering of a code the file already carries. The kernel
-  cannot tell a hook that asks the user from one that does not.
+  scans it. The kernel cannot tell a hook that asks the user from one that does not.
 - **Transient camera stills are swept** to at most one in the consumer's cache; the
   persisted image lives only in SQLCipher (Threats 7, 8 inherited).
 - **The symbology allowlist bounds both sub-threats.** `DECODE_HINTS` pins
