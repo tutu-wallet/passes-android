@@ -224,7 +224,7 @@ A photographed or screenshotted membership card that carries a barcode wants bot
 
 ### C1. `Document` gains a third arm: `BarcodedImageDocument`
 
-It carries every `ImageDocument` field plus `barcodePayload: String` and `barcodeFormat: ScannableFormat`. It shares no superclass with `Pass` and has no `SignatureStatus` (a barcode extracted from a user image is not a verified credential). The arm exists only when a code was found and the consumer confirmed it; an image with no barcode stays an `ImageDocument`, never a composite with an empty payload. Adding an arm forces a deliberate, security-reviewed edit to `PublicApiSurfaceTest`'s arm-set lock, in the same audit register as adding a binder method. `passes-document-core` has a pure-JVM `api` edge to `passes-core` for `ScannableFormat`.
+It carries every `ImageDocument` field plus `barcodePayload: String` and `barcodeFormat: ScannableFormat`. It shares no superclass with `Pass` and has no `SignatureStatus` (a barcode extracted from a user image is not a verified credential). The arm exists only when a code was found and the consumer's hook accepted it (C3); an image with no barcode stays an `ImageDocument`, never a composite with an empty payload. Adding an arm forces a deliberate, security-reviewed edit to `PublicApiSurfaceTest`'s arm-set lock, in the same audit register as adding a binder method. `passes-document-core` has a pure-JVM `api` edge to `passes-core` for `ScannableFormat`.
 
 ### C2. Barcode extraction runs in the isolated worker
 
@@ -234,12 +234,12 @@ A composite import runs two isolated decodes of the same bytes, the image sandbo
 
 ### C3. Confirm-before-persist; first code wins; graceful degradation
 
-A misread barcode that only surfaces at a checkout terminal is a real failure mode, so `DocumentImporter.import` takes `confirmBarcode: (suspend (payload, format) -> Boolean)?`, invoked with the decoded value before anything is persisted so the consumer can gate on its `BarcodeCreateConfirmSheet`. `true` persists a composite; `false` degrades to a plain image.
+A misread barcode that only surfaces at a checkout terminal is a real failure mode, so `DocumentImporter.import` takes `confirmBarcode: (suspend (payload, format) -> Boolean)?`, invoked with the decoded value before anything is persisted so the consumer can gate on its `BarcodeCreateConfirmSheet`. `true` persists a composite; `false` degrades to a plain image. The hook accepts or declines the decoder's reading and cannot change it.
 
-- The hook is `null` by default, which makes the composite path opt-in: with no hook the isolated extraction does not run at all, and an incidental barcode in a photo the user only wanted to store is never silently turned into a composite. A consumer wanting composites without a confirm UX passes `{ _, _ -> true }`.
+- The hook is `null` by default, which makes the composite path opt-in: with no hook the isolated extraction does not run at all, and an incidental barcode in a photo the user only wanted to store is never silently turned into a composite. A hook may accept without asking the user, as `{ _, _ -> true }` does, and the code is then saved unconfirmed. A wallet-file restore is such a path: the consumer may save a restored composite's code unasked, a URI-shaped one included, an accepted residual risk (`SCANNABLE_CARD_THREAT_MODEL.md`, Threats 2 and 14).
 - No code found, extraction failure or declined confirmation all land on a plain `ImportedImage`; extraction failure never fails the import.
 - With several codes, the first detected wins (ZXing's `MultiFormatReader` stops at the first match). Nothing beyond the barcode is extracted (D4: no EXIF / XMP / payload-derived label).
-- Every non-composite outcome reaches the consumer as `DocumentPersist.Image.barcodeExtraction`: `NotAttempted`, `NoCodeFound`, `Failed(DecodeFailureReason)` (the decoder's own bucket, keeping the `DecodeTimedOut` / `DecoderUnavailable` split so a watchdog kill is not read as "no code found") or `Declined`. The outcome carries no payload and no image bytes: a BCBP payload holds passenger name and PNR, so `DocumentPersist.BarcodedImage` is the only place a payload crosses this seam, and only after the user confirmed. Per-reason copy is the consumer's half.
+- Every non-composite outcome reaches the consumer as `DocumentPersist.Image.barcodeExtraction`: `NotAttempted`, `NoCodeFound`, `Failed(DecodeFailureReason)` (the decoder's own bucket, keeping the `DecodeTimedOut` / `DecoderUnavailable` split so a watchdog kill is not read as "no code found") or `Declined`. The outcome carries no payload and no image bytes: a BCBP payload holds passenger name and PNR, so `DocumentPersist.BarcodedImage` is the only place a payload crosses this seam, and only after the consumer's hook accepted it. Per-reason copy is the consumer's half.
 
 ### C4. Storage: composite columns on the image row
 
