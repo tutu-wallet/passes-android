@@ -32,4 +32,4 @@ Thirteen Gradle modules.
 - `passes-pdf`, `passes-barcode`, `passes-image` and `passes-document` depend on `passes-isolation` for the shared bind/memfd plumbing (`passes-document` to materialize the sniffed bytes into one memfd PFD). `passes-isolation` depends on nothing in this repo, so it adds no edge among them.
 - `passes-barcode`, `passes-ui` and `passes-image` depend on `passes-image-decode` for the shared bounded `ImageDecoder` mechanism. It depends on nothing in this repo, so it adds no edge among them.
 - `passes-ui` and `passes-document-ui` both depend on `passes-ui-core`, never on each other.
-- Decisive constraint: walt-android consumes this code directly; trust-claim-bearing logic lives only here, never reimplemented in walt-android.
+- Decisive constraint: walt-android consumes this code directly. Trust-claim-bearing logic lives only here, apart from controls the kernel cannot enforce (`SECURITY.md` lists them or points to them), and is never reimplemented in walt-android. Never move a control into the app without a threat-model or ADR change that says why the kernel cannot hold it and adds it to the `SECURITY.md` list.

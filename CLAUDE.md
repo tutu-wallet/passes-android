@@ -6,7 +6,7 @@ Open-source pass-handling kernel for the Walt Android wallet app. PKPASS parsing
 
 This repository exists for **transparency-for-trust**, not library-for-reuse. Walt-android (closed source) consumes this code directly so that users and security researchers can verify what Walt does with their pass data. Reuse by other applications is welcome as a side effect; the primary commitment is the audit trail.
 
-The trust claim: every security-and-privacy-critical behavior Walt makes about pass handling is implemented in code that lives in this repository. Walt-android does not parallel-implement any trust-claim-bearing logic; it wraps and themes what is here.
+The trust claim: every security-and-privacy-critical behavior Walt makes about pass handling is implemented in code that lives in this repository. Walt-android does not parallel-implement any trust-claim-bearing logic; it wraps and themes what is here. Where a claim rests on a control only the app can enforce, that control is written here as an obligation the app must meet (`SECURITY.md`, "Some controls are the app's").
 
 ## Modules
 
@@ -36,7 +36,7 @@ Dependency rules:
 - `passes-isolation` and `passes-image-decode` depend on nothing in this repo and sit below their consumers. They are mechanism: caps, allowlists and reject taxonomies stay with each consumer.
 - `passes-barcode → passes-barcode-core → passes-core`. `passes-ui` and `passes-document-ui` both depend on `passes-ui-core`, never on each other.
 - `passes-storage → passes-document-core` is a test-only edge.
-- Decisive constraint: walt-android consumes this code directly; trust-claim-bearing logic lives only here, never reimplemented in walt-android.
+- Decisive constraint: walt-android consumes this code directly. Trust-claim-bearing logic lives only here, apart from controls the kernel cannot enforce (`SECURITY.md` lists them or points to them), and is never reimplemented in walt-android. Never move a control into the app without a threat-model or ADR change that says why the kernel cannot hold it and adds it to the `SECURITY.md` list.
 
 ## Code Style
 

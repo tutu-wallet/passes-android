@@ -6,7 +6,7 @@
 
 Walt is a privacy-focused NFC tap-to-pay wallet. Its core promise is that user data stays on the device. As Walt adds support for boarding passes, event tickets, loyalty cards, and other pass types (mirroring Apple Wallet and Google Wallet's "pass" concept), users have a reasonable question: *what does Walt actually do with my pass data?*
 
-This repository answers that question by being the auditable source of truth for Walt's pass handling. Walt's main app is closed source. The pass-handling code is not. Every security-and-privacy claim Walt makes about pass handling is implemented in code that lives here.
+This repository answers that question by being the auditable source of truth for Walt's pass handling. Walt's main app is closed source. The pass-handling code is not. Every security-and-privacy claim Walt makes about pass handling is implemented in code that lives here. Where a claim rests on a control only the app can enforce, that control is written here as an obligation the app must meet: see "Some controls are the app's" in [`SECURITY.md`](SECURITY.md#security-relevant-design-decisions).
 
 This repository exists for transparency, not for library reuse. Reuse is welcome as a side effect; the primary commitment is the audit trail.
 
