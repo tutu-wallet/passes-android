@@ -1,6 +1,6 @@
 # About this repository
 
-walt-passes-android is an open-source carve-out from the closed-source [Walt](https://walt.is) Android wallet. It is published for one reason: **transparency-for-trust**. Every security-and-privacy claim Walt makes about pass handling is implemented in code that lives here, so users and security researchers can read exactly what Walt does with their pass data.
+walt-passes-android is an open-source carve-out from the closed-source [Walt](https://walt.is) Android wallet. It is published for one reason: **transparency-for-trust**. Every security-and-privacy claim Walt makes about pass handling is implemented in code that lives here, so users and security researchers can read exactly what Walt does with their pass data. Where a control is the app's to hold, it is written here as an obligation the app must meet and test: see "Some controls are the app's" in [`SECURITY.md`](SECURITY.md#security-relevant-design-decisions).
 
 **This repository is published for auditability, not for external contribution.** It is not a community project. The canonical source of this code is Walt's internal development process; this repository is a faithful mirror of the trust-claim-bearing code, kept in the open so it can be verified, not a venue for collaborative development.
 

@@ -6,7 +6,7 @@ Open-source pass-handling kernel for the Walt Android wallet app. PKPASS parsing
 
 This repository exists for **transparency-for-trust**, not library-for-reuse. Walt-android (closed source) consumes this code directly so that users and security researchers can verify what Walt does with their pass data. Reuse by other applications is welcome as a side effect; the primary commitment is the audit trail.
 
-The trust claim: every security-and-privacy-critical behavior Walt makes about pass handling is implemented in code that lives in this repository. Walt-android does not parallel-implement any trust-claim-bearing logic; it wraps and themes what is here.
+The trust claim: every security-and-privacy-critical behavior Walt makes about pass handling is implemented in code that lives in this repository. Walt-android does not parallel-implement any trust-claim-bearing logic; it wraps and themes what is here. Where a control is the app's to hold, it is written here as an obligation the app must meet and test (`SECURITY.md`, "Some controls are the app's").
 
 ## Modules
 
@@ -36,7 +36,7 @@ Dependency rules:
 - `passes-isolation` and `passes-image-decode` depend on nothing in this repo and sit below their consumers. They are mechanism: caps, allowlists and reject taxonomies stay with each consumer.
 - `passes-barcode → passes-barcode-core → passes-core`. `passes-ui` and `passes-document-ui` both depend on `passes-ui-core`, never on each other.
 - `passes-storage → passes-document-core` is a test-only edge.
-- Decisive constraint: walt-android consumes this code directly; trust-claim-bearing logic lives only here, never reimplemented in walt-android.
+- Decisive constraint: walt-android consumes this code directly; trust-claim-bearing logic lives only here, never reimplemented in walt-android, apart from the app-held controls `SECURITY.md` lists. Moving a control into the app is a threat-model or ADR change and adds it to that list.
 
 ## Code Style
 
